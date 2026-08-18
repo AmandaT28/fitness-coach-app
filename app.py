@@ -121,7 +121,7 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
 
     def call_google(stream=False):
         if not google_client: raise Exception("Google API key missing")
-        models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
+        models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
         last_err = None
         for m in models:
             try:
