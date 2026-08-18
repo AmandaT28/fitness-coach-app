@@ -16,8 +16,6 @@ except ImportError:
 
 # Grab keys from Streamlit Secrets or environment
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
-INTERVALS_API_KEY = st.secrets.get("INTERVALS_API_KEY") or os.getenv("INTERVALS_API_KEY")
-ATHLETE_ID = st.secrets.get("INTERVALS_ATHLETE_ID") or os.getenv("INTERVALS_ATHLETE_ID")
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
 
@@ -85,7 +83,6 @@ try:
 except Exception:
     pass
 
-# If no profile exists, show the Onboarding Setup Wizard
 if not user_profile or not user_profile.get("intervals_api_key") or not user_profile.get("intervals_athlete_id"):
     st.markdown("---")
     st.subheader("⚙️ Intervals.icu Account Setup")
@@ -113,7 +110,6 @@ if not user_profile or not user_profile.get("intervals_api_key") or not user_pro
                 st.warning("Please provide both your API Key and Athlete ID.")
     st.stop()
 
-# Assign user-specific credentials
 INTERVALS_API_KEY = user_profile["intervals_api_key"]
 ATHLETE_ID = user_profile["intervals_athlete_id"]
 
@@ -216,7 +212,6 @@ if "event_date" not in st.session_state:
 if "weekly_report" not in st.session_state:
   st.session_state.weekly_report = None
 
-# Pull persistent chat history tied to the authenticated user ID in Supabase
 if "messages" not in st.session_state:
     try:
         response = supabase.table("chat_messages").select("*").eq("user_id", USER_ID).order("created_at").execute()
@@ -442,27 +437,39 @@ with tab_coach:
           message_placeholder = st.empty()
           full_response = ""
           
-          try:
-            response_stream = client.models.generate_content_stream(
-                model="gemini-3.6-flash", contents=context_payload
-            )
-            for chunk in response_stream:
-                if chunk.text:
-                    full_response += chunk.text
-                    message_placeholder.markdown(full_response + "▌")
-            
-            message_placeholder.markdown(full_response)
-            st.session_state.messages.append({"role": "model", "content": full_response})
-            
-            try:
-                supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "model", "content": full_response}).execute()
-            except Exception:
-                pass
+          # AUTO-RETRY LOOP FOR STREAMING CONNECTION
+          response_stream = None
+          for attempt in range(3):
+              try:
+                response_stream = client.models.generate_content_stream(
+                    model="gemini-3.6-flash", contents=context_payload
+                )
+                break
+              except Exception as e:
+                if "503" in str(e) and attempt < 2:
+                    time.sleep(2 ** attempt)
+                    continue
+                st.error(f"⚠️ API Error: {str(e)}")
+                break
 
-            st.rerun()
+          if response_stream:
+              try:
+                for chunk in response_stream:
+                    if chunk.text:
+                        full_response += chunk.text
+                        message_placeholder.markdown(full_response + "▌")
+                
+                message_placeholder.markdown(full_response)
+                st.session_state.messages.append({"role": "model", "content": full_response})
+                
+                try:
+                    supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "model", "content": full_response}).execute()
+                except Exception:
+                    pass
 
-          except Exception as e:
-            st.error(f"⚠️ API Error: {str(e)}")
+                st.rerun()
+              except Exception as e:
+                st.error(f"⚠️ Stream Error: {str(e)}")
 
 
 # ================= TAB 3: CALENDAR & COMPLIANCE =================
