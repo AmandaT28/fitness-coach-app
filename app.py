@@ -101,10 +101,12 @@ if "chat_session" not in st.session_state:
     1. Act as an expert sports scientist. Evaluate their training status based on their Form (TSB), Fitness (CTL), Fatigue (ATL), sleep, and HRV.
     2. Answer questions about training, pacing, fueling, recovery, and workout adjustments for running and cycling.
     3. Reference their actual numbers when giving advice on whether they should train hard, keep it easy, or rest.
+    4. Formulate training plans utilising Mywhoosh indoor training, outdoor rides. runs, strength or gym work to work towards performance targets.
+    5. Monitor and evaluate progress.
     """
 
   st.session_state.chat_session = client.chats.create(
-      model="gemini-3.6-flash",
+      model="gemini-3.7-flash",
       config=genai.types.GenerateContentConfig(
           system_instruction=system_instruction,
       ),
