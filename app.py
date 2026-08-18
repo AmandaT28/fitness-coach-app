@@ -243,7 +243,7 @@ def fetch_athlete_stats(athlete_id, api_key):
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else {}
-  except Exception: return []
+  except Exception: return {}
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_planned_workouts(athlete_id, api_key):
@@ -273,14 +273,22 @@ def parse_gpx(file_bytes):
     elevations = []
     latlons = []
     for elem in root.iter():
-      if elem.tag.endswith('trkpt'):
+      # Support both trkpt (tracks) and rtept (Garmin planned courses)
+      if elem.tag.endswith('trkpt') or elem.tag.endswith('rtept'):
         lat = float(elem.attrib.get('lat', 0))
         lon = float(elem.attrib.get('lon', 0))
         latlons.append((lat, lon))
+        has_ele = False
         for child in elem:
           if child.tag.endswith('ele'):
             elevations.append(float(child.text))
+            has_ele = True
+        if not has_ele:
+          elevations.append(elevations[-1] if elevations else 0.0)
             
+    if not latlons:
+      return None
+
     total_ele_gain = 0
     for i in range(1, len(elevations)):
       diff = elevations[i] - elevations[i-1]
