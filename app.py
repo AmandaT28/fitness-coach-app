@@ -121,7 +121,7 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
 
     def call_google(stream=False):
         if not google_client: raise Exception("Google API key missing")
-        models = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"]
+        models = ["gemini-2.5-flash", "gemini-2.5-pro"]
         last_err = None
         for m in models:
             try:
@@ -219,15 +219,28 @@ if not user_profile or not user_profile.get("intervals_api_key") or not user_pro
 INTERVALS_API_KEY = user_profile["intervals_api_key"]
 ATHLETE_ID = user_profile["intervals_athlete_id"]
 
-# --- SAFE GOALS & TARGET EVENT INITIALIZATION ---
+# --- PERSISTENT GOALS & TARGET EVENT INITIALIZATION FROM SUPABASE ---
 if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict):
     st.session_state.goals = {}
 
-# Ensure all default keys exist
-st.session_state.goals.setdefault("primary_sport", "Cycling (Road)")
-st.session_state.goals.setdefault("event_name", "Target Gran Fondo / Race")
-st.session_state.goals.setdefault("event_date", datetime.date.today() + datetime.timedelta(days=60))
-st.session_state.goals.setdefault("target_metric", "Maintain 4.2 W/kg or build aerobic base")
+# Load stored goals from Supabase profile if available
+st.session_state.goals["primary_sport"] = user_profile.get("primary_sport") or "Cycling (Road)"
+st.session_state.goals["event_name"] = user_profile.get("event_name") or "Target Gran Fondo / Race"
+
+# Handle safe date parsing from string/date format stored in database
+db_date = user_profile.get("event_date")
+if db_date:
+    try:
+        if isinstance(db_date, str):
+            st.session_state.goals["event_date"] = datetime.date.fromisoformat(db_date)
+        else:
+            st.session_state.goals["event_date"] = db_date
+    except Exception:
+        st.session_state.goals["event_date"] = datetime.date.today() + datetime.timedelta(days=60)
+else:
+    st.session_state.goals["event_date"] = datetime.date.today() + datetime.timedelta(days=60)
+
+st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Maintain 4.2 W/kg or build aerobic base"
 
 # --- DATA FETCHING (Optimized Timeouts) ---
 @st.cache_data(ttl=300, show_spinner=False) 
@@ -293,7 +306,7 @@ def parse_gpx(file_bytes):
         root = ET.fromstring(xml_content)
         
         latlons = []
-        elevations = []
+        elevation_list = []
         
         for elem in root.iter():
             tag = elem.tag.split('}')[-1].lower()
@@ -307,7 +320,7 @@ def parse_gpx(file_bytes):
                         lon = float(lon_str)
                         latlons.append((lat, lon))
                         
-                        ele_val = elevations[-1] if elevations else 0.0
+                        ele_val = elevation_list[-1] if elevation_list else 0.0
                         for child in elem:
                             if child.tag.split('}')[-1].lower() in ['ele', 'elevation', 'alt']:
                                 try:
@@ -315,7 +328,7 @@ def parse_gpx(file_bytes):
                                 except (TypeError, ValueError):
                                     pass
                                 break
-                        elevations.append(ele_val)
+                        elevation_list.append(ele_val)
                     except ValueError:
                         pass
                         
@@ -323,8 +336,8 @@ def parse_gpx(file_bytes):
             return None
 
         total_ele_gain = 0
-        for i in range(1, len(elevations)):
-            diff = elevations[i] - elevations[i-1]
+        for i in range(1, len(elevation_list)):
+            diff = elevation_list[i] - elevation_list[i-1]
             if diff > 0: 
                 total_ele_gain += diff
                 
@@ -342,8 +355,8 @@ def parse_gpx(file_bytes):
         return {
             "distance_km": round(max(total_dist_km, 0.1), 2),
             "elevation_gain_m": round(total_ele_gain, 1),
-            "max_elevation": round(max(elevations), 1) if elevations else 0,
-            "min_elevation": round(min(elevations), 1) if elevations else 0
+            "max_elevation": round(max(elevation_list), 1) if elevation_list else 0,
+            "min_elevation": round(min(elevation_list), 1) if elevation_list else 0
         }
         
     except Exception as e:
@@ -402,13 +415,25 @@ with st.sidebar:
         t_metric = st.text_input("Target Objective / KPI", value=st.session_state.goals["target_metric"])
         
         if st.form_submit_button("Update Feedback Loop", use_container_width=True):
+            # Update Session State
             st.session_state.goals = {
                 "primary_sport": p_sport,
                 "event_name": ev_name,
                 "event_date": ev_date,
                 "target_metric": t_metric
             }
-            st.success("Goals updated in feedback loop!")
+            
+            # Persist to Supabase Database so it won't reset on login/reload
+            try:
+                supabase.table("profiles").update({
+                    "primary_sport": p_sport,
+                    "event_name": ev_name,
+                    "event_date": str(ev_date),
+                    "target_metric": t_metric
+                }).eq("id", USER_ID).execute()
+                st.success("Goals updated & saved to cloud profile!")
+            except Exception as e:
+                st.error(f"Failed to sync goals to cloud: {e}")
 
     st.markdown("---")
     selected_provider = st.selectbox("⚡ AI Engine Model", ["⚡ Auto-Fallback Chain", "OpenAI GPT", "Anthropic Claude", "Google Gemini"])
