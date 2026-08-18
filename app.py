@@ -398,7 +398,7 @@ with tab_dash:
     # --- FEATURE 5: MORNING AUDIO BRIEFING (TTS) ---
     st.markdown("---")
     st.subheader("🎙️ AI Morning Audio Briefing")
-    st.caption("Generate an synthesized 60-second audio briefing summarizing your recovery, sleep score, and daily focus.")
+    st.caption("Generate a synthesized 60-second audio briefing summarizing your recovery, sleep score, and daily focus.")
     
     if st.button("🔊 Generate Morning Briefing Audio", type="primary"):
         if not openai_client:
@@ -492,4 +492,268 @@ with tab_coach:
         if has_workout and message["role"] == "model":
             try:
                 workout_xml = message["content"].split("<workout_file>")[1].split("</workout_file>")[0].strip()
-                workout_xml = workout_xml.replace("```xml", "").replace("
+                workout_xml = workout_xml.replace("```xml", "").replace("```", "").strip()
+                
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    st.download_button(
+                        label="⬇️ Download MyWhoosh (.zwo)",
+                        data=workout_xml,
+                        file_name=f"Coach_Workout_{datetime.date.today()}.zwo",
+                        mime="application/xml",
+                        type="primary",
+                        key=f"download_{i}"
+                    )
+                
+                # --- FEATURE 1: PUSH TO INTERVALS.ICU CALENDAR ---
+                with col_btn2:
+                    if st.button("🚀 Push to Intervals.icu Calendar", key=f"push_cal_{i}"):
+                        try:
+                            target_workout_date = (datetime.date.today() + datetime.timedelta(days=1)).isoformat() + "T00:00:00"
+                            payload = {
+                                "category": "WORKOUT",
+                                "start_date_local": target_workout_date,
+                                "type": "Ride",
+                                "name": f"AI Coach Workout - {datetime.date.today()}",
+                                "description": display_text[:300],
+                                "filename": "workout.zwo",
+                                "file_contents": workout_xml
+                            }
+                            url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events"
+                            response = requests.post(url, auth=("API_KEY", INTERVALS_API_KEY), json=payload, timeout=10)
+                            if response.status_code in [200, 201]:
+                                st.success("✅ Workout successfully pushed to your Intervals.icu calendar for tomorrow!")
+                            else:
+                                st.error(f"Failed to push to Intervals.icu: {response.text}")
+                        except Exception as ex:
+                            st.error(f"Error connecting to Intervals.icu API: {ex}")
+            except Exception:
+                pass
+
+    if prompt := st.chat_input("Ask: 'Are my current targets reasonable and how do I get there?'...", key="coach_chat_input"):
+      st.session_state.messages.append({"role": "user", "content": prompt})
+      
+      try:
+          supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "user", "content": prompt}).execute()
+      except Exception:
+          pass
+
+      with st.chat_message("user"):
+        st.markdown(prompt)
+
+      with st.chat_message("model"):
+        with st.spinner("Consulting multi-LLM sports science core..."):
+          
+          context_payload = f"""
+                You are an elite endurance sports science coach.
+                ATHLETE PROFILE & EQUIPMENT: 
+                - Setup: Custom road bike setup (Cervélo Soloist Size 48, S-Works Power Pro Mirror saddle, Magene P515 power meter, Dura-Ace drivetrain).
+                GOALS & TARGETS: {st.session_state.performance_goals} (Target Event in {days_to_event} days on {st.session_state.event_date})
+                READINESS: {readiness_status} | CTL (Fitness): {ctl} | ATL (Fatigue): {atl} | TSB (Form): {tsb} | Sleep: {sleep_score} | HRV: {hrv}
+                POWER & HR ZONES: {athlete_zones}
+                42-DAY POWER DURATION CURVE PROFILE: {power_curve_data}
+                PLANNED WORKOUTS (Calendar): {planned_data}
+                RECENT ACTIVITIES (Completed): {activities_data}
+
+                COACHING INSTRUCTIONS:
+                1. TARGET FEASIBILITY & ROADMAP: Critically evaluate whether the athlete's stated goals and event timeline ({days_to_event} days away) are reasonable given their current CTL, ATL, TSB, recovery, and Power Duration Curve limiters. Provide a clear, structured, actionable roadmap on how to bridge the gap safely without overtraining.
+                2. FEEDBACK LOOP: Compare 'Planned Workouts' vs 'Recent Activities'. Critique pacing discipline and compliance.
+                3. PLAN FORMULATION: If asked for a workout, prescribe exact watts based on the athlete's FTP and zones. Structure as Warmup -> Main Set -> Cool Down.
+                4. INDOOR EXPORT (MYWHOOSH): If the athlete asks for a MyWhoosh or Zwift workout, generate the exact XML structure for a `.zwo` file. 
+                   - YOU MUST wrap the raw XML code strictly inside `<workout_file>` and `</workout_file>` tags at the very end of your response. 
+                   - Do not put markdown around the XML tags.
+                """
+          for msg in st.session_state.messages[:-1]:
+            context_payload += f"\n{msg['role'].upper()}: {msg['content']}\n"
+          context_payload += f"\nUSER: {prompt}\n"
+
+          message_placeholder = st.empty()
+          full_response = ""
+          
+          try:
+            stream_result, active_model_name = execute_multiprovider_generation(
+                context_payload, preferred_provider=selected_provider, is_stream=True
+            )
+            
+            if "OpenAI" in active_model_name:
+                for chunk in stream_result:
+                    if chunk.choices[0].delta.content:
+                        full_response += chunk.choices[0].delta.content
+                        message_placeholder.markdown(full_response + "▌")
+            elif "Anthropic" in active_model_name:
+                with stream_result as stream:
+                    for text in stream.text_stream:
+                        full_response += text
+                        message_placeholder.markdown(full_response + "▌")
+            else:
+                for chunk in stream_result:
+                    if chunk.text:
+                        full_response += chunk.text
+                        message_placeholder.markdown(full_response + "▌")
+            
+            final_display = f"{full_response}\n\n*(Engine: {active_model_name})*"
+            message_placeholder.markdown(final_display)
+            
+            st.session_state.messages.append({"role": "model", "content": final_display})
+            
+            try:
+                supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "model", "content": final_display}).execute()
+            except Exception:
+                pass
+
+            st.rerun()
+
+          except Exception as e:
+            st.error(f"⚠️ Multi-Provider Router Error: {str(e)}")
+
+
+# ================= TAB 3: GEAR TRACKER =================
+with tab_gear:
+    st.markdown("### 🛠️ Custom Build & Component Wear Tracker")
+    st.caption("Monitor component lifespan for high-end components (Continental GP5000, Dura-Ace chains, ceramic bottom brackets).")
+    
+    col_g1, col_g2 = st.columns([2, 1])
+    with col_g1:
+        for idx, item in enumerate(st.session_state.gear_items):
+            pct = min(100.0, (item["distance_km"] / item["max_km"]) * 100)
+            st.write(f"**{item['name']}** — {item['distance_km']} km / {item['max_km']} km max ({pct:.1f}%)")
+            st.progress(pct / 100.0)
+            
+    with col_g2:
+        st.subheader("➕ Log Ride Distance")
+        added_km = st.number_input("Add Kilometers to All Gear:", min_value=0, max_value=300, value=50)
+        if st.button("Update Component Wear"):
+            for item in st.session_state.gear_items:
+                item["distance_km"] += added_km
+            st.success(f"Added {added_km} km to all tracked components!")
+            st.rerun()
+            
+        st.markdown("---")
+        if st.button("🔄 Reset Component (Serviced/Replaced)"):
+            reset_target = st.selectbox("Select Component to Reset:", [i["name"] for i in st.session_state.gear_items])
+            for item in st.session_state.gear_items:
+                if item["name"] == reset_target:
+                    item["distance_km"] = 0
+            st.success(f"Reset {reset_target} distance to 0 km!")
+            st.rerun()
+
+
+# ================= TAB 4: FUELING CALCULATOR =================
+with tab_fuel:
+    st.markdown("### ⚡ Race-Day & Long-Ride Nutrition Calculator")
+    st.caption("Calculate precise hourly carbohydrate grams, sodium, and fluid requirements based on duration and intensity.")
+    
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        ride_duration_hrs = st.slider("Planned Ride Duration (Hours)", 1.0, 8.0, 3.5, 0.5)
+        ride_intensity = st.selectbox("Intensity Level", ["Zone 2 Endurance", "Tempo / Sweetspot", "Race Pace / Threshold", "Gran Fondo / Climbing"])
+        body_weight_kg = st.number_input("Athlete Body Weight (kg)", 45.0, 100.0, 58.0, 0.5)
+        
+    with col_f2:
+        if ride_intensity == "Zone 2 Endurance":
+            carb_g_per_hr = 60
+            sodium_mg_per_hr = 500
+        elif ride_intensity == "Tempo / Sweetspot":
+            carb_g_per_hr = 75
+            sodium_mg_per_hr = 700
+        elif ride_intensity == "Race Pace / Threshold":
+            carb_g_per_hr = 90
+            sodium_mg_per_hr = 850
+        else:
+            carb_g_per_hr = 80
+            sodium_mg_per_hr = 750
+            
+        total_carbs = carb_g_per_hr * ride_duration_hrs
+        total_sodium = sodium_mg_per_hr * ride_duration_hrs
+        fluid_ml_hr = int(body_weight_kg * 8.5)
+        total_fluid_l = (fluid_ml_hr * ride_duration_hrs) / 1000
+        
+        st.subheader("📋 Prescription Breakdown")
+        st.metric("Carbohydrates / Hour", f"{carb_g_per_hr} g/hr", f"Total: {int(total_carbs)}g")
+        st.metric("Sodium / Electrolytes", f"{sodium_mg_per_hr} mg/hr", f"Total: {int(total_sodium)}mg")
+        st.metric("Fluid Intake Target", f"{fluid_ml_hr} ml/hr", f"Total: {total_fluid_l:.1f} Liters")
+
+
+# ================= TAB 5: FIT & STREAM ANALYZER =================
+with tab_fit:
+    st.markdown("### 📈 Activity Stream & Performance Analyzer")
+    st.caption("Analyze advanced pacing efficiency, Variability Index (VI), and Efficiency Factor (EF) from recent rides.")
+    
+    if activities_data:
+        act_options = {f"{a.get('start_date_local', '')[:10]} - {a.get('name', 'Ride')} (TSS: {a.get('icu_training_load', 0)})": a for a in activities_data if a.get("type") == "Ride"}
+        
+        if act_options:
+            selected_act_label = st.selectbox("Select Recent Ride to Analyze:", list(act_options.keys()))
+            chosen_act = act_options[selected_act_label]
+            
+            norm_power = chosen_act.get("icu_weighted_avg_watts", 0)
+            avg_power = chosen_act.get("average_watts", 0)
+            avg_hr = chosen_act.get("average_heartrate", 0)
+            duration_s = chosen_act.get("moving_time", 0)
+            distance_m = chosen_act.get("distance", 0)
+            
+            vi = (norm_power / avg_power) if avg_power and avg_power > 0 else 1.0
+            ef = (norm_power / avg_hr) if avg_hr and avg_hr > 0 else 0.0
+            
+            col_a1, col_a2, col_a3, col_a4 = st.columns(4)
+            col_a1.metric("Normalized Power", f"{int(norm_power)} W" if norm_power else "N/A")
+            col_a2.metric("Variability Index (VI)", f"{vi:.2f}", "Target < 1.05 for steady pacing")
+            col_a3.metric("Efficiency Factor (EF)", f"{ef:.2f} W/bpm", "Power-to-HR ratio")
+            col_a4.metric("Distance", f"{(distance_m/1000):.2f} km" if distance_m else "N/A")
+            
+            if st.button("🤖 Ask AI to Critique Pacing & Efficiency"):
+                critique_prompt = f"Critique this ride ({chosen_act.get('name')}): Normalized Power {norm_power}W, Average Power {avg_power}W, Variability Index {vi:.2f}, Efficiency Factor {ef:.2f}, Duration {duration_s/60:.1f} mins. Evaluate pacing discipline."
+                with st.spinner("Analyzing ride metrics..."):
+                    critique_text, used_m = execute_multiprovider_generation(critique_prompt, preferred_provider=selected_provider)
+                    st.markdown(critique_text)
+        else:
+            st.info("No completed bike rides found in the recent window.")
+    else:
+        st.info("No activity data available to analyze.")
+
+
+# ================= TAB 6: CALENDAR & COMPLIANCE =================
+with tab_cal:
+    st.markdown("### Planned vs. Actual Training Compliance")
+    st.caption("Review your scheduled calendar blocks against executed Garmin activities.")
+    
+    col_c1, col_c2 = st.columns(2)
+    
+    with col_c1:
+        st.subheader("📅 Scheduled Calendar Events")
+        if planned_data:
+            try:
+                df_planned = pd.DataFrame(planned_data)
+                if "start_date_local" in df_planned.columns:
+                    df_planned["Date"] = pd.to_datetime(df_planned["start_date_local"]).dt.strftime("%Y-%m-%d")
+                if "name" not in df_planned.columns and "summary" in df_planned.columns:
+                    df_planned["name"] = df_planned["summary"]
+                display_cols = [c for c in ["Date", "name", "type", "category", "load"] if c in df_planned.columns or c == "Date"]
+                st.dataframe(df_planned[[c for c in display_cols if c in df_planned.columns]], use_container_width=True, hide_index=True)
+            except Exception:
+                st.write("Could not parse planned events table.")
+        else:
+            st.info("No planned events found for this window.")
+            
+    with col_c2:
+        st.subheader("🚴‍♂️ Completed Activities")
+        if activities_data:
+            try:
+                df_act = pd.DataFrame(activities_data)
+                if "start_date_local" in df_act.columns:
+                    df_act["Date"] = pd.to_datetime(df_act["start_date_local"]).dt.strftime("%Y-%m-%d")
+                if "moving_time" in df_act.columns:
+                    df_act["Duration (min)"] = (df_act["moving_time"] / 60).round(1)
+                if "distance" in df_act.columns:
+                    df_act["Distance (km)"] = (df_act["distance"] / 1000).round(2)
+                if "icu_training_load" in df_act.columns:
+                    df_act["TSS"] = df_act["icu_training_load"].round(0)
+
+                columns_to_show = ["Date", "name", "type", "TSS", "Duration (min)", "Distance (km)"]
+                available_cols = [c for c in columns_to_show if c in df_act.columns]
+                
+                st.dataframe(df_act[available_cols], use_container_width=True, hide_index=True)
+            except Exception:
+                st.write("Could not parse activities table.")
+        else:
+            st.info("No completed activities found for this window.")
