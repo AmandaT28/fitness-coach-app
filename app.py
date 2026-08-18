@@ -2,6 +2,8 @@ import datetime
 import os
 import time
 import concurrent.futures
+import xml.etree.ElementTree as ET
+import math
 from dotenv import load_dotenv
 from google import genai
 from openai import OpenAI
@@ -241,7 +243,7 @@ def fetch_athlete_stats(athlete_id, api_key):
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else {}
-  except Exception: return {}
+  except Exception: return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_planned_workouts(athlete_id, api_key):
@@ -255,17 +257,54 @@ def fetch_planned_workouts(athlete_id, api_key):
 
 def fetch_rain_intelligence():
   try:
-    # Fetch precipitation & weather code silently in background to determine indoor alternatives
     url = "https://api.open-meteo.com/v1/forecast?latitude=1.3521&longitude=103.8198&current=precipitation,weather_code"
     res = requests.get(url, timeout=5)
     data = res.json().get("current", {})
     precip = data.get("precipitation", 0.0)
     w_code = data.get("weather_code", 0)
-    # WMO Weather interpretation codes: 51-67, 80-82 indicate rain/showers
-    is_raining = precip > 0.1 or w_code in [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99]
-    return is_raining
+    return precip > 0.1 or w_code in [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99]
   except Exception:
     return False
+
+def parse_gpx(file_bytes):
+  try:
+    tree = ET.ElementTree(io.BytesIO(file_bytes))
+    root = tree.getroot()
+    elevations = []
+    latlons = []
+    for elem in root.iter():
+      if elem.tag.endswith('trkpt'):
+        lat = float(elem.attrib.get('lat', 0))
+        lon = float(elem.attrib.get('lon', 0))
+        latlons.append((lat, lon))
+        for child in elem:
+          if child.tag.endswith('ele'):
+            elevations.append(float(child.text))
+            
+    total_ele_gain = 0
+    for i in range(1, len(elevations)):
+      diff = elevations[i] - elevations[i-1]
+      if diff > 0: total_ele_gain += diff
+        
+    total_dist_km = 0
+    for i in range(1, len(latlons)):
+      lat1, lon1 = latlons[i-1]
+      lat2, lon2 = latlons[i]
+      R = 6371
+      dlat = math.radians(lat2 - lat1)
+      dlon = math.radians(lon2 - lon1)
+      a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+      c = 2 * math.asin(math.sqrt(a))
+      total_dist_km += R * c
+
+    return {
+        "distance_km": round(total_dist_km, 2),
+        "elevation_gain_m": round(total_ele_gain, 1),
+        "max_elevation": round(max(elevations), 1) if elevations else 0,
+        "min_elevation": round(min(elevations), 1) if elevations else 0
+    }
+  except Exception:
+    return None
 
 with st.spinner("Syncing multi-sport telemetry & weather intelligence..."):
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -301,7 +340,7 @@ if "goals" not in st.session_state:
     }
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "model", "content": "Hello! Multi-sport engine active. Cycling (Primary) + Running (Secondary) + Strength integration ready."}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! Multi-sport engine active. Cycling (Primary) + Running (Secondary) + Route Strategist ready."}]
 
 if "debrief_logs" not in st.session_state: st.session_state.debrief_logs = []
 if "periodization_review" not in st.session_state: st.session_state.periodization_review = None
@@ -334,13 +373,12 @@ with st.sidebar:
 days_to_event = (st.session_state.goals["event_date"] - datetime.date.today()).days
 
 # --- NAVIGATION SUITE ---
-tab_dash, tab_coach, tab_strength, tab_fuel, tab_fit, tab_debrief, tab_cal = st.tabs([
-    "📊 Dashboard", "🤖 AI Coach", "🏋️‍♂️ Strength", "⚡ Fueling", "📈 Fit", "📝 Debrief", "📅 Calendar"
+tab_dash, tab_coach, tab_route, tab_strength, tab_fuel, tab_fit, tab_debrief, tab_cal = st.tabs([
+    "📊 Dashboard", "🤖 AI Coach", "🗺️ Route Planner", "🏋️‍♂️ Strength", "⚡ Fueling", "📈 Fit", "📝 Debrief", "📅 Calendar"
 ])
 
 # ================= TAB 1: DASHBOARD =================
 with tab_dash:
-    # --- DAILY BRIEFING CARD WITH RAIN & INDOOR ALTERNATIVE INTELLIGENCE ---
     st.markdown("### ☀️ Daily Coaching Briefing Card")
     with st.container():
         brief_col1, brief_col2 = st.columns([3, 1])
@@ -408,7 +446,39 @@ with tab_coach:
                 st.markdown(full_resp)
                 st.session_state.messages.append({"role": "model", "content": full_resp})
 
-# ================= TAB 3: STRENGTH & S&C WORKOUT BUILDER =================
+# ================= TAB 3: ROUTE STRATEGIST & PLANNER =================
+with tab_route:
+    st.markdown("### 🗺️ GPX Route Strategist & Pacing Planner")
+    st.caption("Upload a `.gpx` route file to get an AI-powered course breakdown, climbing strategy, pacing targets, and fueling plan.")
+    
+    uploaded_gpx = st.file_uploader("Upload Cycling Route (.gpx)", type=["gpx"])
+    
+    if uploaded_gpx:
+        gpx_bytes = uploaded_gpx.read()
+        route_metrics = parse_gpx(gpx_bytes)
+        
+        if route_metrics:
+            col_r1, col_r2, col_r3 = st.columns(3)
+            col_r1.metric("Route Distance", f"{route_metrics['distance_km']} km")
+            col_r2.metric("Elevation Gain", f"{route_metrics['elevation_gain_m']} m")
+            col_r3.metric("Max Elevation", f"{route_metrics['max_elevation']} m")
+            
+            if st.button("🤖 Generate AI Course Strategy & Pacing Plan", type="primary"):
+                with st.spinner("Analyzing route profile against athlete FTP and energy systems..."):
+                    route_prompt = (
+                        f"Act as an elite cycling head coach. Analyze this uploaded route for a {st.session_state.goals['primary_sport']} rider: "
+                        f"Distance: {route_metrics['distance_km']} km, Elevation Gain: {route_metrics['elevation_gain_m']} m, Max Elevation: {route_metrics['max_elevation']} m. "
+                        f"Athlete Readiness: CTL={ctl}, TSB={tsb}. "
+                        "Provide a comprehensive race/ride strategy: 1) Pacing breakdown across climbs vs flats, 2) Power targets relative to FTP, 3) Specific fueling and hydration strategy for this distance and climbing profile."
+                    )
+                    route_res, route_model = execute_multiprovider_generation(route_prompt, preferred_provider=selected_provider)
+                    st.markdown("---")
+                    st.markdown(route_res)
+                    st.caption(f"Generated via: {route_model}")
+        else:
+            st.error("Could not parse the uploaded GPX file. Ensure it contains valid track points and elevation data.")
+
+# ================= TAB 4: STRENGTH =================
 with tab_strength:
     st.markdown("### 🏋️‍♂️ Strength & Conditioning for Endurance Athletes")
     st.caption("Custom strength sessions designed to bulletproof your joints, enhance force production on the bike, and support running durability.")
@@ -425,7 +495,7 @@ with tab_strength:
             sc_res, sc_model = execute_multiprovider_generation(sc_prompt, preferred_provider=selected_provider)
             st.markdown(sc_res)
 
-# ================= TAB 4: FUELING =================
+# ================= TAB 5: FUELING =================
 with tab_fuel:
     st.markdown("### ⚡ Fueling Calculator")
     col1, col2 = st.columns(2)
@@ -438,7 +508,7 @@ with tab_fuel:
         st.metric("Recommended Carbs", f"{carbs} g/hr", f"Total: {int(carbs * dur)}g")
         st.metric("Fluid Target", f"{int(wt * 8)} ml/hr")
 
-# ================= TAB 5: MULTI-SPORT FIT ANALYZER =================
+# ================= TAB 6: FIT =================
 with tab_fit:
     st.markdown("### 📈 Multi-Sport Activity & Load Breakdown")
     if activities_data:
@@ -453,7 +523,7 @@ with tab_fit:
     else:
         st.info("No activities found.")
 
-# ================= TAB 6: DEBRIEF =================
+# ================= TAB 7: DEBRIEF =================
 with tab_debrief:
     st.markdown("### 📝 Post-Workout Qualitative Debrief")
     with st.form("debrief"):
@@ -465,7 +535,7 @@ with tab_debrief:
             st.session_state.debrief_logs.append({"date": str(d_date), "sport": d_sport, "rpe": d_rpe, "notes": d_notes})
             st.success("Debrief saved to AI context memory!")
 
-# ================= TAB 7: CALENDAR =================
+# ================= TAB 8: CALENDAR =================
 with tab_cal:
     st.markdown("### 📅 Planned vs Actual Calendar")
     if planned_data:
