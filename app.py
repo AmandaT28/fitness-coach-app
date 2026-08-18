@@ -193,7 +193,7 @@ if not st.session_state.user:
 
 USER_ID = st.session_state.user.id
 
-# --- INTERVALS.ICU CONFIG CHECK ---
+# --- FETCH USER PROFILE & GOALS FROM SUPABASE ---
 user_profile = None
 try:
     profile_res = supabase.table("profiles").select("*").eq("id", USER_ID).execute()
@@ -208,12 +208,29 @@ if not user_profile or not user_profile.get("intervals_api_key") or not user_pro
         input_athlete_id = st.text_input("Intervals.icu Athlete ID")
         submitted = st.form_submit_button("Save & Launch", use_container_width=True)
         if submitted and input_api_key and input_athlete_id:
-            supabase.table("profiles").upsert({"id": USER_ID, "intervals_api_key": input_api_key.strip(), "intervals_athlete_id": input_athlete_id.strip()}).execute()
+            supabase.table("profiles").upsert({
+                "id": USER_ID, 
+                "intervals_api_key": input_api_key.strip(), 
+                "intervals_athlete_id": input_athlete_id.strip()
+            }).execute()
             st.rerun()
     st.stop()
 
 INTERVALS_API_KEY = user_profile["intervals_api_key"]
 ATHLETE_ID = user_profile["intervals_athlete_id"]
+
+# --- MULTI-SPORT GOALS INITIALIZATION & CLOUD SYNC ---
+default_event_date = (datetime.date.today() + datetime.timedelta(days=60)).isoformat()
+
+if "goals" not in st.session_state:
+    st.session_state.goals = {
+        "primary_sport": user_profile.get("primary_sport", "Cycling (Road)"),
+        "secondary_sport": user_profile.get("secondary_sport", "Running"),
+        "strength_sessions_per_week": user_profile.get("strength_sessions_per_week", 2),
+        "event_name": user_profile.get("event_name", "Target Gran Fondo & Half Marathon"),
+        "event_date": datetime.date.fromisoformat(user_profile["event_date"]) if user_profile.get("event_date") else datetime.date.today() + datetime.timedelta(days=60),
+        "kpi_target": user_profile.get("kpi_target", "Maintain 4.2 W/kg cycling while building running aerobic base")
+    }
 
 # --- DATA FETCHING (Optimized Timeouts to prevent hanging) ---
 @st.cache_data(ttl=300, show_spinner=False) 
@@ -242,7 +259,7 @@ def fetch_athlete_stats(athlete_id, api_key):
         url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
         res = requests.get(url, auth=("API_KEY", api_key), timeout=5)
         return res.json() if res.status_code == 200 else {}
-    except Exception: return {}
+    except Exception: return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_planned_workouts(athlete_id, api_key):
@@ -358,17 +375,6 @@ if wellness_list:
         if sleep_score == 0 and r.get("sleepScore"): sleep_score = r.get("sleepScore")
         if hrv == 0 and r.get("hrv"): hrv = r.get("hrv")
 
-# --- MULTI-SPORT GOALS CONFIG ---
-if "goals" not in st.session_state:
-    st.session_state.goals = {
-        "primary_sport": "Cycling (Road)",
-        "secondary_sport": "Running",
-        "strength_sessions_per_week": 2,
-        "event_name": "Target Gran Fondo & Half Marathon",
-        "event_date": datetime.date.today() + datetime.timedelta(days=60),
-        "kpi_target": "Maintain 4.2 W/kg cycling while building running aerobic base"
-    }
-
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "model", "content": "Hello! Multi-sport engine active. Cycling (Primary) + Running (Secondary) + Route Strategist ready."}]
 
@@ -387,22 +393,42 @@ Athlete Equipment Profile:
 Note: Factor the 160mm crank length and 1:1 lowest gear ratio (34-34) into biomechanics, cadence, and climbing strategies.
 """
 
-# --- SIDEBAR (Cleaned up goals & AI Engine moved to bottom) ---
+# --- SIDEBAR (Cloud-Synced Goals & AI Engine Selection) ---
 with st.sidebar:
     st.markdown(f"👤 **{st.session_state.user.email}**")
     
     st.subheader("🎯 Athlete & Event Goals")
     with st.form("goal_form"):
-        st.session_state.goals["primary_sport"] = st.selectbox("Primary Sport", ["Cycling (Road)", "Cycling (Time Trial)", "Gravel"], index=0)
-        st.session_state.goals["secondary_sport"] = st.selectbox("Secondary Sport", ["Running", "Trail Running", "Swimming", "None"], index=0)
-        st.session_state.goals["strength_sessions_per_week"] = st.slider("Strength Sessions / Wk", 0, 4, 2)
-        st.session_state.goals["event_name"] = st.text_input("Event Name", value=st.session_state.goals["event_name"])
-        st.session_state.goals["event_date"] = st.date_input("Target Date", value=st.session_state.goals["event_date"])
-        if st.form_submit_button("Update Goals", use_container_width=True): st.success("Goals updated.")
+        p_sport = st.selectbox("Primary Sport", ["Cycling (Road)", "Cycling (Time Trial)", "Gravel"], index=["Cycling (Road)", "Cycling (Time Trial)", "Gravel"].index(st.session_state.goals["primary_sport"]) if st.session_state.goals["primary_sport"] in ["Cycling (Road)", "Cycling (Time Trial)", "Gravel"] else 0)
+        s_sport = st.selectbox("Secondary Sport", ["Running", "Trail Running", "Swimming", "None"], index=["Running", "Trail Running", "Swimming", "None"].index(st.session_state.goals["secondary_sport"]) if st.session_state.goals["secondary_sport"] in ["Running", "Trail Running", "Swimming", "None"] else 0)
+        str_sessions = st.slider("Strength Sessions / Wk", 0, 4, int(st.session_state.goals["strength_sessions_per_week"]))
+        ev_name = st.text_input("Event Name", value=st.session_state.goals["event_name"])
+        ev_date = st.date_input("Target Date", value=st.session_state.goals["event_date"])
+        
+        if st.form_submit_button("Save & Sync Goals", use_container_width=True):
+            st.session_state.goals = {
+                "primary_sport": p_sport,
+                "secondary_sport": s_sport,
+                "strength_sessions_per_week": str_sessions,
+                "event_name": ev_name,
+                "event_date": ev_date,
+                "kpi_target": st.session_state.goals["kpi_target"]
+            }
+            # Save directly to Supabase so it syncs across all devices!
+            try:
+                supabase.table("profiles").update({
+                    "primary_sport": p_sport,
+                    "secondary_sport": s_sport,
+                    "strength_sessions_per_week": str_sessions,
+                    "event_name": ev_name,
+                    "event_date": ev_date.isoformat(),
+                    "kpi_target": st.session_state.goals["kpi_target"]
+                }).eq("id", USER_ID).execute()
+                st.success("Goals synced to cloud!")
+            except Exception as e:
+                st.error(f"Sync failed: {e}")
 
     st.markdown("---")
-    
-    # AI Model Selector moved down near bottom
     selected_provider = st.selectbox("⚡ AI Engine Model", ["⚡ Auto-Fallback Chain", "OpenAI GPT", "Anthropic Claude", "Google Gemini"])
 
     st.markdown("---")
