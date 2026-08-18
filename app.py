@@ -37,23 +37,19 @@ st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂�
 st.title("🚴‍♂️ AI Sports Science Coach • Pro Command Center")
 st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu & Supabase Auth")
 
-# --- EXPANDED MULTI-TIER MODEL FALLBACK CHAIN ---
+# --- BULLETPROOF PRODUCTION MODEL FALLBACK EXECUTOR ---
 def execute_with_model_fallback(contents, is_stream=False):
-    """Sequentially falls back across an expanded chain of Flash, Lite, and Pro models if 503 capacity spikes occur."""
-    model_fallback_chain = [
-        "gemini-3.7-flash",
-        "gemini-3.6-flash",
-        "gemini-3.5-flash",
-        "gemini-3.5-flash-lite",
-        "gemini-2.5-pro",
-        "gemini-3.1-pro-preview",
+    """Retries using core production-stable models that have dedicated server capacity pools."""
+    production_models = [
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         "gemini-2.5-flash",
-        "gemini-2.0-flash"
+        "gemini-1.5-pro"
     ]
     
     last_exception = None
-    for model_name in model_fallback_chain:
-        for attempt in range(2): 
+    for model_name in production_models:
+        for attempt in range(3): # 3 retries per production model
             try:
                 if is_stream:
                     return client.models.generate_content_stream(model=model_name, contents=contents), model_name
@@ -63,12 +59,12 @@ def execute_with_model_fallback(contents, is_stream=False):
                 last_exception = e
                 error_str = str(e)
                 if "503" in error_str or "UNAVAILABLE" in error_str or "rate limit" in error_str.lower():
-                    time.sleep(0.5) 
+                    time.sleep(2 ** attempt) # Exponential backoff (1s, 2s, 4s)
                     continue
                 else:
                     raise e 
                     
-    raise Exception(f"All model endpoints in the fallback roster are currently busy. Last error: {str(last_exception)}")
+    raise Exception(f"All core production endpoints are temporarily overloaded. Please wait a moment and try again. (Last error: {str(last_exception)})")
 
 # --- AUTHENTICATION FLOW (SUPABASE AUTH) ---
 if "user" not in st.session_state:
@@ -459,7 +455,7 @@ with tab_coach:
           full_response = ""
           
           try:
-            # Execute streaming call utilizing the expanded multi-tier fallback chain
+            # Execute streaming call utilizing the stable production fallback chain
             response_stream, active_model = execute_with_model_fallback(context_payload, is_stream=True)
             
             for chunk in response_stream:
@@ -478,7 +474,7 @@ with tab_coach:
             st.rerun()
 
           except Exception as e:
-            st.error(f"⚠️ API Error / All models busy: {str(e)}")
+            st.error(f"⚠️ API Error / All production endpoints busy: {str(e)}")
 
 
 # ================= TAB 3: CALENDAR & COMPLIANCE =================
