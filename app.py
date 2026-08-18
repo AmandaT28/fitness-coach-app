@@ -37,6 +37,30 @@ st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂�
 st.title("🚴‍♂️ AI Sports Science Coach • Pro Command Center")
 st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu & Supabase Auth")
 
+# --- ROBUST MODEL FALLBACK EXECUTOR ---
+def execute_with_model_fallback(contents, is_stream=False):
+    """Tries multiple model versions sequentially if a 503 UNAVAILABLE spike occurs."""
+    model_fallback_chain = ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-2.5-flash"]
+    
+    last_exception = None
+    for model_name in model_fallback_chain:
+        for attempt in range(2): # Quick retry per model
+            try:
+                if is_stream:
+                    return client.models.generate_content_stream(model=model_name, contents=contents), model_name
+                else:
+                    return client.models.generate_content(model=model_name, contents=contents), model_name
+            except Exception as e:
+                last_exception = e
+                error_str = str(e)
+                if "503" in error_str or "UNAVAILABLE" in error_str or "rate limit" in error_str.lower():
+                    time.sleep(1) # Brief pause before retry/fallback
+                    continue
+                else:
+                    raise e # Raise immediately if it's a non-availability error (like bad auth)
+                    
+    raise Exception(f"All model endpoints are currently experiencing high demand. Last error: {str(last_exception)}")
+
 # --- AUTHENTICATION FLOW (SUPABASE AUTH) ---
 if "user" not in st.session_state:
     st.session_state.user = None
@@ -165,7 +189,7 @@ def fetch_power_curve(athlete_id, api_key):
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else {}
   except Exception:
-    return {}
+    return []
 
 # --- PARALLEL DATA FETCHING FOR INSTANT LOAD ---
 with st.spinner("Syncing live metrics & power duration curve from Intervals.icu..."):
@@ -257,24 +281,12 @@ with st.sidebar:
           "Critique pacing compliance and suggest adjustments."
       )
       
-      report_response = None
-      for attempt in range(3):
-          try:
-            res = client.models.generate_content(
-                model="gemini-3.6-flash", contents=report_prompt
-            )
-            report_response = res.text
-            break
-          except Exception as e:
-            if "503" in str(e) and attempt < 2:
-                time.sleep(2 ** attempt) 
-                continue
-            st.error(f"Could not generate report: {e}")
-            break
-      
-      if report_response:
-          st.session_state.weekly_report = report_response
+      try:
+          response_obj, used_model = execute_with_model_fallback(report_prompt, is_stream=False)
+          st.session_state.weekly_report = response_obj.text
           st.rerun()
+      except Exception as e:
+          st.error(f"Could not generate report: {e}")
 
 # Calculate Readiness & Days
 if tsb < -25 or (sleep_score > 0 and sleep_score < 60):
@@ -437,39 +449,27 @@ with tab_coach:
           message_placeholder = st.empty()
           full_response = ""
           
-          # AUTO-RETRY LOOP FOR STREAMING CONNECTION
-          response_stream = None
-          for attempt in range(3):
-              try:
-                response_stream = client.models.generate_content_stream(
-                    model="gemini-3.6-flash", contents=context_payload
-                )
-                break
-              except Exception as e:
-                if "503" in str(e) and attempt < 2:
-                    time.sleep(2 ** attempt)
-                    continue
-                st.error(f"⚠️ API Error: {str(e)}")
-                break
+          try:
+            # Execute streaming call utilizing the robust fallback mechanism
+            response_stream, active_model = execute_with_model_fallback(context_payload, is_stream=True)
+            
+            for chunk in response_stream:
+                if chunk.text:
+                    full_response += chunk.text
+                    message_placeholder.markdown(full_response + "▌")
+            
+            message_placeholder.markdown(full_response)
+            st.session_state.messages.append({"role": "model", "content": full_response})
+            
+            try:
+                supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "model", "content": full_response}).execute()
+            except Exception:
+                pass
 
-          if response_stream:
-              try:
-                for chunk in response_stream:
-                    if chunk.text:
-                        full_response += chunk.text
-                        message_placeholder.markdown(full_response + "▌")
-                
-                message_placeholder.markdown(full_response)
-                st.session_state.messages.append({"role": "model", "content": full_response})
-                
-                try:
-                    supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "model", "content": full_response}).execute()
-                except Exception:
-                    pass
+            st.rerun()
 
-                st.rerun()
-              except Exception as e:
-                st.error(f"⚠️ Stream Error: {str(e)}")
+          except Exception as e:
+            st.error(f"⚠️ API Error / All models busy: {str(e)}")
 
 
 # ================= TAB 3: CALENDAR & COMPLIANCE =================
