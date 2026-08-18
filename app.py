@@ -161,6 +161,31 @@ system_instruction = f"""
     3. Prescribe: Provide a clear, data-backed verdict (Rest, Active Recovery, or Hard Session) with a structured rationale.
     """
 
+# Try initializing the chat session with a fallback model loop if 503 occurs
+models_to_try = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
+chat_session = None
+
+for model_name in models_to_try:
+  try:
+    chat_session = client.chats.create(
+        model=model_name,
+        config=genai.types.GenerateContentConfig(
+            system_instruction=system_instruction,
+        ),
+    )
+    break  # Break loop successfully if a model connects
+  except Exception:
+    continue
+
+if not chat_session:
+  st.error(
+      "❌ All AI model endpoints are currently experiencing high traffic. Please"
+      " try again in a moment."
+  )
+  st.stop()
+
+st.session_state.chat_session = chat_session
+
 # Display chat history
 for message in st.session_state.messages:
   with st.chat_message(message["role"]):
