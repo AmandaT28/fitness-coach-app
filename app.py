@@ -32,13 +32,50 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 # Initialize Clients
 client = genai.Client(api_key=GEMINI_API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-USER_ID = "primary_athlete"
 
 # App UI Configuration
 st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂️", layout="wide")
 
 st.title("🚴‍♂️ AI Sports Science Coach • Pro Command Center")
-st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu & Supabase")
+st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu & Supabase Auth")
+
+# --- AUTHENTICATION FLOW (SUPABASE AUTH) ---
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+if not st.session_state.user:
+    st.markdown("### 🔐 Secure Athlete Portal Login")
+    st.caption("Log in with your Supabase credentials to access your isolated training command center and synced chat history.")
+    
+    auth_tab1, auth_tab2 = st.tabs(["Log In", "Sign Up"])
+    
+    with auth_tab1:
+        login_email = st.text_input("Email", key="login_email")
+        login_pass = st.text_input("Password", type="password", key="login_pass")
+        if st.button("Log In", type="primary"):
+            try:
+                res = supabase.auth.sign_in_with_password({"email": login_email, "password": login_pass})
+                st.session_state.user = res.user
+                st.success("Login successful! Loading command center...")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Login failed: {e}")
+                
+    with auth_tab2:
+        signup_email = st.text_input("Email", key="signup_email")
+        signup_pass = st.text_input("Password", type="password", key="signup_pass")
+        if st.button("Create Account", type="primary"):
+            try:
+                res = supabase.auth.sign_up({"email": signup_email, "password": signup_pass})
+                st.session_state.user = res.user
+                st.success("Account created successfully! Welcome aboard.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Sign up failed: {e}")
+    st.stop()
+
+# Authenticated User ID UUID for isolated database storage
+USER_ID = st.session_state.user.id
 
 # --- 1. DATA FETCHING FUNCTIONS ---
 @st.cache_data(ttl=300, show_spinner=False) 
@@ -85,18 +122,29 @@ def fetch_planned_workouts():
   except Exception:
     return []
 
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_power_curve():
+  try:
+    url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/power-curves?curves=42d&type=Ride"
+    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
+    return res.json() if res.status_code == 200 else {}
+  except Exception:
+    return {}
+
 # --- PARALLEL DATA FETCHING FOR INSTANT LOAD ---
-with st.spinner("Syncing live metrics from Intervals.icu..."):
+with st.spinner("Syncing live metrics & power duration curve from Intervals.icu..."):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_wellness = executor.submit(fetch_intervals_wellness)
         future_activities = executor.submit(fetch_recent_activities)
         future_stats = executor.submit(fetch_athlete_stats)
         future_planned = executor.submit(fetch_planned_workouts)
+        future_power = executor.submit(fetch_power_curve)
 
         wellness_list = future_wellness.result()
         activities_data = future_activities.result()
         athlete_stats = future_stats.result()
         planned_data = future_planned.result()
+        power_curve_data = future_power.result()
 
 # Extract Metrics Safely
 ctl, atl, tsb, sleep_score, hrv = 0, 0, 0, 0, 0
@@ -128,7 +176,7 @@ if "event_date" not in st.session_state:
 if "weekly_report" not in st.session_state:
   st.session_state.weekly_report = None
 
-# Pull persistent chat history from Supabase cloud database
+# Pull persistent chat history tied to the authenticated user ID in Supabase
 if "messages" not in st.session_state:
     try:
         response = supabase.table("chat_messages").select("*").eq("user_id", USER_ID).order("created_at").execute()
@@ -138,12 +186,19 @@ if "messages" not in st.session_state:
         else:
             st.session_state.messages = [{
                 "role": "model",
-                "content": f"Hello! Telemetry synced. Your chat history is linked to Supabase cloud across all your devices. Ask me to evaluate your training targets or build a workout!"
+                "content": f"Hello! Telemetry & Power Curve loaded. Your session is securely authenticated via Supabase. Ask me to review target feasibility or build a workout!"
             }]
     except Exception:
         st.session_state.messages = [{"role": "model", "content": "Hello! Running in local fallback mode."}]
 
 with st.sidebar:
+  st.write(f"👤 Logged in as: **{st.session_state.user.email}**")
+  if st.button("Log Out"):
+      supabase.auth.sign_out()
+      st.session_state.user = None
+      st.rerun()
+
+  st.markdown("---")
   st.header("🎯 Target Event & Goals")
   new_goal = st.text_area("Update your current goals:", value=st.session_state.performance_goals)
   target_event = st.date_input("Target Event Date:", value=st.session_state.event_date)
@@ -161,7 +216,8 @@ with st.sidebar:
       report_prompt = (
           "Generate a formal Weekly Progress Report. Review past 14 days of "
           f"completed activities ({activities_data}) against planned calendar events ({planned_data}). "
-          f"Analyze overall metrics ({athlete_stats}), and recovery trends (Sleep: {sleep_score}, HRV: {hrv}) against goals: "
+          f"Analyze overall metrics ({athlete_stats}), Power Duration Curve profile ({power_curve_data}), "
+          f"and recovery trends (Sleep: {sleep_score}, HRV: {hrv}) against goals: "
           f"'{st.session_state.performance_goals}' and event date ({st.session_state.event_date}). "
           "Critique pacing compliance and suggest adjustments."
       )
@@ -279,9 +335,8 @@ with tab_dash:
 # ================= TAB 2: AI COACH & WORKOUT BUILDER =================
 with tab_coach:
     st.markdown("### Interactive AI Sports Scientist")
-    st.caption("Ask for a target feasibility review, structured workouts, pacing check, or MyWhoosh `.zwo` export.")
+    st.caption("Ask for a target feasibility review, structured workouts, pacing check, or MyWhoosh `.zwo` export. Chat syncs via Supabase Auth.")
 
-    # Render chat message history safely inside the tab layout
     for i, message in enumerate(st.session_state.messages):
       display_text = message["content"]
       has_workout = "<workout_file>" in display_text
@@ -307,11 +362,9 @@ with tab_coach:
             except Exception:
                 pass
 
-    # Chat input placed cleanly at the bottom of Tab 2
     if prompt := st.chat_input("Ask: 'Are my current targets reasonable and how do I get there?'...", key="coach_chat_input"):
       st.session_state.messages.append({"role": "user", "content": prompt})
       
-      # Save user prompt to Supabase cloud database
       try:
           supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "user", "content": prompt}).execute()
       except Exception:
@@ -321,7 +374,7 @@ with tab_coach:
         st.markdown(prompt)
 
       with st.chat_message("model"):
-        with st.spinner("Analyzing telemetry against targets and formulating roadmap..."):
+        with st.spinner("Analyzing telemetry, power curve, and formulating roadmap..."):
           
           context_payload = f"""
                 You are an elite endurance sports science coach.
@@ -331,11 +384,12 @@ with tab_coach:
                 GOALS & TARGETS: {st.session_state.performance_goals} (Target Event in {days_to_event} days on {st.session_state.event_date})
                 READINESS: {readiness_status} | CTL (Fitness): {ctl} | ATL (Fatigue): {atl} | TSB (Form): {tsb} | Sleep: {sleep_score} | HRV: {hrv}
                 POWER & HR ZONES: {athlete_zones}
+                42-DAY POWER DURATION CURVE PROFILE: {power_curve_data}
                 PLANNED WORKOUTS (Calendar): {planned_data}
                 RECENT ACTIVITIES (Completed): {activities_data}
 
                 COACHING INSTRUCTIONS:
-                1. TARGET FEASIBILITY & ROADMAP: Critically evaluate whether the athlete's stated goals and event timeline ({days_to_event} days away) are reasonable given their current CTL, ATL, TSB, and recovery. Provide a clear, structured, actionable roadmap on how to bridge the gap safely without overtraining. Factor in their biomechanics (flexible flat feet, hypermobility) and equipment (160mm cranks).
+                1. TARGET FEASIBILITY & ROADMAP: Critically evaluate whether the athlete's stated goals and event timeline ({days_to_event} days away) are reasonable given their current CTL, ATL, TSB, recovery, and Power Duration Curve limiters. Provide a clear, structured, actionable roadmap on how to bridge the gap safely without overtraining. Factor in their biomechanics (flexible flat feet, hypermobility) and equipment (160mm cranks).
                 2. FEEDBACK LOOP: Compare 'Planned Workouts' vs 'Recent Activities'. Critique pacing discipline and compliance.
                 3. PLAN FORMULATION: If asked for a workout, prescribe exact watts based on the athlete's FTP and zones. Structure as Warmup -> Main Set -> Cool Down. Factor in 160mm cranks and joint health by managing cadence requests.
                 4. INDOOR EXPORT (MYWHOOSH): If the athlete asks for a MyWhoosh or Zwift workout, generate the exact XML structure for a `.zwo` file. 
@@ -361,7 +415,6 @@ with tab_coach:
             message_placeholder.markdown(full_response)
             st.session_state.messages.append({"role": "model", "content": full_response})
             
-            # Save AI response to Supabase cloud database
             try:
                 supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "model", "content": full_response}).execute()
             except Exception:
