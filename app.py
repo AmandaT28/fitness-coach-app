@@ -205,6 +205,47 @@ if prompt := st.chat_input("Ask your coach anything..."):
         st.session_state.messages.append(
             {"role": "model", "content": response.text}
         )
+
+      # ... inside your chat input handling block ...
+if prompt := st.chat_input("Ask your coach anything..."):
+  st.session_state.messages.append({"role": "user", "content": prompt})
+  with st.chat_message("user"):
+    st.markdown(prompt)
+
+  with st.chat_message("model"):
+    with st.spinner("Coach is analyzing your training status..."):
+      response_text = None
+      max_retries = 3
+      retry_delay = 2
+
+      # Automatic retry loop to handle temporary 503 high demand spikes
+      for attempt in range(max_retries):
+        try:
+          response = st.session_state.chat_session.send_message(prompt)
+          response_text = response.text
+          break  # Exit loop successfully if call goes through
+        except Exception as e:
+          if "503" in str(e) or "UNAVAILABLE" in str(e):
+            if attempt < max_retries - 1:
+              time.sleep(retry_delay)
+              retry_delay *= 2  # Exponential backoff (2s -> 4s)
+              continue
+          # If it's a different error or retries ran out, raise it
+          error_message = str(e)
+          break
+
+      if response_text:
+        st.markdown(response_text)
+        st.session_state.messages.append(
+            {"role": "model", "content": response_text}
+        )
+      else:
+        st.warning(
+            "⚠️ Google's servers are still experiencing high traffic (503"
+            " Unavailable). Please wait a moment and try sending your message"
+            " again."
+        )
+        
       except (ServerError, APIError) as e:
         st.warning(
             f"⚠️ The AI service encountered a temporary issue: {e}. Please wait"
