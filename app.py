@@ -122,9 +122,9 @@ system_instruction = f"""
     5. Monitor, critique, and evaluate progress against their goals.
     """
 
-# Initialize or re-create chat session if it doesn't exist
+# Initialize or re-create chat session if it doesn't exist (Prioritizing stable gemini-2.5-flash)
 if "chat_session" not in st.session_state:
-  models_to_try = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
+  models_to_try = ["gemini-2.5-flash", "gemini-3.7-flash", "gemini-3.6-flash"]
   chat_session = None
 
   for model_name in models_to_try:
@@ -186,7 +186,6 @@ if prompt := st.chat_input("Ask your coach anything..."):
               time.sleep(retry_delay)
               retry_delay *= 2
               continue
-          error_message = str(e)
           break
 
       if response_text:
