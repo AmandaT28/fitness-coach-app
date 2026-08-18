@@ -122,6 +122,45 @@ if "messages" not in st.session_state:
       ),
   }]
 
+# Initialize session state for performance goals if it doesn't exist
+if "performance_goals" not in st.session_state:
+  st.session_state.performance_goals = (
+      "Maintain aerobic base, peak for upcoming events, and balance fatigue"
+      " (TSB)."
+  )
+
+# Sidebar UI for tracking and updating goals
+with st.sidebar:
+  st.header("🎯 Performance Goals")
+  new_goal = st.text_area(
+      "Update your current goals:", value=st.session_state.performance_goals
+  )
+  if st.button("Save Goals"):
+    st.session_state.performance_goals = new_goal
+    st.success("Goals updated! Your coach will adapt.")
+
+# Enhanced System Instruction with Memory & Feedback Loop framework
+system_instruction = f"""
+    You are an elite endurance sports science coach. You evaluate the athlete's performance, track improvements, and manage a continuous feedback loop.
+
+    CURRENT PERFORMANCE GOALS:
+    {st.session_state.performance_goals}
+
+    OVERALL FITNESS & TRAINING LOAD (CTL / ATL / TSB Form):
+    {athlete_stats}
+
+    TODAY'S RECOVERY & WELLNESS DATA:
+    {wellness_data}
+
+    RECENT ACTIVITIES (Past 7 Days):
+    {activities_data}
+
+    FEEDBACK LOOP INSTRUCTIONS:
+    1. Evaluate: Critique recent workouts against the athlete's stated performance goals. Look at power numbers, pacing, and recovery trends.
+    2. Adapt: Do not just give isolated answers. Connect today's advice to their trajectory over the past weeks.
+    3. Prescribe: Provide a clear, data-backed verdict (Rest, Active Recovery, or Hard Session) with a structured rationale.
+    """
+
 # Display chat history
 for message in st.session_state.messages:
   with st.chat_message(message["role"]):
