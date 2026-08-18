@@ -219,10 +219,10 @@ with tab_dash:
                 'axis': {'range': [-50, 30]},
                 'bar': {'color': "black"},
                 'steps' : [
-                    {'range': [-50, -25], 'color': "rgba(255, 0, 0, 0.4)"}, # High Fatigue
-                    {'range': [-25, -10], 'color': "rgba(0, 128, 0, 0.5)"}, # Optimal Build
-                    {'range': [-10, 5], 'color': "rgba(255, 255, 0, 0.5)"},  # Transition
-                    {'range': [5, 30], 'color': "rgba(0, 0, 255, 0.4)"}     # Fresh / Peak
+                    {'range': [-50, -25], 'color': "rgba(255, 0, 0, 0.4)"}, 
+                    {'range': [-25, -10], 'color': "rgba(0, 128, 0, 0.5)"}, 
+                    {'range': [-10, 5], 'color': "rgba(255, 255, 0, 0.5)"},  
+                    {'range': [5, 30], 'color': "rgba(0, 0, 255, 0.4)"}     
                 ]
             }
         ))
@@ -267,7 +267,6 @@ with tab_coach:
     st.markdown("### Interactive AI Sports Scientist")
     st.caption("Ask for structured workouts, pacing review, or MyWhoosh `.zwo` file generation.")
 
-    # Use @st.fragment so chatting only updates the chat component, keeping the app snappy
     @st.fragment
     def render_ai_chat():
         for i, message in enumerate(st.session_state.messages):
@@ -325,7 +324,6 @@ with tab_coach:
                 context_payload += f"\n{msg['role'].upper()}: {msg['content']}\n"
               context_payload += f"\nUSER: {prompt}\n"
 
-              # LLM Streaming Implementation
               message_placeholder = st.empty()
               full_response = ""
               
@@ -338,7 +336,6 @@ with tab_coach:
                         full_response += chunk.text
                         message_placeholder.markdown(full_response + "▌")
                 
-                # Final clean render without the typing cursor
                 message_placeholder.markdown(full_response)
                 st.session_state.messages.append({"role": "model", "content": full_response})
                 st.rerun()
@@ -349,22 +346,53 @@ with tab_coach:
     render_ai_chat()
 
 
-# ================= TAB 3: CALENDAR & COMPLIANCE =================
+# ================= TAB 3: CALENDAR & COMPLIANCE (CLEAN TABLES) =================
 with tab_cal:
     st.markdown("### Planned vs. Actual Training Compliance")
     st.caption("Review your scheduled calendar blocks against executed Garmin activities.")
     
+    import pandas as pd
+    
     col_c1, col_c2 = st.columns(2)
+    
     with col_c1:
         st.subheader("📅 Scheduled Calendar Events")
         if planned_data:
-            st.json(planned_data[:5]) # Display upcoming entries cleanly
+            try:
+                df_planned = pd.DataFrame(planned_data)
+                # Clean and reformat columns for professional view
+                if "start_date_local" in df_planned.columns:
+                    df_planned["Date"] = pd.to_datetime(df_planned["start_date_local"]).dt.strftime("%Y-%m-%d")
+                
+                display_cols = [c for c in ["Date", "name", "type", "category", "load"] if c in df_planned.columns or c == "Date"]
+                if "name" not in df_planned.columns and "summary" in df_planned.columns:
+                    df_planned["name"] = df_planned["summary"]
+                    
+                st.dataframe(df_planned, use_container_width=True, hide_index=True)
+            except Exception:
+                st.write("Could not parse planned events table.")
         else:
-            st.write("No planned events found.")
+            st.info("No planned events found for this window.")
             
     with col_c2:
         st.subheader("🚴‍♂️ Completed Activities")
         if activities_data:
-            st.json(activities_data[:5])
+            try:
+                df_act = pd.DataFrame(activities_data)
+                if "start_date_local" in df_act.columns:
+                    df_act["Date"] = pd.to_datetime(df_act["start_date_local"]).dt.strftime("%Y-%m-%d")
+                if "moving_time" in df_act.columns:
+                    df_act["Duration (min)"] = (df_act["moving_time"] / 60).round(1)
+                if "distance" in df_act.columns:
+                    df_act["Distance (km)"] = (df_act["distance"] / 1000).round(2)
+                if "icu_training_load" in df_act.columns:
+                    df_act["TSS"] = df_act["icu_training_load"].round(0)
+
+                columns_to_show = ["Date", "name", "type", "TSS", "Duration (min)", "Distance (km)"]
+                available_cols = [c for c in columns_to_show if c in df_act.columns]
+                
+                st.dataframe(df_act[available_cols], use_container_width=True, hide_index=True)
+            except Exception:
+                st.write("Could not parse activities table.")
         else:
-            st.write("No recent activities found.")
+            st.info("No completed activities found for this window.")
