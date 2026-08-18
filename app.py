@@ -1,5 +1,6 @@
 import datetime
 import os
+import time
 from dotenv import load_dotenv
 from google import genai
 from google.genai.errors import APIError, ServerError
@@ -8,8 +9,6 @@ import streamlit as st
 
 # Load environment variables safely for local or cloud deployment
 try:
-  from dotenv import load_dotenv
-
   load_dotenv()
 except ImportError:
   pass
@@ -82,46 +81,6 @@ with st.spinner("Syncing complete Garmin & Intervals.icu data..."):
   activities_data = fetch_recent_activities()
   athlete_stats = fetch_athlete_stats()
 
-# Initialize Gemini Chat Session once with complete context
-if "chat_session" not in st.session_state:
-  system_instruction = f"""
-    You are the Fitness Coach App, an elite endurance and sports science coach specializing in cycling and running. 
-    You have direct access to the athlete's comprehensive training data synced from Garmin via Intervals.icu.
-    
-    OVERALL FITNESS & TRAINING LOAD (CTL / ATL / TSB Form):
-    {athlete_stats}
-
-    TODAY'S RECOVERY & WELLNESS DATA (Sleep, HRV, RHR):
-    {wellness_data}
-
-    RECENT ACTIVITIES (Past 7 Days - rides, runs, power, distance):
-    {activities_data}
-
-    Your job is to:
-    1. Act as an expert sports scientist. Evaluate their training status based on their Form (TSB), Fitness (CTL), Fatigue (ATL), sleep, and HRV.
-    2. Answer questions about training, pacing, fueling, recovery, and workout adjustments for running and cycling.
-    3. Reference their actual numbers when giving advice on whether they should train hard, keep it easy, or rest.
-    4. Formulate training plans utilising Mywhoosh indoor training, outdoor rides. runs, strength or gym work to work towards performance targets.
-    5. Monitor and evaluate progress.
-    """
-
-  st.session_state.chat_session = client.chats.create(
-      model="gemini-3.7-flash",
-      config=genai.types.GenerateContentConfig(
-          system_instruction=system_instruction,
-      ),
-  )
-
-if "messages" not in st.session_state:
-  st.session_state.messages = [{
-      "role": "model",
-      "content": (
-          "Hello! I'm your Fitness Coach App. I've synced your complete Garmin"
-          " fitness load, recent workouts, and recovery stats. Ask me anything"
-          " about your training status or whether you should train today!"
-      ),
-  }]
-
 # Initialize session state for performance goals if it doesn't exist
 if "performance_goals" not in st.session_state:
   st.session_state.performance_goals = (
@@ -141,7 +100,7 @@ with st.sidebar:
 
 # Enhanced System Instruction with Memory & Feedback Loop framework
 system_instruction = f"""
-    You are an elite endurance sports science coach. You evaluate the athlete's performance, track improvements, and manage a continuous feedback loop.
+    You are an elite endurance sports science coach specializing in cycling and running. You evaluate the athlete's performance, track improvements, and manage a continuous feedback loop.
 
     CURRENT PERFORMANCE GOALS:
     {st.session_state.performance_goals}
@@ -149,64 +108,62 @@ system_instruction = f"""
     OVERALL FITNESS & TRAINING LOAD (CTL / ATL / TSB Form):
     {athlete_stats}
 
-    TODAY'S RECOVERY & WELLNESS DATA:
+    TODAY'S RECOVERY & WELLNESS DATA (Sleep, HRV, RHR):
     {wellness_data}
 
-    RECENT ACTIVITIES (Past 7 Days):
+    RECENT ACTIVITIES (Past 7 Days - rides, runs, power, distance):
     {activities_data}
 
     FEEDBACK LOOP INSTRUCTIONS:
-    1. Evaluate: Critique recent workouts against the athlete's stated performance goals. Look at power numbers, pacing, and recovery trends.
-    2. Adapt: Do not just give isolated answers. Connect today's advice to their trajectory over the past weeks.
-    3. Prescribe: Provide a clear, data-backed verdict (Rest, Active Recovery, or Hard Session) with a structured rationale.
+    1. Act as an expert sports scientist. Evaluate their training status based on their Form (TSB), Fitness (CTL), Fatigue (ATL), sleep, and HRV.
+    2. Answer questions about training, pacing, fueling, recovery, and workout adjustments for running and cycling.
+    3. Reference their actual numbers when giving advice on whether they should train hard, keep it easy, or rest.
+    4. Formulate training plans utilising MyWhoosh indoor training, outdoor rides, runs, strength or gym work to work towards performance targets.
+    5. Monitor, critique, and evaluate progress against their goals.
     """
 
-# Try initializing the chat session with a fallback model loop if 503 occurs
-models_to_try = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
-chat_session = None
+# Initialize or re-create chat session if it doesn't exist
+if "chat_session" not in st.session_state:
+  models_to_try = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
+  chat_session = None
 
-for model_name in models_to_try:
-  try:
-    chat_session = client.chats.create(
-        model=model_name,
-        config=genai.types.GenerateContentConfig(
-            system_instruction=system_instruction,
-        ),
+  for model_name in models_to_try:
+    try:
+      chat_session = client.chats.create(
+          model=model_name,
+          config=genai.types.GenerateContentConfig(
+              system_instruction=system_instruction,
+          ),
+      )
+      break
+    except Exception:
+      continue
+
+  if not chat_session:
+    st.error(
+        "❌ All AI model endpoints are currently experiencing high traffic. Please"
+        " try again in a moment."
     )
-    break  # Break loop successfully if a model connects
-  except Exception:
-    continue
+    st.stop()
 
-if not chat_session:
-  st.error(
-      "❌ All AI model endpoints are currently experiencing high traffic. Please"
-      " try again in a moment."
-  )
-  st.stop()
+  st.session_state.chat_session = chat_session
 
-st.session_state.chat_session = chat_session
+if "messages" not in st.session_state:
+  st.session_state.messages = [{
+      "role": "model",
+      "content": (
+          "Hello! I'm your Fitness Coach App. I've synced your complete Garmin"
+          " fitness load, recent workouts, and recovery stats. Ask me anything"
+          " about your training status or whether you should train today!"
+      ),
+  }]
 
 # Display chat history
 for message in st.session_state.messages:
   with st.chat_message(message["role"]):
     st.markdown(message["content"])
 
-# Accept user input
-if prompt := st.chat_input("Ask your coach anything..."):
-  st.session_state.messages.append({"role": "user", "content": prompt})
-  with st.chat_message("user"):
-    st.markdown(prompt)
-
-  with st.chat_message("model"):
-    with st.spinner("Coach is analyzing your training status..."):
-      try:
-        response = st.session_state.chat_session.send_message(prompt)
-        st.markdown(response.text)
-        st.session_state.messages.append(
-            {"role": "model", "content": response.text}
-        )
-
-      # ... inside your chat input handling block ...
+# Single clean chat input loop with 503 Auto-Retry logic
 if prompt := st.chat_input("Ask your coach anything..."):
   st.session_state.messages.append({"role": "user", "content": prompt})
   with st.chat_message("user"):
@@ -218,19 +175,17 @@ if prompt := st.chat_input("Ask your coach anything..."):
       max_retries = 3
       retry_delay = 2
 
-      # Automatic retry loop to handle temporary 503 high demand spikes
       for attempt in range(max_retries):
         try:
           response = st.session_state.chat_session.send_message(prompt)
           response_text = response.text
-          break  # Exit loop successfully if call goes through
+          break
         except Exception as e:
           if "503" in str(e) or "UNAVAILABLE" in str(e):
             if attempt < max_retries - 1:
               time.sleep(retry_delay)
-              retry_delay *= 2  # Exponential backoff (2s -> 4s)
+              retry_delay *= 2
               continue
-          # If it's a different error or retries ran out, raise it
           error_message = str(e)
           break
 
@@ -241,15 +196,7 @@ if prompt := st.chat_input("Ask your coach anything..."):
         )
       else:
         st.warning(
-            "⚠️ Google's servers are still experiencing high traffic (503"
+            "⚠️ Google's servers are experiencing temporary high traffic (503"
             " Unavailable). Please wait a moment and try sending your message"
             " again."
         )
-        
-      except (ServerError, APIError) as e:
-        st.warning(
-            f"⚠️ The AI service encountered a temporary issue: {e}. Please wait"
-            " a moment and try sending your message again."
-        )
-      except Exception as e:
-        st.error(f"An unexpected error occurred: {e}")
