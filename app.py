@@ -14,10 +14,8 @@ try:
 except ImportError:
   pass
 
-# Grab keys from Streamlit Secrets or environment
+# Grab global keys from Streamlit Secrets (Gemini & Supabase backend keys only)
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
-INTERVALS_API_KEY = st.secrets.get("INTERVALS_API_KEY") or os.getenv("INTERVALS_API_KEY")
-ATHLETE_ID = st.secrets.get("INTERVALS_ATHLETE_ID") or os.getenv("INTERVALS_ATHLETE_ID")
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
 
@@ -36,8 +34,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # App UI Configuration
 st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂️", layout="wide")
 
-st.title("🚴‍♂️ AI Sports Science Coach • Pro Command Center")
-st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu & Supabase Auth")
+st.title("🚴‍♂️ AI Sports Science Coach • Multi-User Command Center")
+st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu & Supabase")
 
 # --- AUTHENTICATION FLOW (SUPABASE AUTH) ---
 if "user" not in st.session_state:
@@ -45,7 +43,7 @@ if "user" not in st.session_state:
 
 if not st.session_state.user:
     st.markdown("### 🔐 Secure Athlete Portal Login")
-    st.caption("Log in with your Supabase credentials to access your isolated training command center and synced chat history.")
+    st.caption("Log in or create an account to access your personal, isolated training command center.")
     
     auth_tab1, auth_tab2 = st.tabs(["Log In", "Sign Up"])
     
@@ -74,17 +72,57 @@ if not st.session_state.user:
                 st.error(f"Sign up failed: {e}")
     st.stop()
 
-# Authenticated User ID UUID for isolated database storage
 USER_ID = st.session_state.user.id
 
-# --- 1. DATA FETCHING FUNCTIONS ---
+# --- CHECK IF USER HAS CONFIGURED INTERVALS.ICU CREDENTIALS ---
+user_profile = None
+try:
+    profile_res = supabase.table("profiles").select("*").eq("id", USER_ID).execute()
+    if profile_res.data:
+        user_profile = profile_res.data[0]
+except Exception:
+    pass
+
+# If no profile exists, show the Onboarding Setup Wizard
+if not user_profile or not user_profile.get("intervals_api_key") or not user_profile.get("intervals_athlete_id"):
+    st.markdown("---")
+    st.subheader("⚙️ Intervals.icu Account Setup")
+    st.write("To pull your personal Garmin and training data, please enter your Intervals.icu API Key and Athlete ID.")
+    st.markdown("[Find your Intervals.icu API Key here (scroll to bottom of Settings)](https://intervals.icu/settings)")
+    
+    with st.form("setup_form"):
+        input_api_key = st.text_input("Intervals.icu API Key", type="password")
+        input_athlete_id = st.text_input("Intervals.icu Athlete ID (e.g., i12345 or your username)")
+        submitted = st.form_submit_button("Save & Launch Command Center")
+        
+        if submitted:
+            if input_api_key and input_athlete_id:
+                try:
+                    supabase.table("profiles").upsert({
+                        "id": USER_ID,
+                        "intervals_api_key": input_api_key.strip(),
+                        "intervals_athlete_id": input_athlete_id.strip()
+                    }).execute()
+                    st.success("Configuration saved! Refreshing...")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to save profile: {e}")
+            else:
+                st.warning("Please provide both your API Key and Athlete ID.")
+    st.stop()
+
+# Assign user-specific credentials
+INTERVALS_API_KEY = user_profile["intervals_api_key"]
+ATHLETE_ID = user_profile["intervals_athlete_id"]
+
+# --- 1. DATA FETCHING FUNCTIONS (USING USER-SPECIFIC KEYS) ---
 @st.cache_data(ttl=300, show_spinner=False) 
-def fetch_intervals_wellness():
+def fetch_intervals_wellness(athlete_id, api_key):
   try:
     end_date = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
     start_date = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
-    url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/wellness?oldest={start_date}&newest={end_date}"
-    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
+    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/wellness?oldest={start_date}&newest={end_date}"
+    res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     if res.status_code == 200 and res.json():
         return res.json()
     return []
@@ -92,41 +130,41 @@ def fetch_intervals_wellness():
     return []
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_recent_activities():
+def fetch_recent_activities(athlete_id, api_key):
   try:
     end_date = datetime.date.today().isoformat()
     start_date = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
-    url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/activities?oldest={start_date}&newest={end_date}"
-    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
+    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/activities?oldest={start_date}&newest={end_date}"
+    res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else []
   except Exception:
     return []
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_athlete_stats():
+def fetch_athlete_stats(athlete_id, api_key):
   try:
-    url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}"
-    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
+    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
+    res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else {}
   except Exception:
     return {}
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_planned_workouts():
+def fetch_planned_workouts(athlete_id, api_key):
   try:
     end_date = (datetime.date.today() + datetime.timedelta(days=7)).isoformat()
     start_date = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
-    url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events?oldest={start_date}&newest={end_date}"
-    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
+    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events?oldest={start_date}&newest={end_date}"
+    res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else []
   except Exception:
     return []
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_power_curve():
+def fetch_power_curve(athlete_id, api_key):
   try:
-    url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/power-curves?curves=42d&type=Ride"
-    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
+    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/power-curves?curves=42d&type=Ride"
+    res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else {}
   except Exception:
     return {}
@@ -134,11 +172,11 @@ def fetch_power_curve():
 # --- PARALLEL DATA FETCHING FOR INSTANT LOAD ---
 with st.spinner("Syncing live metrics & power duration curve from Intervals.icu..."):
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        future_wellness = executor.submit(fetch_intervals_wellness)
-        future_activities = executor.submit(fetch_recent_activities)
-        future_stats = executor.submit(fetch_athlete_stats)
-        future_planned = executor.submit(fetch_planned_workouts)
-        future_power = executor.submit(fetch_power_curve)
+        future_wellness = executor.submit(fetch_intervals_wellness, ATHLETE_ID, INTERVALS_API_KEY)
+        future_activities = executor.submit(fetch_recent_activities, ATHLETE_ID, INTERVALS_API_KEY)
+        future_stats = executor.submit(fetch_athlete_stats, ATHLETE_ID, INTERVALS_API_KEY)
+        future_planned = executor.submit(fetch_planned_workouts, ATHLETE_ID, INTERVALS_API_KEY)
+        future_power = executor.submit(fetch_power_curve, ATHLETE_ID, INTERVALS_API_KEY)
 
         wellness_list = future_wellness.result()
         activities_data = future_activities.result()
@@ -232,7 +270,7 @@ with st.sidebar:
             break
           except Exception as e:
             if "503" in str(e) and attempt < 2:
-                time.sleep(2 ** attempt) 
+                time.sleep(2 ** exponent if 'exponent' in locals() else 2 ** attempt) 
                 continue
             st.error(f"Could not generate report: {e}")
             break
@@ -285,7 +323,7 @@ with tab_dash:
             mode = "gauge+number",
             value = tsb,
             domain = {'x': [0, 1], 'y': [0, 1]},
-            title = {'text': "Form (TSB) Spectrum"},
+            title = {'text": "Form (TSB) Spectrum"},
             gauge = {
                 'axis': {'range': [-50, 30]},
                 'bar': {'color': "black"},
@@ -379,8 +417,7 @@ with tab_coach:
           context_payload = f"""
                 You are an elite endurance sports science coach.
                 ATHLETE PROFILE & EQUIPMENT: 
-                - Setup: Cervélo Soloist (Size 48), custom cockpit, S-Works Power Pro Mirror saddle, Magene TEO P515 power meter / 160mm crankset.
-                - Bio-mechanics: Flexible flat feet, some hypermobility.
+                - Setup: Custom road bike setup with power meter.
                 GOALS & TARGETS: {st.session_state.performance_goals} (Target Event in {days_to_event} days on {st.session_state.event_date})
                 READINESS: {readiness_status} | CTL (Fitness): {ctl} | ATL (Fatigue): {atl} | TSB (Form): {tsb} | Sleep: {sleep_score} | HRV: {hrv}
                 POWER & HR ZONES: {athlete_zones}
@@ -389,9 +426,9 @@ with tab_coach:
                 RECENT ACTIVITIES (Completed): {activities_data}
 
                 COACHING INSTRUCTIONS:
-                1. TARGET FEASIBILITY & ROADMAP: Critically evaluate whether the athlete's stated goals and event timeline ({days_to_event} days away) are reasonable given their current CTL, ATL, TSB, recovery, and Power Duration Curve limiters. Provide a clear, structured, actionable roadmap on how to bridge the gap safely without overtraining. Factor in their biomechanics (flexible flat feet, hypermobility) and equipment (160mm cranks).
+                1. TARGET FEASIBILITY & ROADMAP: Critically evaluate whether the athlete's stated goals and event timeline ({days_to_event} days away) are reasonable given their current CTL, ATL, TSB, recovery, and Power Duration Curve limiters. Provide a clear, structured, actionable roadmap on how to bridge the gap safely without overtraining.
                 2. FEEDBACK LOOP: Compare 'Planned Workouts' vs 'Recent Activities'. Critique pacing discipline and compliance.
-                3. PLAN FORMULATION: If asked for a workout, prescribe exact watts based on the athlete's FTP and zones. Structure as Warmup -> Main Set -> Cool Down. Factor in 160mm cranks and joint health by managing cadence requests.
+                3. PLAN FORMULATION: If asked for a workout, prescribe exact watts based on the athlete's FTP and zones. Structure as Warmup -> Main Set -> Cool Down.
                 4. INDOOR EXPORT (MYWHOOSH): If the athlete asks for a MyWhoosh or Zwift workout, generate the exact XML structure for a `.zwo` file. 
                    - YOU MUST wrap the raw XML code strictly inside `<workout_file>` and `</workout_file>` tags at the very end of your response. 
                    - Do not put markdown around the XML tags.
