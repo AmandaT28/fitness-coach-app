@@ -3,7 +3,6 @@ import os
 import time
 from dotenv import load_dotenv
 from google import genai
-from google.genai.errors import APIError, ServerError
 import requests
 import streamlit as st
 
@@ -99,19 +98,11 @@ with st.sidebar:
   )
   if st.button("Save Goals"):
     st.session_state.performance_goals = new_goal
-    # Clear chat session so it forces a reload with the updated goals
-    if "chat_session" in st.session_state:
-      del st.session_state.chat_session
-    st.success("Goals updated! Coach memory refreshed.")
+    st.success("Goals updated!")
     st.rerun()
 
   st.markdown("---")
   st.header("📊 Weekly Check-In")
-  st.write(
-      "Generate a comprehensive review of your past week's training and"
-      " improvements."
-  )
-
   if st.button("Run Weekly Progress Report"):
     with st.spinner("Analyzing weekly metrics and trends..."):
       report_prompt = (
@@ -126,8 +117,7 @@ with st.sidebar:
 
       try:
         report_response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=report_prompt,
+            model="gemini-2.5-flash", contents=report_prompt
         )
         st.session_state.weekly_report = report_response.text
       except Exception as e:
@@ -141,67 +131,13 @@ if st.session_state.weekly_report:
       st.session_state.weekly_report = None
       st.rerun()
 
-# Enhanced System Instruction incorporating current goals dynamically
-system_instruction = f"""
-    You are an elite endurance sports science coach specializing in cycling and running. You evaluate the athlete's performance, track improvements, and manage a continuous feedback loop.
-
-    ATHLETE PROFILE & EQUIPMENT CONTEXT:
-    - Bike Setup: Cervélo Soloist (Size 48), custom cockpit, S-Works Power Pro Mirror saddle, Magene TEO P515 power meter/ 160mm crankset.
-    - Physical Considerations: Flexible flat feet, some hypermobility.
-    
-    CURRENT PERFORMANCE GOALS:
-    {st.session_state.performance_goals}
-
-    OVERALL FITNESS & TRAINING LOAD (CTL / ATL / TSB Form):
-    {athlete_stats}
-
-    TODAY'S RECOVERY & WELLNESS DATA (Sleep, HRV, RHR):
-    {wellness_data}
-
-    RECENT ACTIVITIES (Past 7 Days - rides, runs, power, distance):
-    {activities_data}
-
-    FEEDBACK LOOP INSTRUCTIONS:
-    1. Act as an expert sports scientist. Evaluate their training status based on their Form (TSB), Fitness (CTL), Fatigue (ATL), sleep, and HRV.
-    2. Answer questions about training, pacing, fueling, recovery, and workout adjustments for running and cycling.
-    3. Reference their actual numbers when giving advice on whether they should train hard, keep it easy, or rest.
-    4. Formulate training plans utilising MyWhoosh indoor training, outdoor rides, runs, strength or gym work to work towards performance targets.
-    5. Monitor, critique, and evaluate progress against their goals.
-    """
-
-# Initialize or re-create chat session automatically whenever goals change
-if "chat_session" not in st.session_state:
-  models_to_try = ["gemini-2.5-flash", "gemini-3.7-flash", "gemini-3.6-flash"]
-  chat_session = None
-
-  for model_name in models_to_try:
-    try:
-      chat_session = client.chats.create(
-          model=model_name,
-          config=genai.types.GenerateContentConfig(
-              system_instruction=system_instruction,
-          ),
-      )
-      break
-    except Exception:
-      continue
-
-  if not chat_session:
-    st.error(
-        "❌ All AI model endpoints are currently experiencing high traffic. Please"
-        " try again in a moment."
-    )
-    st.stop()
-
-  st.session_state.chat_session = chat_session
-
 if "messages" not in st.session_state:
   st.session_state.messages = [{
       "role": "model",
       "content": (
           "Hello! I'm your Fitness Coach App. I've synced your complete Garmin"
-          " fitness load, recent workouts, and recovery stats. Use the sidebar"
-          " to update your goals or trigger a Weekly Progress Report!"
+          " fitness load, recent workouts, and recovery stats. Ask me anything"
+          " about your training status!"
       ),
   }]
 
@@ -210,7 +146,7 @@ for message in st.session_state.messages:
   with st.chat_message(message["role"]):
     st.markdown(message["content"])
 
-# Single clean chat input loop with 503 Auto-Retry logic
+# Chat Input & Stateless Context Execution (Bypasses 503 Chat Session Bottlenecks)
 if prompt := st.chat_input("Ask your coach anything..."):
   st.session_state.messages.append({"role": "user", "content": prompt})
   with st.chat_message("user"):
@@ -218,13 +154,43 @@ if prompt := st.chat_input("Ask your coach anything..."):
 
   with st.chat_message("model"):
     with st.spinner("Coach is analyzing your training status..."):
+      # Build full context payload incorporating updated profile & equipment context
+      context_payload = f"""
+            You are an elite endurance sports science coach specializing in cycling and running. 
+            Evaluate the athlete's performance, track improvements, and manage a continuous feedback loop.
+
+            ATHLETE PROFILE & EQUIPMENT CONTEXT:
+            - Bike Setup: Cervélo Soloist (Size 48), custom cockpit, S-Works Power Pro Mirror saddle, Magene TEO P515 power meter/ 160mm crankset.
+            - Physical Considerations: Flexible flat feet, some hypermobility.
+
+            CURRENT PERFORMANCE GOALS:
+            {st.session_state.performance_goals}
+
+            OVERALL FITNESS & TRAINING LOAD (CTL / ATL / TSB Form):
+            {athlete_stats}
+
+            TODAY'S RECOVERY & WELLNESS DATA (Sleep, HRV, RHR):
+            {wellness_data}
+
+            RECENT ACTIVITIES (Past 7 Days - rides, runs, power, distance):
+            {activities_data}
+
+            CONVERSATION HISTORY:
+            """
+      for msg in st.session_state.messages:
+        context_payload += (
+            f"\n{msg['role'].upper()}: {msg['content']}\n"
+        )
+
       response_text = None
       max_retries = 3
       retry_delay = 2
 
       for attempt in range(max_retries):
         try:
-          response = st.session_state.chat_session.send_message(prompt)
+          response = client.models.generate_content(
+              model="gemini-2.5-flash", contents=context_payload
+          )
           response_text = response.text
           break
         except Exception as e:
@@ -242,7 +208,6 @@ if prompt := st.chat_input("Ask your coach anything..."):
         )
       else:
         st.warning(
-            "⚠️ Google's servers are experiencing temporary high traffic (503"
-            " Unavailable). Please wait a moment and try sending your message"
-            " again."
+            "⚠️ Google's servers are experiencing high traffic. Please try"
+            " sending your message again in a few seconds."
         )
