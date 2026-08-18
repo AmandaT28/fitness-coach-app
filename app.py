@@ -36,11 +36,61 @@ google_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
-# App UI Configuration
-st.set_page_config(page_title="AI Sports Science Coach • Multi-Sport Elite Suite", page_icon="🚴‍♂️", layout="wide")
+# App UI Configuration & Mobile-Responsive Custom CSS Styling
+st.set_page_config(page_title="AI Sports Science Coach • Elite Suite", page_icon="🚴‍♂️", layout="wide")
 
-st.title("🚴‍♂️🏃‍♂️ AI Sports Science Coach • Multi-Sport, Strength & Automated Safety Suite")
-st.caption("Powered by Intervals.icu, Supabase, Multi-LLM Fallbacks, and Automated Overtraining Protection")
+st.markdown("""
+<style>
+    /* Global Card & Container Styling */
+    .stCard {
+        background-color: var(--background-secondary-color, #ffffff);
+        border: 1px solid rgba(128, 128, 128, 0.15);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 16px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+    }
+    
+    /* Metric Card Polish */
+    div[data-testid="stMetric"] {
+        background-color: rgba(128, 128, 128, 0.03);
+        border: 1px solid rgba(128, 128, 128, 0.1);
+        padding: 14px 18px;
+        border-radius: 10px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.01);
+    }
+
+    /* Button Polish */
+    .stButton > button {
+        border-radius: 8px;
+        font-weight: 600;
+        transition: all 0.2s ease-in-out;
+    }
+    
+    /* Tab Container Spacing */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px 8px 0px 0px;
+        padding: 10px 16px;
+        font-weight: 500;
+    }
+
+    /* Mobile Responsive Adjustments */
+    @media (max-width: 768px) {
+        .main .block-container {
+            padding: 1rem 0.75rem;
+        }
+        h1 {
+            font-size: 1.75rem !important;
+        }
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🚴‍♂️🏃‍♂️ AI Sports Science Coach")
+st.caption("Multi-Sport Elite Command Center • Intervals.icu & Multi-LLM Integrated")
 
 # --- MULTI-PROVIDER CROSS-PROVIDER FALLBACK ROUTER ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain", is_stream=False):
@@ -119,7 +169,7 @@ if not st.session_state.user:
     with auth_tab1:
         login_email = st.text_input("Email", key="login_email")
         login_pass = st.text_input("Password", type="password", key="login_pass")
-        if st.button("Log In", type="primary"):
+        if st.button("Log In", type="primary", use_container_width=True):
             try:
                 res = supabase.auth.sign_in_with_password({"email": login_email, "password": login_pass})
                 st.session_state.user = res.user
@@ -130,7 +180,7 @@ if not st.session_state.user:
     with auth_tab2:
         signup_email = st.text_input("Email", key="signup_email")
         signup_pass = st.text_input("Password", type="password", key="signup_pass")
-        if st.button("Create Account", type="primary"):
+        if st.button("Create Account", type="primary", use_container_width=True):
             try:
                 res = supabase.auth.sign_up({"email": signup_email, "password": signup_pass})
                 st.session_state.user = res.user
@@ -155,7 +205,7 @@ if not user_profile or not user_profile.get("intervals_api_key") or not user_pro
     with st.form("setup_form"):
         input_api_key = st.text_input("Intervals.icu API Key", type="password")
         input_athlete_id = st.text_input("Intervals.icu Athlete ID")
-        submitted = st.form_submit_button("Save & Launch")
+        submitted = st.form_submit_button("Save & Launch", use_container_width=True)
         if submitted and input_api_key and input_athlete_id:
             supabase.table("profiles").upsert({"id": USER_ID, "intervals_api_key": input_api_key.strip(), "intervals_athlete_id": input_athlete_id.strip()}).execute()
             st.rerun()
@@ -203,26 +253,33 @@ def fetch_planned_workouts(athlete_id, api_key):
     return res.json() if res.status_code == 200 else []
   except Exception: return []
 
-def fetch_weather_intelligence():
+def fetch_rain_intelligence():
   try:
-    url = "https://api.open-meteo.com/v1/forecast?latitude=1.3521&longitude=103.8198&current=temperature_2m,relative_humidity_2m,wind_speed_10m"
+    # Fetch precipitation & weather code silently in background to determine indoor alternatives
+    url = "https://api.open-meteo.com/v1/forecast?latitude=1.3521&longitude=103.8198&current=precipitation,weather_code"
     res = requests.get(url, timeout=5)
-    return res.json().get("current", {})
-  except Exception: return {}
+    data = res.json().get("current", {})
+    precip = data.get("precipitation", 0.0)
+    w_code = data.get("weather_code", 0)
+    # WMO Weather interpretation codes: 51-67, 80-82 indicate rain/showers
+    is_raining = precip > 0.1 or w_code in [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99]
+    return is_raining
+  except Exception:
+    return False
 
-with st.spinner("Syncing multi-sport telemetry & safety metrics..."):
+with st.spinner("Syncing multi-sport telemetry & weather intelligence..."):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_wellness = executor.submit(fetch_intervals_wellness, ATHLETE_ID, INTERVALS_API_KEY)
         future_activities = executor.submit(fetch_recent_activities, ATHLETE_ID, INTERVALS_API_KEY)
         future_stats = executor.submit(fetch_athlete_stats, ATHLETE_ID, INTERVALS_API_KEY)
         future_planned = executor.submit(fetch_planned_workouts, ATHLETE_ID, INTERVALS_API_KEY)
-        future_weather = executor.submit(fetch_weather_intelligence)
+        future_rain = executor.submit(fetch_rain_intelligence)
 
         wellness_list = future_wellness.result()
         activities_data = future_activities.result()
         athlete_stats = future_stats.result()
         planned_data = future_planned.result()
-        weather_data = future_weather.result()
+        is_raining = future_rain.result()
 
 ctl, atl, tsb, sleep_score, hrv = 0, 0, 0, 0, 0
 if wellness_list:
@@ -243,25 +300,18 @@ if "goals" not in st.session_state:
         "kpi_target": "Maintain 4.2 W/kg cycling while building running aerobic base"
     }
 
-if "webhook_url" not in st.session_state:
-    st.session_state.webhook_url = ""
-
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "model", "content": "Hello! Multi-sport engine & automated safety sentinel active. Cycling + Running + S&C monitored."}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! Multi-sport engine active. Cycling (Primary) + Running (Secondary) + Strength integration ready."}]
 
 if "debrief_logs" not in st.session_state: st.session_state.debrief_logs = []
 if "periodization_review" not in st.session_state: st.session_state.periodization_review = None
 
 with st.sidebar:
-    st.write(f"👤 **{st.session_state.user.email}**")
+    st.markdown(f"👤 **{st.session_state.user.email}**")
     selected_provider = st.selectbox("AI Engine", ["⚡ Auto-Fallback Chain", "OpenAI GPT", "Anthropic Claude", "Google Gemini"])
     
     st.markdown("---")
-    st.header("🚨 Safety & Push Notifications")
-    st.session_state.webhook_url = st.text_input("Discord/Telegram Webhook URL", value=st.session_state.webhook_url, type="password", help="Enter a webhook URL to receive automated push alerts when TSB drops too low.")
-    
-    st.markdown("---")
-    st.header("🎯 Multi-Sport & Strength Goals")
+    st.subheader("🎯 Multi-Sport & Strength Goals")
     with st.form("goal_form"):
         st.session_state.goals["primary_sport"] = st.selectbox("Primary Sport", ["Cycling (Road)", "Cycling (Time Trial)", "Gravel"], index=0)
         st.session_state.goals["secondary_sport"] = st.selectbox("Secondary Sport", ["Running", "Trail Running", "Swimming", "None"], index=0)
@@ -269,85 +319,60 @@ with st.sidebar:
         st.session_state.goals["event_name"] = st.text_input("Event / Objective", value=st.session_state.goals["event_name"])
         st.session_state.goals["kpi_target"] = st.text_input("KPI Target", value=st.session_state.goals["kpi_target"])
         st.session_state.goals["event_date"] = st.date_input("Target Date", value=st.session_state.goals["event_date"])
-        if st.form_submit_button("Update Strategy"): st.success("Strategy updated.")
+        if st.form_submit_button("Update Strategy", use_container_width=True): st.success("Strategy updated.")
 
     st.markdown("---")
-    if st.button("🗑️ Clear Chat History"):
+    if st.button("🗑️ Clear Chat History", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
 
-    if st.button("Log Out"):
+    if st.button("Log Out", use_container_width=True):
         supabase.auth.sign_out()
         st.session_state.user = None
         st.rerun()
 
 days_to_event = (st.session_state.goals["event_date"] - datetime.date.today()).days
 
-# --- AUTOMATED SAFETY EVALUATION ENGINE ---
-def evaluate_safety_risk(tsb, strength_freq, secondary_sport):
-    risk = "NORMAL"
-    msg = "Training load is balanced across your sports and recovery."
-    if tsb < -25 and strength_freq >= 2 and secondary_sport != "None":
-        risk = "HIGH"
-        msg = f"CRITICAL OVERREACHING RISK: TSB is deeply negative ({tsb:.1f}) while maintaining {secondary_sport} and {strength_freq}x weekly strength sessions. High risk of neuromuscular breakdown or overuse injury. Immediate recovery or strength tapering required."
-    elif tsb < -15:
-        risk = "MODERATE"
-        msg = f"ELEVATED FATIGUE: Form TSB is {tsb:.1f}. Monitor running impact loads and leg strength volume closely this week."
-    return risk, msg
-
-def send_push_alert(webhook_url, message):
-    if not webhook_url: return False
-    try:
-        payload = {"content": f"🚨 **AI Coach Safety Alert**: {message}"} if "discord" in webhook_url else {"text": f"🚨 AI Coach Safety Alert: {message}"}
-        res = requests.post(webhook_url, json=payload, timeout=5)
-        return res.status_code in [200, 204]
-    except:
-        return False
-
-safety_risk, safety_msg = evaluate_safety_risk(tsb, st.session_state.goals["strength_sessions_per_week"], st.session_state.goals["secondary_sport"])
-
 # --- NAVIGATION SUITE ---
 tab_dash, tab_coach, tab_strength, tab_fuel, tab_fit, tab_debrief, tab_cal = st.tabs([
-    "📊 Dashboard", "🤖 AI Coach", "🏋️‍♂️ Strength & S&C", "⚡ Fueling", "📈 Multi-Sport Fit", "📝 Debrief", "📅 Calendar"
+    "📊 Dashboard", "🤖 AI Coach", "🏋️‍♂️ Strength", "⚡ Fueling", "📈 Fit", "📝 Debrief", "📅 Calendar"
 ])
 
 # ================= TAB 1: DASHBOARD =================
 with tab_dash:
-    st.markdown("### Multi-Sport Readiness & Automated Safety Sentinel")
-    
-    # --- AUTOMATED FATIGUE & OVERTRAINING ALERT BANNER ---
-    if safety_risk == "HIGH":
-        st.error(f"🚨 **HIGH OOVERTRAINING RISK DETECTED**\n\n{safety_msg}")
-        if st.session_state.webhook_url:
-            if st.button("📤 Send Immediate Push Alert via Webhook"):
-                if send_push_alert(st.session_state.webhook_url, safety_msg):
-                    st.success("Push notification sent successfully!")
-                else:
-                    st.error("Failed to deliver webhook alert.")
-    elif safety_risk == "MODERATE":
-        st.warning(f"⚠️ **Moderate Fatigue Warning**: {safety_msg}")
-    else:
-        st.success(f"🟢 **Status Normal**: {safety_msg}")
+    # --- DAILY BRIEFING CARD WITH RAIN & INDOOR ALTERNATIVE INTELLIGENCE ---
+    st.markdown("### ☀️ Daily Coaching Briefing Card")
+    with st.container():
+        brief_col1, brief_col2 = st.columns([3, 1])
+        with brief_col1:
+            weather_advisory = (
+                "🌧️ **Rain / Wet Weather Alert:** Outdoor conditions are unfavorable. Switch to indoor smart trainer plans (e.g., MyWhoosh / Zwift structured workouts) or shift to a gym strength session."
+                if is_raining else
+                "☀️ **Weather Clear:** Outdoor routes are fully viable for your planned sessions."
+            )
+            st.info(
+                f"**Today's Focus:** Balancing your primary **{st.session_state.goals['primary_sport']}** session with secondary **{st.session_state.goals['secondary_sport']}** and **{st.session_state.goals['strength_sessions_per_week']}x weekly gym work**.\n\n"
+                f"{weather_advisory}\n\n"
+                f"**Readiness Audit:** Form TSB is currently `{tsb:.1f}`. Sleep score is logged at `{sleep_score}/100`. "
+                f"{'🟢 Body is primed for high output.' if tsb >= -15 else '🟡 Fatigue is building; prioritize recovery pacing.'}"
+            )
+        with brief_col2:
+            st.metric("Event Countdown", f"{days_to_event} Days")
 
+    st.markdown("---")
+    st.markdown("### Training Load Overview")
+    
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Fitness (CTL)", round(ctl, 1))
     m2.metric("Fatigue (ATL)", round(atl, 1))
     m3.metric("Form (TSB)", round(tsb, 1))
     m4.metric("Sleep Score", f"{sleep_score}/100" if sleep_score > 0 else "N/A")
 
-    if weather_data:
-        st.markdown("---")
-        st.subheader("🌤️ Environmental Conditions")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Temperature", f"{weather_data.get('temperature_2m')} °C")
-        c2.metric("Humidity", f"{weather_data.get('relative_humidity_2m')}%")
-        c3.metric("Wind Speed", f"{weather_data.get('wind_speed_10m')} km/h")
-
     st.markdown("---")
     st.subheader("🔄 Proactive Multi-Sport Periodization")
     if st.button("Run Periodization Audit", type="primary"):
         with st.spinner("Analyzing cycling, running, and strength balance..."):
-            prompt = f"Audit my multi-sport plan. Primary: {st.session_state.goals['primary_sport']}, Secondary: {st.session_state.goals['secondary_sport']}, Strength: {st.session_state.goals['strength_sessions_per_week']}x/wk. CTL: {ctl}, TSB: {tsb}. Safety Risk Level: {safety_risk}. Event in {days_to_event} days."
+            prompt = f"Audit my multi-sport plan. Primary: {st.session_state.goals['primary_sport']}, Secondary: {st.session_state.goals['secondary_sport']}, Strength: {st.session_state.goals['strength_sessions_per_week']}x/wk. Rain Status: {'Raining - Suggesting indoor alternatives' if is_raining else 'Clear'}. CTL: {ctl}, TSB: {tsb}. Event in {days_to_event} days."
             res, model = execute_multiprovider_generation(prompt, preferred_provider=selected_provider)
             st.session_state.periodization_review = f"{res}\n\n*(Engine: {model})*"
             st.rerun()
@@ -372,7 +397,8 @@ with tab_coach:
                 payload = f"""
                 You are an elite endurance coach specializing in multi-sport athletes where {st.session_state.goals['primary_sport']} is primary and {st.session_state.goals['secondary_sport']} is secondary, supported by {st.session_state.goals['strength_sessions_per_week']} weekly gym sessions.
                 GOALS: {st.session_state.goals}
-                METRICS: CTL={ctl}, ATL={atl}, TSB={tsb} (Safety Risk: {safety_risk}).
+                METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.
+                WEATHER STATUS: {'Raining (Outdoor rides blocked; suggest indoor trainer/MyWhoosh or gym alternatives)' if is_raining else 'Clear'}
                 RECENT ACTIVITIES: {activities_data}
                 
                 Provide precise coaching advice, balancing aerobic load with injury prevention and strength work. If prescribing a workout, include exact wattage or pace zones and structural sets.
@@ -435,7 +461,7 @@ with tab_debrief:
         d_sport = st.selectbox("Sport", ["Cycling", "Running", "Strength"])
         d_rpe = st.slider("RPE (1-10)", 1, 10, 5)
         d_notes = st.text_area("Notes")
-        if st.form_submit_button("Save Debrief"):
+        if st.form_submit_button("Save Debrief", use_container_width=True):
             st.session_state.debrief_logs.append({"date": str(d_date), "sport": d_sport, "rpe": d_rpe, "notes": d_notes})
             st.success("Debrief saved to AI context memory!")
 
