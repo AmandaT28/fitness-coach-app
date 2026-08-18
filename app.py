@@ -24,7 +24,7 @@ if not GEMINI_API_KEY:
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# App UI Configuration - Render this FIRST so the page doesn't look blank
+# App UI Configuration
 st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂️", layout="wide")
 
 st.title("🚴‍♂️ AI Sports Science Coach")
@@ -34,15 +34,15 @@ st.caption("Live Endurance Performance Engine • Powered by Garmin & Intervals.
 @st.cache_data(ttl=300, show_spinner=False) 
 def fetch_intervals_wellness():
   try:
-    end_date = datetime.date.today().isoformat()
+    end_date = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
     start_date = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
     url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/wellness?oldest={start_date}&newest={end_date}"
     res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
     if res.status_code == 200 and res.json():
-        return res.json()[-1]
-    return {}
+        return res.json() # Return the FULL list of the last 7 days, not just the last entry
+    return []
   except Exception:
-    return {}
+    return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_recent_activities():
@@ -83,17 +83,27 @@ with st.spinner("Syncing live metrics from Intervals.icu..."):
         future_stats = executor.submit(fetch_athlete_stats)
         future_planned = executor.submit(fetch_planned_workouts)
 
-        wellness_data = future_wellness.result()
+        wellness_list = future_wellness.result()
         activities_data = future_activities.result()
         athlete_stats = future_stats.result()
         planned_data = future_planned.result()
 
-# Extract Metrics & Zones Properly
-ctl = wellness_data.get("ctl", 0)
-atl = wellness_data.get("atl", 0)
-tsb = wellness_data.get("tsb", 0)
-sleep_score = wellness_data.get("sleepScore", 0)
-hrv = wellness_data.get("hrv", 0)
+# Extract Metrics Safely by Scanning Backwards for Valid Data
+ctl, atl, tsb, sleep_score, hrv = 0, 0, 0, 0, 0
+
+if wellness_list:
+    # Get load metrics from the most recent day
+    latest_record = wellness_list[-1]
+    ctl = latest_record.get("ctl", 0)
+    atl = latest_record.get("atl", 0)
+    tsb = latest_record.get("tsb", 0)
+    
+    # Scan backward through the last 7 days to find the most recent valid Sleep and HRV
+    for record in reversed(wellness_list):
+        if sleep_score == 0 and record.get("sleepScore"):
+            sleep_score = record.get("sleepScore")
+        if hrv == 0 and record.get("hrv"):
+            hrv = record.get("hrv")
 
 athlete_zones = {
     "ftp": athlete_stats.get("ftp", athlete_stats.get("icu_ftp", "Unknown")),
@@ -128,17 +138,29 @@ with st.sidebar:
       report_prompt = (
           "Generate a formal Weekly Progress Report. Review past 14 days of "
           f"completed activities ({activities_data}) against planned calendar events ({planned_data}). "
-          f"Analyze overall metrics ({athlete_stats}), and recovery trends ({wellness_data}) against goals: "
+          f"Analyze overall metrics ({athlete_stats}), and recovery trends (Sleep: {sleep_score}, HRV: {hrv}) against goals: "
           f"'{st.session_state.performance_goals}' and event date ({st.session_state.event_date}). "
           "Critique pacing compliance and suggest adjustments."
       )
-      try:
-        res = client.models.generate_content(
-            model="gemini-3.6-flash", contents=report_prompt
-        )
-        st.session_state.weekly_report = res.text
-      except Exception as e:
-        st.error(f"Could not generate report: {e}")
+      
+      report_response = None
+      for attempt in range(3):
+          try:
+            res = client.models.generate_content(
+                model="gemini-3.6-flash", contents=report_prompt
+            )
+            report_response = res.text
+            break
+          except Exception as e:
+            if "503" in str(e) and attempt < 2:
+                time.sleep(2 ** attempt) 
+                continue
+            st.error(f"Could not generate report: {e}")
+            break
+      
+      if report_response:
+          st.session_state.weekly_report = report_response
+          st.rerun()
 
 # --- 3. DASHBOARD METRICS ---
 if tsb < -25 or (sleep_score > 0 and sleep_score < 60):
@@ -256,7 +278,7 @@ if prompt := st.chat_input("Ask your coach to build a MyWhoosh workout, check yo
             - Setup: Cervélo Soloist (Size 48), custom cockpit, S-Works Power Pro Mirror saddle, Magene TEO P515 power meter / 160mm crankset.
             - Bio-mechanics: Flexible flat feet, some hypermobility.
             GOALS: {st.session_state.performance_goals} (Target Event in {days_to_event} days)
-            READINESS: {readiness_status} | CTL: {ctl} | ATL: {atl} | TSB: {tsb} | Sleep: {sleep_score}
+            READINESS: {readiness_status} | CTL: {ctl} | ATL: {atl} | TSB: {tsb} | Sleep: {sleep_score} | HRV: {hrv}
             POWER & HR ZONES: {athlete_zones}
             PLANNED WORKOUTS (Calendar): {planned_data}
             RECENT ACTIVITIES (Completed): {activities_data}
@@ -271,13 +293,21 @@ if prompt := st.chat_input("Ask your coach to build a MyWhoosh workout, check yo
       for msg in st.session_state.messages:
         context_payload += f"\n{msg['role'].upper()}: {msg['content']}\n"
 
-      try:
-        response = client.models.generate_content(
-            model="gemini-3.6-flash", contents=context_payload
-        )
-        
-        st.session_state.messages.append({"role": "model", "content": response.text})
-        st.rerun()
-        
-      except Exception as e:
-        st.error(f"⚠️ API Error: {str(e)}")
+      response_text = None
+      for attempt in range(3):
+          try:
+            res = client.models.generate_content(
+                model="gemini-3.6-flash", contents=context_payload
+            )
+            response_text = res.text
+            break
+          except Exception as e:
+            if "503" in str(e) and attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
+            st.error(f"⚠️ API Error: {str(e)}")
+            break
+      
+      if response_text:
+          st.session_state.messages.append({"role": "model", "content": response_text})
+          st.rerun()
