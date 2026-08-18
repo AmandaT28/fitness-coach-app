@@ -145,6 +145,10 @@ if st.session_state.weekly_report:
 system_instruction = f"""
     You are an elite endurance sports science coach specializing in cycling and running. You evaluate the athlete's performance, track improvements, and manage a continuous feedback loop.
 
+    ATHLETE PROFILE & EQUIPMENT CONTEXT:
+    - Bike Setup: Cervélo Soloist (Size 48), custom cockpit, S-Works Power Pro Mirror saddle, Magene TEO P515 power meter/ 160mm crankset.
+    - Physical Considerations: Flexible flat feet, some hypermobility.
+    
     CURRENT PERFORMANCE GOALS:
     {st.session_state.performance_goals}
 
