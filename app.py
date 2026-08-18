@@ -138,7 +138,7 @@ if "messages" not in st.session_state:
         else:
             st.session_state.messages = [{
                 "role": "model",
-                "content": f"Hello! Irading telemetry synced. Your chat history is now linked to Supabase cloud across all your devices."
+                "content": f"Hello! Telemetry synced. Your chat history is linked to Supabase cloud across all your devices. Ask me to evaluate your training targets or build a workout!"
             }]
     except Exception:
         st.session_state.messages = [{"role": "model", "content": "Hello! Running in local fallback mode."}]
@@ -279,7 +279,7 @@ with tab_dash:
 # ================= TAB 2: AI COACH & WORKOUT BUILDER =================
 with tab_coach:
     st.markdown("### Interactive AI Sports Scientist")
-    st.caption("Ask for structured workouts, pacing review, or MyWhoosh `.zwo` file generation. Chat history syncs via Supabase.")
+    st.caption("Ask for a target feasibility review, structured workouts, pacing check, or MyWhoosh `.zwo` export.")
 
     # Render chat message history safely inside the tab layout
     for i, message in enumerate(st.session_state.messages):
@@ -308,7 +308,7 @@ with tab_coach:
                 pass
 
     # Chat input placed cleanly at the bottom of Tab 2
-    if prompt := st.chat_input("Ask your coach to build a MyWhoosh workout, check your pacing, or plan your week...", key="coach_chat_input"):
+    if prompt := st.chat_input("Ask: 'Are my current targets reasonable and how do I get there?'...", key="coach_chat_input"):
       st.session_state.messages.append({"role": "user", "content": prompt})
       
       # Save user prompt to Supabase cloud database
@@ -321,23 +321,24 @@ with tab_coach:
         st.markdown(prompt)
 
       with st.chat_message("model"):
-        with st.spinner("Synthesizing telemetry and writing prescription..."):
+        with st.spinner("Analyzing telemetry against targets and formulating roadmap..."):
           
           context_payload = f"""
                 You are an elite endurance sports science coach.
                 ATHLETE PROFILE & EQUIPMENT: 
                 - Setup: Cervélo Soloist (Size 48), custom cockpit, S-Works Power Pro Mirror saddle, Magene TEO P515 power meter / 160mm crankset.
                 - Bio-mechanics: Flexible flat feet, some hypermobility.
-                GOALS: {st.session_state.performance_goals} (Target Event in {days_to_event} days)
-                READINESS: {readiness_status} | CTL: {ctl} | ATL: {atl} | TSB: {tsb} | Sleep: {sleep_score} | HRV: {hrv}
+                GOALS & TARGETS: {st.session_state.performance_goals} (Target Event in {days_to_event} days on {st.session_state.event_date})
+                READINESS: {readiness_status} | CTL (Fitness): {ctl} | ATL (Fatigue): {atl} | TSB (Form): {tsb} | Sleep: {sleep_score} | HRV: {hrv}
                 POWER & HR ZONES: {athlete_zones}
                 PLANNED WORKOUTS (Calendar): {planned_data}
                 RECENT ACTIVITIES (Completed): {activities_data}
 
                 COACHING INSTRUCTIONS:
-                1. FEEDBACK LOOP: Compare 'Planned Workouts' vs 'Recent Activities'. Critique pacing discipline and compliance.
-                2. PLAN FORMULATION: If asked for a workout, prescribe exact watts based on the athlete's FTP and zones. Structure as Warmup -> Main Set -> Cool Down. Factor in 160mm cranks and joint health by managing cadence requests.
-                3. INDOOR EXPORT (MYWHOOSH): If the athlete asks for a MyWhoosh or Zwift workout, generate the exact XML structure for a `.zwo` file. 
+                1. TARGET FEASIBILITY & ROADMAP: Critically evaluate whether the athlete's stated goals and event timeline ({days_to_event} days away) are reasonable given their current CTL, ATL, TSB, and recovery. Provide a clear, structured, actionable roadmap on how to bridge the gap safely without overtraining. Factor in their biomechanics (flexible flat feet, hypermobility) and equipment (160mm cranks).
+                2. FEEDBACK LOOP: Compare 'Planned Workouts' vs 'Recent Activities'. Critique pacing discipline and compliance.
+                3. PLAN FORMULATION: If asked for a workout, prescribe exact watts based on the athlete's FTP and zones. Structure as Warmup -> Main Set -> Cool Down. Factor in 160mm cranks and joint health by managing cadence requests.
+                4. INDOOR EXPORT (MYWHOOSH): If the athlete asks for a MyWhoosh or Zwift workout, generate the exact XML structure for a `.zwo` file. 
                    - YOU MUST wrap the raw XML code strictly inside `<workout_file>` and `</workout_file>` tags at the very end of your response. 
                    - Do not put markdown around the XML tags.
                 """
