@@ -1,6 +1,7 @@
 import datetime
 import os
 import time
+import concurrent.futures
 from dotenv import load_dotenv
 from google import genai
 import requests
@@ -23,7 +24,7 @@ if not GEMINI_API_KEY:
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# App UI Configuration
+# App UI Configuration - Render this FIRST so the page doesn't look blank
 st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂️", layout="wide")
 
 st.title("🚴‍♂️ AI Sports Science Coach")
@@ -36,7 +37,7 @@ def fetch_intervals_wellness():
     end_date = datetime.date.today().isoformat()
     start_date = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
     url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/wellness?oldest={start_date}&newest={end_date}"
-    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
     if res.status_code == 200 and res.json():
         return res.json()[-1]
     return {}
@@ -49,7 +50,7 @@ def fetch_recent_activities():
     end_date = datetime.date.today().isoformat()
     start_date = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
     url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/activities?oldest={start_date}&newest={end_date}"
-    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
     return res.json() if res.status_code == 200 else []
   except Exception:
     return []
@@ -58,7 +59,7 @@ def fetch_recent_activities():
 def fetch_athlete_stats():
   try:
     url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}"
-    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
     return res.json() if res.status_code == 200 else {}
   except Exception:
     return {}
@@ -69,16 +70,25 @@ def fetch_planned_workouts():
     end_date = (datetime.date.today() + datetime.timedelta(days=7)).isoformat()
     start_date = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
     url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events?oldest={start_date}&newest={end_date}"
-    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+    res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
     return res.json() if res.status_code == 200 else []
   except Exception:
     return []
 
-# Fetch Data
-wellness_data = fetch_intervals_wellness()
-activities_data = fetch_recent_activities()
-athlete_stats = fetch_athlete_stats()
-planned_data = fetch_planned_workouts()
+# --- PARALLEL DATA FETCHING FOR INSTANT LOAD ---
+with st.spinner("Syncing live metrics from Intervals.icu..."):
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Launch all 4 API requests at the exact same time
+        future_wellness = executor.submit(fetch_intervals_wellness)
+        future_activities = executor.submit(fetch_recent_activities)
+        future_stats = executor.submit(fetch_athlete_stats)
+        future_planned = executor.submit(fetch_planned_workouts)
+
+        # Collect the results as they finish
+        wellness_data = future_wellness.result()
+        activities_data = future_activities.result()
+        athlete_stats = future_stats.result()
+        planned_data = future_planned.result()
 
 # Extract Metrics & Zones Properly
 ctl = wellness_data.get("ctl", 0)
@@ -224,63 +234,4 @@ for i, message in enumerate(st.session_state.messages):
             workout_xml = message["content"].split("<workout_file>")[1].split("</workout_file>")[0].strip()
             # Clean up potential markdown code blocks
             if workout_xml.startswith("```xml"):
-                workout_xml = workout_xml.replace("```xml", "").replace("```", "").strip()
-            
-            st.download_button(
-                label="⬇️ Download Workout for MyWhoosh (.zwo)",
-                data=workout_xml,
-                file_name=f"Coach_Workout_{datetime.date.today()}.zwo",
-                mime="application/xml",
-                type="primary",
-                key=f"download_{i}" # Unique key required for each button in Streamlit
-            )
-        except Exception:
-            pass
-
-# MUST BE LAST ELEMENT: Chat Input Area
-if prompt := st.chat_input("Ask your coach to build a MyWhoosh workout, check your pacing, or plan your week..."):
-  
-  # Append user prompt and show it
-  st.session_state.messages.append({"role": "user", "content": prompt})
-  with st.chat_message("user"):
-    st.markdown(prompt)
-
-  with st.chat_message("model"):
-    with st.spinner("Analyzing metrics and formulating plan..."):
-      
-      # Build precise coaching context for the model
-      context_payload = f"""
-            You are an elite endurance sports science coach.
-            ATHLETE PROFILE & EQUIPMENT: 
-            - Setup: Cervélo Soloist (Size 48), custom cockpit, S-Works Power Pro Mirror saddle, Magene TEO P515 power meter / 160mm crankset.
-            - Bio-mechanics: Flexible flat feet, some hypermobility.
-            GOALS: {st.session_state.performance_goals} (Target Event in {days_to_event} days)
-            READINESS: {readiness_status} | CTL: {ctl} | ATL: {atl} | TSB: {tsb} | Sleep: {sleep_score}
-            POWER & HR ZONES: {athlete_zones}
-            PLANNED WORKOUTS (Calendar): {planned_data}
-            RECENT ACTIVITIES (Completed): {activities_data}
-
-            COACHING INSTRUCTIONS:
-            1. FEEDBACK LOOP: Compare 'Planned Workouts' vs 'Recent Activities'. Critique pacing discipline and compliance.
-            2. PLAN FORMULATION: If asked for a workout, prescribe exact watts based on the athlete's FTP and zones. Structure as Warmup -> Main Set -> Cool Down. Factor in 160mm cranks and joint health by managing cadence requests.
-            3. INDOOR EXPORT (MYWHOOSH): If the athlete asks for a MyWhoosh or Zwift workout, generate the exact XML structure for a `.zwo` file. 
-               - YOU MUST wrap the raw XML code strictly inside `<workout_file>` and `</workout_file>` tags at the very end of your response. 
-               - Do not put markdown around the XML tags.
-            """
-      # Inject previous chat history
-      for msg in st.session_state.messages:
-        context_payload += f"\n{msg['role'].upper()}: {msg['content']}\n"
-
-      try:
-        response = client.models.generate_content(
-            model="gemini-3.6-flash", contents=context_payload
-        )
-        
-        # Save model response
-        st.session_state.messages.append({"role": "model", "content": response.text})
-        
-        # Display the text immediately (trigger a rerun to cleanly render the download button)
-        st.rerun()
-        
-      except Exception as e:
-        st.error(f"⚠️ API Error: {str(e)}")
+                workout_xml = workout_xml.replace("
