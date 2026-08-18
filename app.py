@@ -93,7 +93,7 @@ st.markdown("""
 st.title("🚴‍♂️🏃‍♂️ AI Sports Science Coach")
 st.caption("Multi-Sport Elite Command Center • Intervals.icu & Multi-LLM Integrated")
 
-# --- MULTI-PROVIDER CROSS-PROVIDER FALLBACK ROUTER (Gemini 3.5+ & Fallbacks) ---
+# --- MULTI-PROVIDER CROSS-PROVIDER FALLBACK ROUTER ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain", is_stream=False):
     def call_openai(stream=False):
         if not openai_client: raise Exception("OpenAI API key missing")
@@ -121,8 +121,7 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
 
     def call_google(stream=False):
         if not google_client: raise Exception("Google API key missing")
-        # Modern Gemini 3 & 3.5/3.7 models with safe fallbacks
-        models = ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-2.5-flash"]
+        models = ["gemini-2.5-flash", "gemini-1.5-flash"]
         last_err = None
         for m in models:
             try:
@@ -224,6 +223,7 @@ ATHLETE_ID = user_profile["intervals_athlete_id"]
 if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict):
     st.session_state.goals = {}
 
+# Ensure all default keys exist
 st.session_state.goals.setdefault("primary_sport", "Cycling (Road)")
 st.session_state.goals.setdefault("event_name", "Target Gran Fondo / Race")
 st.session_state.goals.setdefault("event_date", datetime.date.today() + datetime.timedelta(days=60))
@@ -373,7 +373,7 @@ if wellness_list:
         if hrv == 0 and r.get("hrv"): hrv = r.get("hrv")
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "model", "content": "Hello! Elite Coaching engine active with Gemini 3.5/3.7 reasoning core. Your target goals and live readiness loop are synced."}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! Elite Coaching engine active. Your target goals and live readiness loop are synced."}]
 
 if "debrief_logs" not in st.session_state: st.session_state.debrief_logs = []
 if "periodization_review" not in st.session_state: st.session_state.periodization_review = None
@@ -589,3 +589,31 @@ with tab_strat:
                     )
                     try:
                         route_res, route_model = execute_multiprovider_generation(route_prompt, preferred_provider=selected_provider)
+                        st.markdown("---")
+                        st.markdown(route_res)
+                        st.caption(f"Generated via: {route_model}")
+                    except Exception as e:
+                        st.error(f"Strategy Generation Failed: {str(e)}")
+        else:
+            st.error("Could not parse the uploaded GPX file. Ensure it contains valid track points and elevation data.")
+
+# ================= TAB 4: STRENGTH =================
+with tab_strength:
+    st.markdown("### 🏋️‍♂️ Strength & Conditioning for Event Durability")
+    st.caption(f"Targeted strength sessions designed to support your objective of: *{st.session_state.goals['target_metric']}*.")
+    
+    st_focus = st.selectbox("Select Focus Area", [
+        "Cycling Force & Posterior Chain (Deadlifts, Bulgarian Split Squats)", 
+        "Running Durability & Core Stability (Single-leg stability, Plyometrics)", 
+        "Full Body Injury Prevention & Mobility"
+    ])
+    
+    if st.button("Generate Custom S&C Workout", type="primary"):
+        with st.spinner("Designing strength session..."):
+            sc_prompt = f"{equipment_context}\nDesign a 45-minute gym strength workout tailored for event '{st.session_state.goals['event_name']}' focusing on: {st_focus}. Include exercise name, sets, reps, and specific endurance carryover notes."
+            try:
+                sc_res, sc_model = execute_multiprovider_generation(sc_prompt, preferred_provider=selected_provider)
+                st.markdown(sc_res)
+                st.caption(f"Generated via: {sc_model}")
+            except Exception as e:
+                st.error(f"Workout Generation Failed: {str(e)}")
