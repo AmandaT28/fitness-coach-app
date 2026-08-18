@@ -81,14 +81,17 @@ with st.spinner("Syncing complete Garmin & Intervals.icu data..."):
   activities_data = fetch_recent_activities()
   athlete_stats = fetch_athlete_stats()
 
-# Initialize session state for performance goals if it doesn't exist
+# Initialize session state for performance goals and weekly reports
 if "performance_goals" not in st.session_state:
   st.session_state.performance_goals = (
       "Maintain aerobic base, peak for upcoming events, and balance fatigue"
       " (TSB)."
   )
 
-# Sidebar UI for tracking and updating goals
+if "weekly_report" not in st.session_state:
+  st.session_state.weekly_report = None
+
+# Sidebar UI for goals and Weekly Progress Check-In
 with st.sidebar:
   st.header("🎯 Performance Goals")
   new_goal = st.text_area(
@@ -96,9 +99,49 @@ with st.sidebar:
   )
   if st.button("Save Goals"):
     st.session_state.performance_goals = new_goal
-    st.success("Goals updated! Your coach will adapt.")
+    # Clear chat session so it forces a reload with the updated goals
+    if "chat_session" in st.session_state:
+      del st.session_state.chat_session
+    st.success("Goals updated! Coach memory refreshed.")
+    st.rerun()
 
-# Enhanced System Instruction with Memory & Feedback Loop framework
+  st.markdown("---")
+  st.header("📊 Weekly Check-In")
+  st.write(
+      "Generate a comprehensive review of your past week's training and"
+      " improvements."
+  )
+
+  if st.button("Run Weekly Progress Report"):
+    with st.spinner("Analyzing weekly metrics and trends..."):
+      report_prompt = (
+          "Generate a formal Weekly Progress Report. Review the past 7 days"
+          f" of activities ({activities_data}), overall fitness metrics (CTL,"
+          f" ATL, TSB: {athlete_stats}), and recent recovery/wellness trends"
+          f" ({wellness_data}) against my stated goals:"
+          f" '{st.session_state.performance_goals}'. Highlight what went"
+          " well, areas of fatigue accumulation, and actionable adjustments for"
+          " the upcoming week."
+      )
+
+      try:
+        report_response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=report_prompt,
+        )
+        st.session_state.weekly_report = report_response.text
+      except Exception as e:
+        st.error(f"Could not generate report: {e}")
+
+# Display Weekly Report on the main screen if generated
+if st.session_state.weekly_report:
+  with st.expander("📅 Your Latest Weekly Progress Report", expanded=True):
+    st.markdown(st.session_state.weekly_report)
+    if st.button("Clear Report"):
+      st.session_state.weekly_report = None
+      st.rerun()
+
+# Enhanced System Instruction incorporating current goals dynamically
 system_instruction = f"""
     You are an elite endurance sports science coach specializing in cycling and running. You evaluate the athlete's performance, track improvements, and manage a continuous feedback loop.
 
@@ -122,7 +165,7 @@ system_instruction = f"""
     5. Monitor, critique, and evaluate progress against their goals.
     """
 
-# Initialize or re-create chat session if it doesn't exist (Prioritizing stable gemini-2.5-flash)
+# Initialize or re-create chat session automatically whenever goals change
 if "chat_session" not in st.session_state:
   models_to_try = ["gemini-2.5-flash", "gemini-3.7-flash", "gemini-3.6-flash"]
   chat_session = None
@@ -153,8 +196,8 @@ if "messages" not in st.session_state:
       "role": "model",
       "content": (
           "Hello! I'm your Fitness Coach App. I've synced your complete Garmin"
-          " fitness load, recent workouts, and recovery stats. Ask me anything"
-          " about your training status or whether you should train today!"
+          " fitness load, recent workouts, and recovery stats. Use the sidebar"
+          " to update your goals or trigger a Weekly Progress Report!"
       ),
   }]
 
