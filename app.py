@@ -243,7 +243,7 @@ def fetch_athlete_stats(athlete_id, api_key):
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else {}
-  except Exception: return {}
+  except Exception: return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_planned_workouts(athlete_id, api_key):
@@ -270,20 +270,28 @@ def parse_gpx(file_bytes):
   try:
     tree = ET.ElementTree(io.BytesIO(file_bytes))
     root = tree.getroot()
-    elevations = []
     latlons = []
+    elevations = []
+    
     for elem in root.iter():
-      # Support both trkpt (tracks) and rtept (Garmin planned courses)
-      if elem.tag.endswith('trkpt') or elem.tag.endswith('rtept'):
+      # Strip XML namespaces safely (e.g. {http://...}trkpt -> trkpt)
+      tag = elem.tag.split('}')[-1].lower()
+      if tag in ['trkpt', 'rtept', 'wpt']:
         lat = float(elem.attrib.get('lat', 0))
         lon = float(elem.attrib.get('lon', 0))
         latlons.append((lat, lon))
-        has_ele = False
+        
+        ele_found = False
         for child in elem:
-          if child.tag.endswith('ele'):
-            elevations.append(float(child.text))
-            has_ele = True
-        if not has_ele:
+          child_tag = child.tag.split('}')[-1].lower()
+          if child_tag == 'ele':
+            try:
+              elevations.append(float(child.text))
+              ele_found = True
+              break
+            except:
+              pass
+        if not ele_found:
           elevations.append(elevations[-1] if elevations else 0.0)
             
     if not latlons:
@@ -292,7 +300,8 @@ def parse_gpx(file_bytes):
     total_ele_gain = 0
     for i in range(1, len(elevations)):
       diff = elevations[i] - elevations[i-1]
-      if diff > 0: total_ele_gain += diff
+      if diff > 0: 
+        total_ele_gain += diff
         
     total_dist_km = 0
     for i in range(1, len(latlons)):
@@ -311,7 +320,7 @@ def parse_gpx(file_bytes):
         "max_elevation": round(max(elevations), 1) if elevations else 0,
         "min_elevation": round(min(elevations), 1) if elevations else 0
     }
-  except Exception:
+  except Exception as e:
     return None
 
 with st.spinner("Syncing multi-sport telemetry & weather intelligence..."):
