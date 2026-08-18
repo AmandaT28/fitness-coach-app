@@ -14,14 +14,22 @@ try:
 except ImportError:
   pass
 
-# Grab keys from Streamlit Secrets (Cloud) or environment (Local)
-GEMIN_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+# Grab keys from Streamlit Secrets or environment
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 INTERVALS_API_KEY = st.secrets.get("INTERVALS_API_KEY") or os.getenv(
     "INTERVALS_API_KEY"
 )
 ATHLETE_ID = st.secrets.get("INTERVALS_ATHLETE_ID") or os.getenv(
     "INTERVALS_ATHLETE_ID"
 )
+
+# Validate that the API key exists before initializing the client
+if not GEMINI_API_KEY:
+  st.error(
+      "❌ GEMINI_API_KEY is missing! Please configure it in your Streamlit Cloud"
+      " Secrets."
+  )
+  st.stop()
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
