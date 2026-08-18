@@ -122,7 +122,7 @@ with st.sidebar:
       )
       try:
         res = client.models.generate_content(
-            model="gemini-2.5-flash", contents=report_prompt
+            model="gemini-3.6-flash", contents=report_prompt
         )
         st.session_state.weekly_report = res.text
       except Exception as e:
@@ -223,7 +223,9 @@ for message in st.session_state.messages:
   with st.chat_message(message["role"]):
     st.markdown(message["content"])
 
-if prompt := st.chat_input("Ask your coach about workouts, fueling, or pacing..."):
+if prompt := st.chat_input(
+    "Ask your coach about workouts, fueling, or pacing..."
+):
   st.session_state.messages.append({"role": "user", "content": prompt})
   with st.chat_message("user"):
     st.markdown(prompt)
@@ -242,13 +244,11 @@ if prompt := st.chat_input("Ask your coach about workouts, fueling, or pacing...
 
       try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash", 
-            contents=context_payload
+            model="gemini-3.6-flash", contents=context_payload
         )
         st.markdown(response.text)
         st.session_state.messages.append(
             {"role": "model", "content": response.text}
         )
       except Exception as e:
-        # Display the real raw error so we know exactly what is failing
-        st.error(f"⚠️ API Error Details: {str(e)}")
+        st.error(f"⚠️ API Error: {str(e)}")
