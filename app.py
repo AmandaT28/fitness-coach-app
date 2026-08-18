@@ -9,6 +9,9 @@ import anthropic
 import requests
 import streamlit as st
 from supabase import create_client, Client
+import pandas as pd
+import plotly.graph_objects as go
+import io
 
 # Load environment variables safely
 try:
@@ -16,7 +19,7 @@ try:
 except ImportError:
   pass
 
-# Grab backend and multi-provider keys from Streamlit Secrets or environment
+# Grab keys from Streamlit Secrets or environment
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
 GEMINI_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
@@ -35,10 +38,10 @@ openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
 # App UI Configuration
-st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂️", layout="wide")
+st.set_page_config(page_title="AI Sports Science Coach • Pro Suite", page_icon="🚴‍♂️", layout="wide")
 
-st.title("🚴‍♂️ AI Sports Science Coach • Multi-Provider Engine")
-st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu, Supabase & Multi-LLM Fallbacks")
+st.title("🚴‍♂️ AI Sports Science Coach • Ultimate Endurance Command Center")
+st.caption("Powered by Intervals.icu, Supabase, Multi-LLM Fallbacks, and Advanced Performance Tools")
 
 # --- MULTI-PROVIDER CROSS-PROVIDER FALLBACK ROUTER ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain", is_stream=False):
@@ -46,8 +49,6 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
     Tries the preferred provider first, then cascades across OpenAI, Anthropic, 
     and Google Gemini to completely bypass service interruptions and 503 spikes.
     """
-    
-    # Helper wrappers for clean execution
     def call_openai(stream=False):
         if not openai_client: raise Exception("OpenAI API key missing")
         if stream:
@@ -63,7 +64,6 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
     def call_anthropic(stream=False):
         if not anthropic_client: raise Exception("Anthropic API key missing")
         if stream:
-            # Anthropic streaming implementation handled iteratively
             return anthropic_client.messages.stream(
                 model="claude-3-5-sonnet-20241022", max_tokens=2048, messages=[{"role": "user", "content": prompt}]
             ), "Anthropic Claude"
@@ -88,31 +88,30 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
                 continue
         raise last_err
 
-    # 1. Try User's Preferred Provider First
+    active_stack = []
+    if openai_client: active_stack.append(("OpenAI", lambda: call_openai(is_stream)))
+    if anthropic_client: active_stack.append(("Anthropic", lambda: call_anthropic(is_stream)))
+    if google_client: active_stack.append(("Google", lambda: call_google(is_stream)))
+
+    if not active_stack:
+        raise Exception("No AI provider API keys are configured in Streamlit Secrets!")
+
     if preferred_provider == "OpenAI GPT" and openai_client:
-        try: return call_openai(is_stream)
-        except Exception: st.toast("OpenAI busy, falling back...", icon="⚠️")
+        active_stack.insert(0, active_stack.pop([i for i, p in enumerate(active_stack) if p[0] == "OpenAI"][0]))
     elif preferred_provider == "Anthropic Claude" and anthropic_client:
-        try: return call_anthropic(is_stream)
-        except Exception: st.toast("Claude busy, falling back...", icon="⚠️")
+        active_stack.insert(0, active_stack.pop([i for i, p in enumerate(active_stack) if p[0] == "Anthropic"][0]))
     elif preferred_provider == "Google Gemini" and google_client:
-        try: return call_google(is_stream)
-        except Exception: st.toast("Gemini busy, falling back...", icon="⚠️")
+        active_stack.insert(0, active_stack.pop([i for i, p in enumerate(active_stack) if p[0] == "Google"][0]))
 
-    # 2. Universal Cross-Provider Fallback Roster
-    provider_stack = [
-        ("OpenAI", lambda: call_openai(is_stream)),
-        ("Anthropic", lambda: call_anthropic(is_stream)),
-        ("Google", lambda: call_google(is_stream))
-    ]
-
-    for name, action in provider_stack:
+    last_error = None
+    for name, action in active_stack:
         try:
             return action()
-        except Exception:
+        except Exception as e:
+            last_error = e
             continue
 
-    raise Exception("All configured AI providers (OpenAI, Anthropic, Google) are currently experiencing outages or missing keys.")
+    raise Exception(f"All active AI providers failed. Last error: {str(last_error)}")
 
 
 # --- AUTHENTICATION FLOW (SUPABASE AUTH) ---
@@ -191,7 +190,7 @@ if not user_profile or not user_profile.get("intervals_api_key") or not user_pro
 INTERVALS_API_KEY = user_profile["intervals_api_key"]
 ATHLETE_ID = user_profile["intervals_athlete_id"]
 
-# --- 1. DATA FETCHING FUNCTIONS (USING USER-SPECIFIC KEYS) ---
+# --- 1. DATA FETCHING FUNCTIONS ---
 @st.cache_data(ttl=300, show_spinner=False) 
 def fetch_intervals_wellness(athlete_id, api_key):
   try:
@@ -221,7 +220,7 @@ def fetch_athlete_stats(athlete_id, api_key):
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else {}
   except Exception:
-    return {}
+    return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_planned_workouts(athlete_id, api_key):
@@ -241,9 +240,9 @@ def fetch_power_curve(athlete_id, api_key):
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else {}
   except Exception:
-    return {}
+    return []
 
-# --- PARALLEL DATA FETCHING FOR INSTANT LOAD ---
+# --- PARALLEL DATA FETCHING ---
 with st.spinner("Syncing live metrics & power duration curve from Intervals.icu..."):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_wellness = executor.submit(fetch_intervals_wellness, ATHLETE_ID, INTERVALS_API_KEY)
@@ -272,11 +271,11 @@ if wellness_list:
             hrv = record.get("hrv")
 
 athlete_zones = {
-    "ftp": athlete_stats.get("ftp", athlete_stats.get("icu_ftp", "Unknown")),
-    "max_hr": athlete_stats.get("max_hr", "Unknown")
+    "ftp": athlete_stats.get("ftp", athlete_stats.get("icu_ftp", 250)),
+    "max_hr": athlete_stats.get("max_hr", 190)
 }
 
-# --- 2. SESSION STATE & SUPABASE CLOUD SYNC ---
+# --- 2. SESSION STATE & CONFIG ---
 if "performance_goals" not in st.session_state:
   st.session_state.performance_goals = "Maintain aerobic base, peak for upcoming events, and balance fatigue."
 
@@ -285,6 +284,14 @@ if "event_date" not in st.session_state:
 
 if "weekly_report" not in st.session_state:
   st.session_state.weekly_report = None
+
+if "gear_items" not in st.session_state:
+    st.session_state.gear_items = [
+        {"name": "Continental GP5000 Tires (28mm)", "distance_km": 1450, "max_km": 4000},
+        {"name": "Shimano Dura-Ace Chain", "distance_km": 2100, "max_km": 3500},
+        {"name": "Shimano Dura-Ace Cassette (11-34)", "distance_km": 4200, "max_km": 10000},
+        {"name": "BBInfinite T47a Ceramic Bottom Bracket", "distance_km": 4200, "max_km": 15000}
+    ]
 
 if "messages" not in st.session_state:
     try:
@@ -295,7 +302,7 @@ if "messages" not in st.session_state:
         else:
             st.session_state.messages = [{
                 "role": "model",
-                "content": f"Hello! Telemetry & Power Curve loaded securely via Supabase. Ask me to review target feasibility or build a workout!"
+                "content": f"Hello! Telemetry & Power Curve loaded securely. Ask me to review target feasibility, build a workout, or push workouts to your calendar!"
             }]
     except Exception:
         st.session_state.messages = [{"role": "model", "content": "Hello! Running in local fallback mode."}]
@@ -308,7 +315,7 @@ with st.sidebar:
   selected_provider = st.selectbox(
       "Preferred AI Engine",
       ["⚡ Auto-Fallback Chain", "OpenAI GPT", "Anthropic Claude", "Google Gemini"],
-      help="Select your primary LLM engine. If it experiences high traffic or downtime, the app automatically switches to the other providers."
+      help="Select your primary LLM engine with automatic multi-provider cross-fallback."
   )
 
   if st.button("Log Out"):
@@ -361,10 +368,13 @@ else:
 days_to_event = (st.session_state.event_date - datetime.date.today()).days
 
 
-# --- 3. PRO TABBED NAVIGATION LAYOUT ---
-tab_dash, tab_coach, tab_cal = st.tabs([
-    "📊 Command Center & Metrics", 
-    "🤖 AI Coach & MyWhoosh Builder", 
+# --- 3. TABBED NAVIGATION SUITE ---
+tab_dash, tab_coach, tab_gear, tab_fuel, tab_fit, tab_cal = st.tabs([
+    "📊 Command Center", 
+    "🤖 AI Coach & Builder", 
+    "🛠️ Gear Tracker",
+    "⚡ Fueling Calculator",
+    "📈 FIT Analyzer",
     "📅 Calendar & Compliance"
 ])
 
@@ -385,8 +395,36 @@ with tab_dash:
     m3.metric("Form (TSB)", round(tsb, 1))
     m4.metric("Sleep Score", f"{sleep_score}/100" if sleep_score > 0 else "N/A")
 
+    # --- FEATURE 5: MORNING AUDIO BRIEFING (TTS) ---
+    st.markdown("---")
+    st.subheader("🎙️ AI Morning Audio Briefing")
+    st.caption("Generate an synthesized 60-second audio briefing summarizing your recovery, sleep score, and daily focus.")
+    
+    if st.button("🔊 Generate Morning Briefing Audio", type="primary"):
+        if not openai_client:
+            st.error("OpenAI API key is required to generate audio briefings using TTS.")
+        else:
+            with st.spinner("Synthesizing coaching voice brief..."):
+                brief_script = (
+                    f"Good morning! Here is your daily coaching brief. "
+                    f"Your current readiness status is {readiness_status}. "
+                    f"Fitness CTL is {round(ctl, 1)}, Fatigue ATL is {round(atl, 1)}, and Form TSB is {round(tsb, 1)}. "
+                    f"Your last recorded sleep score is {sleep_score} out of 100. "
+                    f"Recommendation for today: {readiness_advice}. Train smart and stay aero!"
+                )
+                try:
+                    speech_response = openai_client.audio.speech.create(
+                        model="tts-1",
+                        voice="alloy",
+                        input=brief_script
+                    )
+                    audio_bytes = speech_response.content
+                    st.audio(audio_bytes, format="audio/mp3")
+                    st.success("Audio briefing generated successfully!")
+                except Exception as e:
+                    st.error(f"Failed to generate audio: {e}")
+
     try:
-        import plotly.graph_objects as go
         fig_gauge = go.Figure(go.Indicator(
             mode = "gauge+number",
             value = tsb,
@@ -410,7 +448,6 @@ with tab_dash:
 
     if activities_data:
       try:
-        import pandas as pd
         df_act = pd.DataFrame(activities_data)
         if "start_date_local" in df_act.columns and "icu_training_load" in df_act.columns:
           df_act["Date"] = pd.to_datetime(df_act["start_date_local"]).dt.date
@@ -441,7 +478,7 @@ with tab_dash:
 # ================= TAB 2: AI COACH & WORKOUT BUILDER =================
 with tab_coach:
     st.markdown("### Interactive AI Sports Scientist")
-    st.caption("Ask for target reviews, structured workouts, or MyWhoosh `.zwo` exports. Multi-LLM router active.")
+    st.caption("Ask for target reviews, structured workouts, or MyWhoosh `.zwo` exports. Push workouts directly to your Intervals.icu calendar.")
 
     for i, message in enumerate(st.session_state.messages):
       display_text = message["content"]
@@ -455,143 +492,4 @@ with tab_coach:
         if has_workout and message["role"] == "model":
             try:
                 workout_xml = message["content"].split("<workout_file>")[1].split("</workout_file>")[0].strip()
-                workout_xml = workout_xml.replace("```xml", "").replace("```", "").strip()
-                
-                st.download_button(
-                    label="⬇️ Download Workout for MyWhoosh (.zwo)",
-                    data=workout_xml,
-                    file_name=f"Coach_Workout_{datetime.date.today()}.zwo",
-                    mime="application/xml",
-                    type="primary",
-                    key=f"download_{i}"
-                )
-            except Exception:
-                pass
-
-    if prompt := st.chat_input("Ask: 'Are my current targets reasonable and how do I get there?'...", key="coach_chat_input"):
-      st.session_state.messages.append({"role": "user", "content": prompt})
-      
-      try:
-          supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "user", "content": prompt}).execute()
-      except Exception:
-          pass
-
-      with st.chat_message("user"):
-        st.markdown(prompt)
-
-      with st.chat_message("model"):
-        with st.spinner("Consulting multi-LLM sports science core..."):
-          
-          context_payload = f"""
-                You are an elite endurance sports science coach.
-                ATHLETE PROFILE & EQUIPMENT: 
-                - Setup: Custom road bike setup with power meter.
-                GOALS & TARGETS: {st.session_state.performance_goals} (Target Event in {days_to_event} days on {st.session_state.event_date})
-                READINESS: {readiness_status} | CTL (Fitness): {ctl} | ATL (Fatigue): {atl} | TSB (Form): {tsb} | Sleep: {sleep_score} | HRV: {hrv}
-                POWER & HR ZONES: {athlete_zones}
-                42-DAY POWER DURATION CURVE PROFILE: {power_curve_data}
-                PLANNED WORKOUTS (Calendar): {planned_data}
-                RECENT ACTIVITIES (Completed): {activities_data}
-
-                COACHING INSTRUCTIONS:
-                1. TARGET FEASIBILITY & ROADMAP: Critically evaluate whether the athlete's stated goals and event timeline ({days_to_event} days away) are reasonable given their current CTL, ATL, TSB, recovery, and Power Duration Curve limiters. Provide a clear, structured, actionable roadmap on how to bridge the gap safely without overtraining.
-                2. FEEDBACK LOOP: Compare 'Planned Workouts' vs 'Recent Activities'. Critique pacing discipline and compliance.
-                3. PLAN FORMULATION: If asked for a workout, prescribe exact watts based on the athlete's FTP and zones. Structure as Warmup -> Main Set -> Cool Down.
-                4. INDOOR EXPORT (MYWHOOSH): If the athlete asks for a MyWhoosh or Zwift workout, generate the exact XML structure for a `.zwo` file. 
-                   - YOU MUST wrap the raw XML code strictly inside `<workout_file>` and `</workout_file>` tags at the very end of your response. 
-                   - Do not put markdown around the XML tags.
-                """
-          for msg in st.session_state.messages[:-1]:
-            context_payload += f"\n{msg['role'].upper()}: {msg['content']}\n"
-          context_payload += f"\nUSER: {prompt}\n"
-
-          message_placeholder = st.empty()
-          full_response = ""
-          
-          try:
-            stream_result, active_model_name = execute_multiprovider_generation(
-                context_payload, preferred_provider=selected_provider, is_stream=True
-            )
-            
-            # Handle streaming chunks across different SDK return structures
-            if "OpenAI" in active_model_name:
-                for chunk in stream_result:
-                    if chunk.choices[0].delta.content:
-                        full_response += chunk.choices[0].delta.content
-                        message_placeholder.markdown(full_response + "▌")
-            elif "Anthropic" in active_model_name:
-                with stream_result as stream:
-                    for text in stream.text_stream:
-                        full_response += text
-                        message_placeholder.markdown(full_response + "▌")
-            else: # Google Gemini Stream
-                for chunk in stream_result:
-                    if chunk.text:
-                        full_response += chunk.text
-                        message_placeholder.markdown(full_response + "▌")
-            
-            final_display = f"{full_response}\n\n*(Engine: {active_model_name})*"
-            message_placeholder.markdown(final_display)
-            
-            st.session_state.messages.append({"role": "model", "content": final_display})
-            
-            try:
-                supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "model", "content": final_display}).execute()
-            except Exception:
-                pass
-
-            st.rerun()
-
-          except Exception as e:
-            st.error(f"⚠️ Multi-Provider Router Error: {str(e)}")
-
-
-# ================= TAB 3: CALENDAR & COMPLIANCE =================
-with tab_cal:
-    st.markdown("### Planned vs. Actual Training Compliance")
-    st.caption("Review your scheduled calendar blocks against executed Garmin activities.")
-    
-    import pandas as pd
-    
-    col_c1, col_c2 = st.columns(2)
-    
-    with col_c1:
-        st.subheader("📅 Scheduled Calendar Events")
-        if planned_data:
-            try:
-                df_planned = pd.DataFrame(planned_data)
-                if "start_date_local" in df_planned.columns:
-                    df_planned["Date"] = pd.to_datetime(df_planned["start_date_local"]).dt.strftime("%Y-%m-%d")
-                
-                if "name" not in df_planned.columns and "summary" in df_planned.columns:
-                    df_planned["name"] = df_planned["summary"]
-                    
-                display_cols = [c for c in ["Date", "name", "type", "category", "load"] if c in df_planned.columns or c == "Date"]
-                st.dataframe(df_planned[[c for c in display_cols if c in df_planned.columns]], use_container_width=True, hide_index=True)
-            except Exception:
-                st.write("Could not parse planned events table.")
-        else:
-            st.info("No planned events found for this window.")
-            
-    with col_c2:
-        st.subheader("🚴‍♂️ Completed Activities")
-        if activities_data:
-            try:
-                df_act = pd.DataFrame(activities_data)
-                if "start_date_local" in df_act.columns:
-                    df_act["Date"] = pd.to_datetime(df_act["start_date_local"]).dt.strftime("%Y-%m-%d")
-                if "moving_time" in df_act.columns:
-                    df_act["Duration (min)"] = (df_act["moving_time"] / 60).round(1)
-                if "distance" in df_act.columns:
-                    df_act["Distance (km)"] = (df_act["distance"] / 1000).round(2)
-                if "icu_training_load" in df_act.columns:
-                    df_act["TSS"] = df_act["icu_training_load"].round(0)
-
-                columns_to_show = ["Date", "name", "type", "TSS", "Duration (min)", "Distance (km)"]
-                available_cols = [c for c in columns_to_show if c in df_act.columns]
-                
-                st.dataframe(df_act[available_cols], use_container_width=True, hide_index=True)
-            except Exception:
-                st.write("Could not parse activities table.")
-        else:
-            st.info("No completed activities found for this window.")
+                workout_xml = workout_xml.replace("```xml", "").replace("
