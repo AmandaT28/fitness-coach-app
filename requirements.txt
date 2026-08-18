@@ -7,3 +7,4 @@ pandas
 requests
 streamlit
 python-dotenv
+gpxpy
