@@ -37,19 +37,19 @@ st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂�
 st.title("🚴‍♂️ AI Sports Science Coach • Pro Command Center")
 st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu & Supabase Auth")
 
-# --- BULLETPROOF PRODUCTION MODEL FALLBACK EXECUTOR ---
+# --- UPGRADED PRODUCTION MODEL FALLBACK EXECUTOR ---
 def execute_with_model_fallback(contents, is_stream=False):
-    """Retries using core production-stable models that have dedicated server capacity pools."""
+    """Retries using current active production-stable models."""
     production_models = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-2.5-flash",
-        "gemini-1.5-pro"
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.1-pro-preview"
     ]
     
     last_exception = None
     for model_name in production_models:
-        for attempt in range(3): # 3 retries per production model
+        for attempt in range(3): 
             try:
                 if is_stream:
                     return client.models.generate_content_stream(model=model_name, contents=contents), model_name
@@ -59,12 +59,12 @@ def execute_with_model_fallback(contents, is_stream=False):
                 last_exception = e
                 error_str = str(e)
                 if "503" in error_str or "UNAVAILABLE" in error_str or "rate limit" in error_str.lower():
-                    time.sleep(2 ** attempt) # Exponential backoff (1s, 2s, 4s)
+                    time.sleep(2 ** attempt) 
                     continue
                 else:
                     raise e 
                     
-    raise Exception(f"All core production endpoints are temporarily overloaded. Please wait a moment and try again. (Last error: {str(last_exception)})")
+    raise Exception(f"All active production endpoints are temporarily overloaded. Please wait a moment and try again. (Last error: {str(last_exception)})")
 
 # --- AUTHENTICATION FLOW (SUPABASE AUTH) ---
 if "user" not in st.session_state:
@@ -455,7 +455,7 @@ with tab_coach:
           full_response = ""
           
           try:
-            # Execute streaming call utilizing the stable production fallback chain
+            # Execute streaming call utilizing the active production fallback chain
             response_stream, active_model = execute_with_model_fallback(context_payload, is_stream=True)
             
             for chunk in response_stream:
