@@ -62,7 +62,7 @@ def fetch_athlete_stats():
     res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
     return res.json() if res.status_code == 200 else {}
   except Exception:
-    return {}
+    return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_planned_workouts():
@@ -207,7 +207,6 @@ with tab_dash:
     m3.metric("Form (TSB)", round(tsb, 1))
     m4.metric("Sleep Score", f"{sleep_score}/100" if sleep_score > 0 else "N/A")
 
-    # Plotly Form Gauge Indicator
     try:
         import plotly.graph_objects as go
         fig_gauge = go.Figure(go.Indicator(
@@ -231,7 +230,6 @@ with tab_dash:
     except Exception:
         pass
 
-    # Lazy load Plotly TSS bar chart
     if activities_data:
       try:
         import pandas as pd
@@ -262,91 +260,89 @@ with tab_dash:
           st.rerun()
 
 
-# ================= TAB 2: AI COACH & STREAMLIT FRAGMENT =================
+# ================= TAB 2: AI COACH & WORKOUT BUILDER =================
 with tab_coach:
     st.markdown("### Interactive AI Sports Scientist")
     st.caption("Ask for structured workouts, pacing review, or MyWhoosh `.zwo` file generation.")
 
-    @st.fragment
-    def render_ai_chat():
-        for i, message in enumerate(st.session_state.messages):
-          display_text = message["content"]
-          has_workout = "<workout_file>" in display_text
-          if has_workout:
-              display_text = display_text.split("<workout_file>")[0].strip()
+    # Render chat message history safely inside the tab layout
+    for i, message in enumerate(st.session_state.messages):
+      display_text = message["content"]
+      has_workout = "<workout_file>" in display_text
+      if has_workout:
+          display_text = display_text.split("<workout_file>")[0].strip()
 
-          with st.chat_message(message["role"]):
-            st.markdown(display_text)
-            
-            if has_workout and message["role"] == "model":
-                try:
-                    workout_xml = message["content"].split("<workout_file>")[1].split("</workout_file>")[0].strip()
-                    workout_xml = workout_xml.replace("```xml", "").replace("```", "").strip()
-                    
-                    st.download_button(
-                        label="⬇️ Download Workout for MyWhoosh (.zwo)",
-                        data=workout_xml,
-                        file_name=f"Coach_Workout_{datetime.date.today()}.zwo",
-                        mime="application/xml",
-                        type="primary",
-                        key=f"download_{i}"
-                    )
-                except Exception:
-                    pass
-
-        if prompt := st.chat_input("Ask your coach to build a MyWhoosh workout, check your pacing, or plan your week..."):
-          st.session_state.messages.append({"role": "user", "content": prompt})
-          with st.chat_message("user"):
-            st.markdown(prompt)
-
-          with st.chat_message("model"):
-            with st.spinner("Synthesizing telemetry and writing prescription..."):
-              
-              context_payload = f"""
-                    You are an elite endurance sports science coach.
-                    ATHLETE PROFILE & EQUIPMENT: 
-                    - Setup: Cervélo Soloist (Size 48), custom cockpit, S-Works Power Pro Mirror saddle, Magene TEO P515 power meter / 160mm crankset.
-                    - Bio-mechanics: Flexible flat feet, some hypermobility.
-                    GOALS: {st.session_state.performance_goals} (Target Event in {days_to_event} days)
-                    READINESS: {readiness_status} | CTL: {ctl} | ATL: {atl} | TSB: {tsb} | Sleep: {sleep_score} | HRV: {hrv}
-                    POWER & HR ZONES: {athlete_zones}
-                    PLANNED WORKOUTS (Calendar): {planned_data}
-                    RECENT ACTIVITIES (Completed): {activities_data}
-
-                    COACHING INSTRUCTIONS:
-                    1. FEEDBACK LOOP: Compare 'Planned Workouts' vs 'Recent Activities'. Critique pacing discipline and compliance.
-                    2. PLAN FORMULATION: If asked for a workout, prescribe exact watts based on the athlete's FTP and zones. Structure as Warmup -> Main Set -> Cool Down. Factor in 160mm cranks and joint health by managing cadence requests.
-                    3. INDOOR EXPORT (MYWHOOSH): If the athlete asks for a MyWhoosh or Zwift workout, generate the exact XML structure for a `.zwo` file. 
-                       - YOU MUST wrap the raw XML code strictly inside `<workout_file>` and `</workout_file>` tags at the very end of your response. 
-                       - Do not put markdown around the XML tags.
-                    """
-              for msg in st.session_state.messages[:-1]:
-                context_payload += f"\n{msg['role'].upper()}: {msg['content']}\n"
-              context_payload += f"\nUSER: {prompt}\n"
-
-              message_placeholder = st.empty()
-              full_response = ""
-              
-              try:
-                response_stream = client.models.generate_content_stream(
-                    model="gemini-3.6-flash", contents=context_payload
-                )
-                for chunk in response_stream:
-                    if chunk.text:
-                        full_response += chunk.text
-                        message_placeholder.markdown(full_response + "▌")
+      with st.chat_message(message["role"]):
+        st.markdown(display_text)
+        
+        if has_workout and message["role"] == "model":
+            try:
+                workout_xml = message["content"].split("<workout_file>")[1].split("</workout_file>")[0].strip()
+                workout_xml = workout_xml.replace("```xml", "").replace("```", "").strip()
                 
-                message_placeholder.markdown(full_response)
-                st.session_state.messages.append({"role": "model", "content": full_response})
-                st.rerun()
+                st.download_button(
+                    label="⬇️ Download Workout for MyWhoosh (.zwo)",
+                    data=workout_xml,
+                    file_name=f"Coach_Workout_{datetime.date.today()}.zwo",
+                    mime="application/xml",
+                    type="primary",
+                    key=f"download_{i}"
+                )
+            except Exception:
+                pass
 
-              except Exception as e:
-                st.error(f"⚠️ API Error: {str(e)}")
+    # Chat input placed cleanly at the bottom of Tab 2 (never blocks text)
+    if prompt := st.chat_input("Ask your coach to build a MyWhoosh workout, check your pacing, or plan your week...", key="coach_chat_input"):
+      st.session_state.messages.append({"role": "user", "content": prompt})
+      with st.chat_message("user"):
+        st.markdown(prompt)
 
-    render_ai_chat()
+      with st.chat_message("model"):
+        with st.spinner("Synthesizing telemetry and writing prescription..."):
+          
+          context_payload = f"""
+                You are an elite endurance sports science coach.
+                ATHLETE PROFILE & EQUIPMENT: 
+                - Setup: Cervélo Soloist (Size 48), custom cockpit, S-Works Power Pro Mirror saddle, Magene TEO P515 power meter / 160mm crankset.
+                - Bio-mechanics: Flexible flat feet, some hypermobility.
+                GOALS: {st.session_state.performance_goals} (Target Event in {days_to_event} days)
+                READINESS: {readiness_status} | CTL: {ctl} | ATL: {atl} | TSB: {tsb} | Sleep: {sleep_score} | HRV: {hrv}
+                POWER & HR ZONES: {athlete_zones}
+                PLANNED WORKOUTS (Calendar): {planned_data}
+                RECENT ACTIVITIES (Completed): {activities_data}
+
+                COACHING INSTRUCTIONS:
+                1. FEEDBACK LOOP: Compare 'Planned Workouts' vs 'Recent Activities'. Critique pacing discipline and compliance.
+                2. PLAN FORMULATION: If asked for a workout, prescribe exact watts based on the athlete's FTP and zones. Structure as Warmup -> Main Set -> Cool Down. Factor in 160mm cranks and joint health by managing cadence requests.
+                3. INDOOR EXPORT (MYWHOOSH): If the athlete asks for a MyWhoosh or Zwift workout, generate the exact XML structure for a `.zwo` file. 
+                   - YOU MUST wrap the raw XML code strictly inside `<workout_file>` and `</workout_file>` tags at the very end of your response. 
+                   - Do not put markdown around the XML tags.
+                """
+          for msg in st.session_state.messages[:-1]:
+            context_payload += f"\n{msg['role'].upper()}: {msg['content']}\n"
+          context_payload += f"\nUSER: {prompt}\n"
+
+          message_placeholder = st.empty()
+          full_response = ""
+          
+          try:
+            response_stream = client.models.generate_content_stream(
+                model="gemini-3.6-flash", contents=context_payload
+            )
+            for chunk in response_stream:
+                if chunk.text:
+                    full_response += chunk.text
+                    message_placeholder.markdown(full_response + "▌")
+            
+            message_placeholder.markdown(full_response)
+            st.session_state.messages.append({"role": "model", "content": full_response})
+            st.rerun()
+
+          except Exception as e:
+            st.error(f"⚠️ API Error: {str(e)}")
 
 
-# ================= TAB 3: CALENDAR & COMPLIANCE (CLEAN TABLES) =================
+# ================= TAB 3: CALENDAR & COMPLIANCE =================
 with tab_cal:
     st.markdown("### Planned vs. Actual Training Compliance")
     st.caption("Review your scheduled calendar blocks against executed Garmin activities.")
@@ -360,15 +356,14 @@ with tab_cal:
         if planned_data:
             try:
                 df_planned = pd.DataFrame(planned_data)
-                # Clean and reformat columns for professional view
                 if "start_date_local" in df_planned.columns:
                     df_planned["Date"] = pd.to_datetime(df_planned["start_date_local"]).dt.strftime("%Y-%m-%d")
                 
-                display_cols = [c for c in ["Date", "name", "type", "category", "load"] if c in df_planned.columns or c == "Date"]
                 if "name" not in df_planned.columns and "summary" in df_planned.columns:
                     df_planned["name"] = df_planned["summary"]
                     
-                st.dataframe(df_planned, use_container_width=True, hide_index=True)
+                display_cols = [c for c in ["Date", "name", "type", "category", "load"] if c in df_planned.columns or c == "Date"]
+                st.dataframe(df_planned[[c for c in display_cols if c in df_planned.columns]], use_container_width=True, hide_index=True)
             except Exception:
                 st.write("Could not parse planned events table.")
         else:
