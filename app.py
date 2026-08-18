@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from google import genai
 import requests
 import streamlit as st
+from supabase import create_client, Client
 
 # Load environment variables safely
 try:
@@ -17,18 +18,27 @@ except ImportError:
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 INTERVALS_API_KEY = st.secrets.get("INTERVALS_API_KEY") or os.getenv("INTERVALS_API_KEY")
 ATHLETE_ID = st.secrets.get("INTERVALS_ATHLETE_ID") or os.getenv("INTERVALS_ATHLETE_ID")
+SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
 
 if not GEMINI_API_KEY:
   st.error("❌ GEMINI_API_KEY is missing! Configure it in Streamlit Cloud Secrets.")
   st.stop()
 
+if not SUPABASE_URL or not SUPABASE_KEY:
+  st.error("❌ Supabase credentials are missing! Add SUPABASE_URL and SUPABASE_KEY to Secrets.")
+  st.stop()
+
+# Initialize Clients
 client = genai.Client(api_key=GEMINI_API_KEY)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+USER_ID = "primary_athlete"
 
 # App UI Configuration
 st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂️", layout="wide")
 
 st.title("🚴‍♂️ AI Sports Science Coach • Pro Command Center")
-st.caption("High-Performance Endurance Engine • Powered by Garmin & Intervals.icu")
+st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu & Supabase")
 
 # --- 1. DATA FETCHING FUNCTIONS ---
 @st.cache_data(ttl=300, show_spinner=False) 
@@ -62,7 +72,7 @@ def fetch_athlete_stats():
     res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
     return res.json() if res.status_code == 200 else {}
   except Exception:
-    return []
+    return {}
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_planned_workouts():
@@ -108,7 +118,7 @@ athlete_zones = {
     "max_hr": athlete_stats.get("max_hr", "Unknown")
 }
 
-# --- 2. SESSION STATE & SIDEBAR ---
+# --- 2. SESSION STATE & SUPABASE CLOUD SYNC ---
 if "performance_goals" not in st.session_state:
   st.session_state.performance_goals = "Maintain aerobic base, peak for upcoming events, and balance fatigue."
 
@@ -118,14 +128,20 @@ if "event_date" not in st.session_state:
 if "weekly_report" not in st.session_state:
   st.session_state.weekly_report = None
 
+# Pull persistent chat history from Supabase cloud database
 if "messages" not in st.session_state:
-  st.session_state.messages = [{
-      "role": "model",
-      "content": (
-          f"Hello! I'm your AI Sports Scientist. Based on your Form ({round(tsb, 1)} TSB), "
-          "I'm ready to build a training plan, export a MyWhoosh workout, or review your pacing compliance."
-      ),
-  }]
+    try:
+        response = supabase.table("chat_messages").select("*").eq("user_id", USER_ID).order("created_at").execute()
+        db_messages = response.data
+        if db_messages:
+            st.session_state.messages = [{"role": msg["role"], "content": msg["content"]} for msg in db_messages]
+        else:
+            st.session_state.messages = [{
+                "role": "model",
+                "content": f"Hello! Irading telemetry synced. Your chat history is now linked to Supabase cloud across all your devices."
+            }]
+    except Exception:
+        st.session_state.messages = [{"role": "model", "content": "Hello! Running in local fallback mode."}]
 
 with st.sidebar:
   st.header("🎯 Target Event & Goals")
@@ -263,7 +279,7 @@ with tab_dash:
 # ================= TAB 2: AI COACH & WORKOUT BUILDER =================
 with tab_coach:
     st.markdown("### Interactive AI Sports Scientist")
-    st.caption("Ask for structured workouts, pacing review, or MyWhoosh `.zwo` file generation.")
+    st.caption("Ask for structured workouts, pacing review, or MyWhoosh `.zwo` file generation. Chat history syncs via Supabase.")
 
     # Render chat message history safely inside the tab layout
     for i, message in enumerate(st.session_state.messages):
@@ -291,9 +307,16 @@ with tab_coach:
             except Exception:
                 pass
 
-    # Chat input placed cleanly at the bottom of Tab 2 (never blocks text)
+    # Chat input placed cleanly at the bottom of Tab 2
     if prompt := st.chat_input("Ask your coach to build a MyWhoosh workout, check your pacing, or plan your week...", key="coach_chat_input"):
       st.session_state.messages.append({"role": "user", "content": prompt})
+      
+      # Save user prompt to Supabase cloud database
+      try:
+          supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "user", "content": prompt}).execute()
+      except Exception:
+          pass
+
       with st.chat_message("user"):
         st.markdown(prompt)
 
@@ -336,6 +359,13 @@ with tab_coach:
             
             message_placeholder.markdown(full_response)
             st.session_state.messages.append({"role": "model", "content": full_response})
+            
+            # Save AI response to Supabase cloud database
+            try:
+                supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "model", "content": full_response}).execute()
+            except Exception:
+                pass
+
             st.rerun()
 
           except Exception as e:
