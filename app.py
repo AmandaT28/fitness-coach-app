@@ -14,8 +14,10 @@ try:
 except ImportError:
   pass
 
-# Grab global keys from Streamlit Secrets (Gemini & Supabase backend keys only)
+# Grab keys from Streamlit Secrets or environment
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+INTERVALS_API_KEY = st.secrets.get("INTERVALS_API_KEY") or os.getenv("INTERVALS_API_KEY")
+ATHLETE_ID = st.secrets.get("INTERVALS_ATHLETE_ID") or os.getenv("INTERVALS_ATHLETE_ID")
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
 
@@ -34,8 +36,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # App UI Configuration
 st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂️", layout="wide")
 
-st.title("🚴‍♂️ AI Sports Science Coach • Multi-User Command Center")
-st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu & Supabase")
+st.title("🚴‍♂️ AI Sports Science Coach • Pro Command Center")
+st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu & Supabase Auth")
 
 # --- AUTHENTICATION FLOW (SUPABASE AUTH) ---
 if "user" not in st.session_state:
@@ -270,7 +272,7 @@ with st.sidebar:
             break
           except Exception as e:
             if "503" in str(e) and attempt < 2:
-                time.sleep(2 ** exponent if 'exponent' in locals() else 2 ** attempt) 
+                time.sleep(2 ** attempt) 
                 continue
             st.error(f"Could not generate report: {e}")
             break
@@ -323,7 +325,7 @@ with tab_dash:
             mode = "gauge+number",
             value = tsb,
             domain = {'x': [0, 1], 'y': [0, 1]},
-            title = {'text": "Form (TSB) Spectrum"},
+            title = {'text': "Form (TSB) Spectrum"},
             gauge = {
                 'axis': {'range': [-50, 30]},
                 'bar': {'color': "black"},
