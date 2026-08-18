@@ -3,6 +3,8 @@ import os
 import time
 from dotenv import load_dotenv
 from google import genai
+import pandas as pd
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 
@@ -33,7 +35,7 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 # App UI Configuration
 st.set_page_config(
-    page_title="Fitness Coach App", page_icon="🚴‍♂️", layout="centered"
+    page_title="Fitness Coach App", page_icon="🚴‍♂️", layout="wide"
 )
 
 st.title("🚴‍♂️ Fitness Coach App")
@@ -75,10 +77,21 @@ def fetch_athlete_stats():
   return response.json()
 
 
+# Fetch Power and Heart Rate Zones
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_athlete_zones():
+  url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/folders"
+  response = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY))
+  if response.status_code != 200:
+    return {}
+  return response.json()
+
+
 with st.spinner("Syncing complete Garmin & Intervals.icu data..."):
   wellness_data = fetch_intervals_wellness()
   activities_data = fetch_recent_activities()
   athlete_stats = fetch_athlete_stats()
+  athlete_zones = fetch_athlete_zones()
 
 # Initialize session state for performance goals and weekly reports
 if "performance_goals" not in st.session_state:
@@ -123,6 +136,19 @@ with st.sidebar:
       except Exception as e:
         st.error(f"Could not generate report: {e}")
 
+# Display Training Load Chart if data exists
+if athlete_stats and "icu_ctl" in athlete_stats:
+  st.subheader("📈 Training Load & Form Overview")
+  col1, col2, col3 = st.columns(3)
+  col1.metric("Fitness (CTL)", round(athlete_stats.get("icu_ctl", 0), 1))
+  col2.metric("Fatigue (ATL)", round(athlete_stats.get("icu_atl", 0), 1))
+  col3.metric(
+      "Form (TSB)",
+      round(
+          athlete_stats.get("icu_ctl", 0) - athlete_stats.get("icu_atl", 0), 1
+      ),
+  )
+
 # Display Weekly Report on the main screen if generated
 if st.session_state.weekly_report:
   with st.expander("📅 Your Latest Weekly Progress Report", expanded=True):
@@ -136,8 +162,8 @@ if "messages" not in st.session_state:
       "role": "model",
       "content": (
           "Hello! I'm your Fitness Coach App. I've synced your complete Garmin"
-          " fitness load, recent workouts, and recovery stats. Ask me anything"
-          " about your training status!"
+          " fitness load, power zones, recent workouts, and recovery stats. Ask"
+          " me anything about your training status!"
       ),
   }]
 
@@ -168,6 +194,9 @@ if prompt := st.chat_input("Ask your coach anything..."):
 
             OVERALL FITNESS & TRAINING LOAD (CTL / ATL / TSB Form):
             {athlete_stats}
+
+            POWER & HEART RATE ZONES DATA:
+            {athlete_zones}
 
             TODAY'S RECOVERY & WELLNESS DATA (Sleep, HRV, RHR):
             {wellness_data}
