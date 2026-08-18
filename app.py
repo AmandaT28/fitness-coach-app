@@ -27,8 +27,8 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 # App UI Configuration
 st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂️", layout="wide")
 
-st.title("🚴‍♂️ AI Sports Science Coach")
-st.caption("Live Endurance Performance Engine • Powered by Garmin & Intervals.icu")
+st.title("🚴‍♂️ AI Sports Science Coach • Pro Command Center")
+st.caption("High-Performance Endurance Engine • Powered by Garmin & Intervals.icu")
 
 # --- 1. DATA FETCHING FUNCTIONS ---
 @st.cache_data(ttl=300, show_spinner=False) 
@@ -39,7 +39,7 @@ def fetch_intervals_wellness():
     url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/wellness?oldest={start_date}&newest={end_date}"
     res = requests.get(url, auth=("API_KEY", INTERVALS_API_KEY), timeout=8)
     if res.status_code == 200 and res.json():
-        return res.json() # Return the FULL list of the last 7 days, not just the last entry
+        return res.json()
     return []
   except Exception:
     return []
@@ -88,17 +88,15 @@ with st.spinner("Syncing live metrics from Intervals.icu..."):
         athlete_stats = future_stats.result()
         planned_data = future_planned.result()
 
-# Extract Metrics Safely by Scanning Backwards for Valid Data
+# Extract Metrics Safely
 ctl, atl, tsb, sleep_score, hrv = 0, 0, 0, 0, 0
 
 if wellness_list:
-    # Get load metrics from the most recent day
     latest_record = wellness_list[-1]
     ctl = latest_record.get("ctl", 0)
     atl = latest_record.get("atl", 0)
     tsb = latest_record.get("tsb", 0)
     
-    # Scan backward through the last 7 days to find the most recent valid Sleep and HRV
     for record in reversed(wellness_list):
         if sleep_score == 0 and record.get("sleepScore"):
             sleep_score = record.get("sleepScore")
@@ -119,6 +117,15 @@ if "event_date" not in st.session_state:
 
 if "weekly_report" not in st.session_state:
   st.session_state.weekly_report = None
+
+if "messages" not in st.session_state:
+  st.session_state.messages = [{
+      "role": "model",
+      "content": (
+          f"Hello! I'm your AI Sports Scientist. Based on your Form ({round(tsb, 1)} TSB), "
+          "I'm ready to build a training plan, export a MyWhoosh workout, or review your pacing compliance."
+      ),
+  }]
 
 with st.sidebar:
   st.header("🎯 Target Event & Goals")
@@ -162,7 +169,7 @@ with st.sidebar:
           st.session_state.weekly_report = report_response
           st.rerun()
 
-# --- 3. DASHBOARD METRICS ---
+# Calculate Readiness & Days
 if tsb < -25 or (sleep_score > 0 and sleep_score < 60):
   readiness_status = "🔴 RED - RECOVERY REQUIRED"
   readiness_advice = "High fatigue detected. Pivot to active recovery or rest."
@@ -175,139 +182,189 @@ else:
 
 days_to_event = (st.session_state.event_date - datetime.date.today()).days
 
-st.markdown("---")
-col_r1, col_r2 = st.columns([2, 1])
-with col_r1:
-  st.subheader(f"Daily Readiness: {readiness_status}")
-  st.info(readiness_advice)
-with col_r2:
-  st.subheader("🏁 Event Countdown")
-  st.metric("Days to Target Peak", f"{days_to_event} Days")
 
-st.subheader("📈 Fitness, Fatigue & Form Metrics")
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Fitness (CTL)", round(ctl, 1))
-m2.metric("Fatigue (ATL)", round(atl, 1))
-m3.metric("Form (TSB)", round(tsb, 1))
-m4.metric("Sleep Score", f"{sleep_score}/100" if sleep_score > 0 else "N/A")
+# --- 3. PRO TABBED NAVIGATION LAYOUT ---
+tab_dash, tab_coach, tab_cal = st.tabs([
+    "📊 Command Center & Metrics", 
+    "🤖 AI Coach & MyWhoosh Builder", 
+    "📅 Calendar & Compliance"
+])
 
-# Lazy load Plotly chart
-if activities_data:
-  try:
-    import pandas as pd
-    import plotly.graph_objects as go
+# ================= TAB 1: COMMAND CENTER =================
+with tab_dash:
+    st.markdown("### Daily Readiness & Training Load")
+    col_r1, col_r2 = st.columns([2, 1])
+    with col_r1:
+      st.subheader(f"Status: {readiness_status}")
+      st.info(readiness_advice)
+    with col_r2:
+      st.subheader("🏁 Event Countdown")
+      st.metric("Days to Target Peak", f"{days_to_event} Days")
 
-    df_act = pd.DataFrame(activities_data)
-    if "start_date_local" in df_act.columns and "icu_training_load" in df_act.columns:
-      df_act["Date"] = pd.to_datetime(df_act["start_date_local"]).dt.date
-      chart_data = df_act.groupby("Date")["icu_training_load"].sum().reset_index()
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Fitness (CTL)", round(ctl, 1))
+    m2.metric("Fatigue (ATL)", round(atl, 1))
+    m3.metric("Form (TSB)", round(tsb, 1))
+    m4.metric("Sleep Score", f"{sleep_score}/100" if sleep_score > 0 else "N/A")
 
-      fig = go.Figure()
-      fig.add_trace(go.Bar(
-          x=chart_data["Date"], y=chart_data["icu_training_load"],
-          name="Daily TSS", marker_color="#1f77b4"
-      ))
-      fig.update_layout(
-          title="14-Day Training Load (TSS) Distribution",
-          xaxis_title="Date", yaxis_title="TSS", height=250,
-          margin=dict(l=20, r=20, t=30, b=20),
-      )
-      st.plotly_chart(fig, use_container_width=True)
-  except Exception:
-    pass
+    # Plotly Form Gauge Indicator
+    try:
+        import plotly.graph_objects as go
+        fig_gauge = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = tsb,
+            domain = {'x': [0, 1], 'y': [0, 1]},
+            title = {'text': "Form (TSB) Spectrum"},
+            gauge = {
+                'axis': {'range': [-50, 30]},
+                'bar': {'color': "black"},
+                'steps' : [
+                    {'range': [-50, -25], 'color': "rgba(255, 0, 0, 0.4)"}, # High Fatigue
+                    {'range': [-25, -10], 'color': "rgba(0, 128, 0, 0.5)"}, # Optimal Build
+                    {'range': [-10, 5], 'color': "rgba(255, 255, 0, 0.5)"},  # Transition
+                    {'range': [5, 30], 'color': "rgba(0, 0, 255, 0.4)"}     # Fresh / Peak
+                ]
+            }
+        ))
+        fig_gauge.update_layout(height=250, margin=dict(l=20, r=20, t=30, b=10))
+        st.plotly_chart(fig_gauge, use_container_width=True)
+    except Exception:
+        pass
 
-if st.session_state.weekly_report:
-  with st.expander("📅 Latest Weekly Progress Report", expanded=True):
-    st.markdown(st.session_state.weekly_report)
-    if st.button("Clear Report"):
-      st.session_state.weekly_report = None
-      st.rerun()
+    # Lazy load Plotly TSS bar chart
+    if activities_data:
+      try:
+        import pandas as pd
+        df_act = pd.DataFrame(activities_data)
+        if "start_date_local" in df_act.columns and "icu_training_load" in df_act.columns:
+          df_act["Date"] = pd.to_datetime(df_act["start_date_local"]).dt.date
+          chart_data = df_act.groupby("Date")["icu_training_load"].sum().reset_index()
 
-st.markdown("---")
-st.subheader("💬 Interactive Sports Science Coach")
+          fig = go.Figure()
+          fig.add_trace(go.Bar(
+              x=chart_data["Date"], y=chart_data["icu_training_load"],
+              name="Daily TSS", marker_color="#1f77b4"
+          ))
+          fig.update_layout(
+              title="14-Day Training Load (TSS) Distribution",
+              xaxis_title="Date", yaxis_title="TSS", height=250,
+              margin=dict(l=20, r=20, t=30, b=20),
+          )
+          st.plotly_chart(fig, use_container_width=True)
+      except Exception:
+        pass
 
-# --- 4. CHAT LOOP & MYWHOOSH DOWNLOADER ---
-if "messages" not in st.session_state:
-  st.session_state.messages = [{
-      "role": "model",
-      "content": (
-          f"Hello! I'm your AI Sports Scientist. Based on your Form ({round(tsb, 1)} TSB) and Readiness ({readiness_status}), "
-          "I'm ready to build a training plan, export a MyWhoosh workout, or review your pacing compliance."
-      ),
-  }]
-
-for i, message in enumerate(st.session_state.messages):
-  display_text = message["content"]
-  
-  has_workout = "<workout_file>" in display_text
-  if has_workout:
-      display_text = display_text.split("<workout_file>")[0].strip()
-
-  with st.chat_message(message["role"]):
-    st.markdown(display_text)
-    
-    if has_workout and message["role"] == "model":
-        try:
-            workout_xml = message["content"].split("<workout_file>")[1].split("</workout_file>")[0].strip()
-            workout_xml = workout_xml.replace("```xml", "").replace("```", "").strip()
-            
-            st.download_button(
-                label="⬇️ Download Workout for MyWhoosh (.zwo)",
-                data=workout_xml,
-                file_name=f"Coach_Workout_{datetime.date.today()}.zwo",
-                mime="application/xml",
-                type="primary",
-                key=f"download_{i}"
-            )
-        except Exception:
-            pass
-
-# MUST BE LAST ELEMENT: Chat Input Area
-if prompt := st.chat_input("Ask your coach to build a MyWhoosh workout, check your pacing, or plan your week..."):
-  
-  st.session_state.messages.append({"role": "user", "content": prompt})
-  with st.chat_message("user"):
-    st.markdown(prompt)
-
-  with st.chat_message("model"):
-    with st.spinner("Analyzing metrics and formulating plan..."):
-      
-      context_payload = f"""
-            You are an elite endurance sports science coach.
-            ATHLETE PROFILE & EQUIPMENT: 
-            - Setup: Cervélo Soloist (Size 48), custom cockpit, S-Works Power Pro Mirror saddle, Magene TEO P515 power meter / 160mm crankset.
-            - Bio-mechanics: Flexible flat feet, some hypermobility.
-            GOALS: {st.session_state.performance_goals} (Target Event in {days_to_event} days)
-            READINESS: {readiness_status} | CTL: {ctl} | ATL: {atl} | TSB: {tsb} | Sleep: {sleep_score} | HRV: {hrv}
-            POWER & HR ZONES: {athlete_zones}
-            PLANNED WORKOUTS (Calendar): {planned_data}
-            RECENT ACTIVITIES (Completed): {activities_data}
-
-            COACHING INSTRUCTIONS:
-            1. FEEDBACK LOOP: Compare 'Planned Workouts' vs 'Recent Activities'. Critique pacing discipline and compliance.
-            2. PLAN FORMULATION: If asked for a workout, prescribe exact watts based on the athlete's FTP and zones. Structure as Warmup -> Main Set -> Cool Down. Factor in 160mm cranks and joint health by managing cadence requests.
-            3. INDOOR EXPORT (MYWHOOSH): If the athlete asks for a MyWhoosh or Zwift workout, generate the exact XML structure for a `.zwo` file. 
-               - YOU MUST wrap the raw XML code strictly inside `<workout_file>` and `</workout_file>` tags at the very end of your response. 
-               - Do not put markdown around the XML tags.
-            """
-      for msg in st.session_state.messages:
-        context_payload += f"\n{msg['role'].upper()}: {msg['content']}\n"
-
-      response_text = None
-      for attempt in range(3):
-          try:
-            res = client.models.generate_content(
-                model="gemini-3.6-flash", contents=context_payload
-            )
-            response_text = res.text
-            break
-          except Exception as e:
-            if "503" in str(e) and attempt < 2:
-                time.sleep(2 ** attempt)
-                continue
-            st.error(f"⚠️ API Error: {str(e)}")
-            break
-      
-      if response_text:
-          st.session_state.messages.append({"role": "model", "content": response_text})
+    if st.session_state.weekly_report:
+      with st.expander("📅 Latest Weekly Progress Report", expanded=True):
+        st.markdown(st.session_state.weekly_report)
+        if st.button("Clear Report"):
+          st.session_state.weekly_report = None
           st.rerun()
+
+
+# ================= TAB 2: AI COACH & STREAMLIT FRAGMENT =================
+with tab_coach:
+    st.markdown("### Interactive AI Sports Scientist")
+    st.caption("Ask for structured workouts, pacing review, or MyWhoosh `.zwo` file generation.")
+
+    # Use @st.fragment so chatting only updates the chat component, keeping the app snappy
+    @st.fragment
+    def render_ai_chat():
+        for i, message in enumerate(st.session_state.messages):
+          display_text = message["content"]
+          has_workout = "<workout_file>" in display_text
+          if has_workout:
+              display_text = display_text.split("<workout_file>")[0].strip()
+
+          with st.chat_message(message["role"]):
+            st.markdown(display_text)
+            
+            if has_workout and message["role"] == "model":
+                try:
+                    workout_xml = message["content"].split("<workout_file>")[1].split("</workout_file>")[0].strip()
+                    workout_xml = workout_xml.replace("```xml", "").replace("```", "").strip()
+                    
+                    st.download_button(
+                        label="⬇️ Download Workout for MyWhoosh (.zwo)",
+                        data=workout_xml,
+                        file_name=f"Coach_Workout_{datetime.date.today()}.zwo",
+                        mime="application/xml",
+                        type="primary",
+                        key=f"download_{i}"
+                    )
+                except Exception:
+                    pass
+
+        if prompt := st.chat_input("Ask your coach to build a MyWhoosh workout, check your pacing, or plan your week..."):
+          st.session_state.messages.append({"role": "user", "content": prompt})
+          with st.chat_message("user"):
+            st.markdown(prompt)
+
+          with st.chat_message("model"):
+            with st.spinner("Synthesizing telemetry and writing prescription..."):
+              
+              context_payload = f"""
+                    You are an elite endurance sports science coach.
+                    ATHLETE PROFILE & EQUIPMENT: 
+                    - Setup: Cervélo Soloist (Size 48), custom cockpit, S-Works Power Pro Mirror saddle, Magene TEO P515 power meter / 160mm crankset.
+                    - Bio-mechanics: Flexible flat feet, some hypermobility.
+                    GOALS: {st.session_state.performance_goals} (Target Event in {days_to_event} days)
+                    READINESS: {readiness_status} | CTL: {ctl} | ATL: {atl} | TSB: {tsb} | Sleep: {sleep_score} | HRV: {hrv}
+                    POWER & HR ZONES: {athlete_zones}
+                    PLANNED WORKOUTS (Calendar): {planned_data}
+                    RECENT ACTIVITIES (Completed): {activities_data}
+
+                    COACHING INSTRUCTIONS:
+                    1. FEEDBACK LOOP: Compare 'Planned Workouts' vs 'Recent Activities'. Critique pacing discipline and compliance.
+                    2. PLAN FORMULATION: If asked for a workout, prescribe exact watts based on the athlete's FTP and zones. Structure as Warmup -> Main Set -> Cool Down. Factor in 160mm cranks and joint health by managing cadence requests.
+                    3. INDOOR EXPORT (MYWHOOSH): If the athlete asks for a MyWhoosh or Zwift workout, generate the exact XML structure for a `.zwo` file. 
+                       - YOU MUST wrap the raw XML code strictly inside `<workout_file>` and `</workout_file>` tags at the very end of your response. 
+                       - Do not put markdown around the XML tags.
+                    """
+              for msg in st.session_state.messages[:-1]:
+                context_payload += f"\n{msg['role'].upper()}: {msg['content']}\n"
+              context_payload += f"\nUSER: {prompt}\n"
+
+              # LLM Streaming Implementation
+              message_placeholder = st.empty()
+              full_response = ""
+              
+              try:
+                response_stream = client.models.generate_content_stream(
+                    model="gemini-3.6-flash", contents=context_payload
+                )
+                for chunk in response_stream:
+                    if chunk.text:
+                        full_response += chunk.text
+                        message_placeholder.markdown(full_response + "▌")
+                
+                # Final clean render without the typing cursor
+                message_placeholder.markdown(full_response)
+                st.session_state.messages.append({"role": "model", "content": full_response})
+                st.rerun()
+
+              except Exception as e:
+                st.error(f"⚠️ API Error: {str(e)}")
+
+    render_ai_chat()
+
+
+# ================= TAB 3: CALENDAR & COMPLIANCE =================
+with tab_cal:
+    st.markdown("### Planned vs. Actual Training Compliance")
+    st.caption("Review your scheduled calendar blocks against executed Garmin activities.")
+    
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        st.subheader("📅 Scheduled Calendar Events")
+        if planned_data:
+            st.json(planned_data[:5]) # Display upcoming entries cleanly
+        else:
+            st.write("No planned events found.")
+            
+    with col_c2:
+        st.subheader("🚴‍♂️ Completed Activities")
+        if activities_data:
+            st.json(activities_data[:5])
+        else:
+            st.write("No recent activities found.")
