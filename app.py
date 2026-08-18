@@ -37,18 +37,18 @@ st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂�
 st.title("🚴‍♂️ AI Sports Science Coach • Pro Command Center")
 st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu & Supabase Auth")
 
-# --- UPGRADED PRODUCTION MODEL FALLBACK EXECUTOR ---
+# --- RESILIENT MODEL FALLBACK EXECUTOR WITH EXTENDED BACKOFF ---
 def execute_with_model_fallback(contents, is_stream=False):
-    """Retries using current active production-stable models."""
+    """Cycles through production models with extended backoff delays to bypass 503 traffic spikes."""
     production_models = [
-        "gemini-3.7-flash",
         "gemini-3.6-flash",
+        "gemini-3.7-flash",
         "gemini-3.5-flash",
         "gemini-3.1-pro-preview"
     ]
     
     last_exception = None
-    for model_name in production_models:
+    for model_index, model_name in enumerate(production_models):
         for attempt in range(3): 
             try:
                 if is_stream:
@@ -59,12 +59,14 @@ def execute_with_model_fallback(contents, is_stream=False):
                 last_exception = e
                 error_str = str(e)
                 if "503" in error_str or "UNAVAILABLE" in error_str or "rate limit" in error_str.lower():
-                    time.sleep(2 ** attempt) 
+                    # Progressive backoff delay: 2s, 4s, 8s per model
+                    sleep_time = (2 ** attempt) + (model_index * 1)
+                    time.sleep(sleep_time)
                     continue
                 else:
                     raise e 
                     
-    raise Exception(f"All active production endpoints are temporarily overloaded. Please wait a moment and try again. (Last error: {str(last_exception)})")
+    raise Exception(f"Servers are experiencing exceptionally high traffic. Please wait 10 seconds and try your request again. (Last error: {str(last_exception)})")
 
 # --- AUTHENTICATION FLOW (SUPABASE AUTH) ---
 if "user" not in st.session_state:
@@ -455,7 +457,6 @@ with tab_coach:
           full_response = ""
           
           try:
-            # Execute streaming call utilizing the active production fallback chain
             response_stream, active_model = execute_with_model_fallback(context_payload, is_stream=True)
             
             for chunk in response_stream:
@@ -474,7 +475,7 @@ with tab_coach:
             st.rerun()
 
           except Exception as e:
-            st.error(f"⚠️ API Error / All production endpoints busy: {str(e)}")
+            st.error(f"⚠️ {str(e)}")
 
 
 # ================= TAB 3: CALENDAR & COMPLIANCE =================
