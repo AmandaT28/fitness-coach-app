@@ -1,7 +1,9 @@
-streamlit
-requests
-python-dotenv
 google-genai
-pandas
-plotly
+openai
+anthropic
 supabase
+plotly
+pandas
+requests
+streamlit
+python-dotenv
