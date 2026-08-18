@@ -30,25 +30,20 @@ if not SUPABASE_URL or not SUPABASE_KEY:
   st.error("❌ Supabase credentials are missing! Add SUPABASE_URL and SUPABASE_KEY to Secrets.")
   st.stop()
 
-# Initialize Database & Clients conditionally based on available keys
+# Initialize Database & Clients
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
 google_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
 # App UI Configuration
-st.set_page_config(page_title="AI Sports Science Coach • Pro Suite", page_icon="🚴‍♂️", layout="wide")
+st.set_page_config(page_title="AI Sports Science Coach • Multi-Sport Elite Suite", page_icon="🚴‍♂️", layout="wide")
 
-st.title("🚴‍♂️ AI Sports Science Coach • Ultimate Endurance Command Center")
-st.caption("Powered by Intervals.icu, Supabase, Multi-LLM Fallbacks, and Advanced Performance Tools")
+st.title("🚴‍♂️🏃‍♂️ AI Sports Science Coach • Multi-Sport, Strength & Automated Safety Suite")
+st.caption("Powered by Intervals.icu, Supabase, Multi-LLM Fallbacks, and Automated Overtraining Protection")
 
 # --- MULTI-PROVIDER CROSS-PROVIDER FALLBACK ROUTER ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain", is_stream=False):
-    """
-    Tries the preferred provider first, then cascades across OpenAI, Anthropic, 
-    and Google Gemini to completely bypass service interruptions and 503 spikes.
-    """
     def call_openai(stream=False):
         if not openai_client: raise Exception("OpenAI API key missing")
         if stream:
@@ -120,10 +115,7 @@ if "user" not in st.session_state:
 
 if not st.session_state.user:
     st.markdown("### 🔐 Secure Athlete Portal Login")
-    st.caption("Log in or create an account to access your personal, isolated training command center.")
-    
     auth_tab1, auth_tab2 = st.tabs(["Log In", "Sign Up"])
-    
     with auth_tab1:
         login_email = st.text_input("Email", key="login_email")
         login_pass = st.text_input("Password", type="password", key="login_pass")
@@ -131,11 +123,10 @@ if not st.session_state.user:
             try:
                 res = supabase.auth.sign_in_with_password({"email": login_email, "password": login_pass})
                 st.session_state.user = res.user
-                st.success("Login successful! Loading command center...")
+                st.success("Login successful!")
                 st.rerun()
             except Exception as e:
                 st.error(f"Login failed: {e}")
-                
     with auth_tab2:
         signup_email = st.text_input("Email", key="signup_email")
         signup_pass = st.text_input("Password", type="password", key="signup_pass")
@@ -143,7 +134,7 @@ if not st.session_state.user:
             try:
                 res = supabase.auth.sign_up({"email": signup_email, "password": signup_pass})
                 st.session_state.user = res.user
-                st.success("Account created successfully! Welcome aboard.")
+                st.success("Account created successfully!")
                 st.rerun()
             except Exception as e:
                 st.error(f"Sign up failed: {e}")
@@ -151,46 +142,29 @@ if not st.session_state.user:
 
 USER_ID = st.session_state.user.id
 
-# --- CHECK IF USER HAS CONFIGURED INTERVALS.ICU CREDENTIALS ---
+# --- INTERVALS.ICU CONFIG CHECK ---
 user_profile = None
 try:
     profile_res = supabase.table("profiles").select("*").eq("id", USER_ID).execute()
-    if profile_res.data:
-        user_profile = profile_res.data[0]
-except Exception:
-    pass
+    if profile_res.data: user_profile = profile_res.data[0]
+except Exception: pass
 
 if not user_profile or not user_profile.get("intervals_api_key") or not user_profile.get("intervals_athlete_id"):
     st.markdown("---")
     st.subheader("⚙️ Intervals.icu Account Setup")
-    st.write("To pull your personal Garmin and training data, please enter your Intervals.icu API Key and Athlete ID.")
-    st.markdown("[Find your Intervals.icu API Key here (scroll to bottom of Settings)](https://intervals.icu/settings)")
-    
     with st.form("setup_form"):
         input_api_key = st.text_input("Intervals.icu API Key", type="password")
-        input_athlete_id = st.text_input("Intervals.icu Athlete ID (e.g., i12345 or your username)")
-        submitted = st.form_submit_button("Save & Launch Command Center")
-        
-        if submitted:
-            if input_api_key and input_athlete_id:
-                try:
-                    supabase.table("profiles").upsert({
-                        "id": USER_ID,
-                        "intervals_api_key": input_api_key.strip(),
-                        "intervals_athlete_id": input_athlete_id.strip()
-                    }).execute()
-                    st.success("Configuration saved! Refreshing...")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed to save profile: {e}")
-            else:
-                st.warning("Please provide both your API Key and Athlete ID.")
+        input_athlete_id = st.text_input("Intervals.icu Athlete ID")
+        submitted = st.form_submit_button("Save & Launch")
+        if submitted and input_api_key and input_athlete_id:
+            supabase.table("profiles").upsert({"id": USER_ID, "intervals_api_key": input_api_key.strip(), "intervals_athlete_id": input_athlete_id.strip()}).execute()
+            st.rerun()
     st.stop()
 
 INTERVALS_API_KEY = user_profile["intervals_api_key"]
 ATHLETE_ID = user_profile["intervals_athlete_id"]
 
-# --- 1. DATA FETCHING FUNCTIONS ---
+# --- DATA FETCHING ---
 @st.cache_data(ttl=300, show_spinner=False) 
 def fetch_intervals_wellness(athlete_id, api_key):
   try:
@@ -199,8 +173,7 @@ def fetch_intervals_wellness(athlete_id, api_key):
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/wellness?oldest={start_date}&newest={end_date}"
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 and res.json() else []
-  except Exception:
-    return []
+  except Exception: return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_recent_activities(athlete_id, api_key):
@@ -210,8 +183,7 @@ def fetch_recent_activities(athlete_id, api_key):
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/activities?oldest={start_date}&newest={end_date}"
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else []
-  except Exception:
-    return []
+  except Exception: return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_athlete_stats(athlete_id, api_key):
@@ -219,8 +191,7 @@ def fetch_athlete_stats(athlete_id, api_key):
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else {}
-  except Exception:
-    return []
+  except Exception: return {}
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_planned_workouts(athlete_id, api_key):
@@ -230,164 +201,133 @@ def fetch_planned_workouts(athlete_id, api_key):
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events?oldest={start_date}&newest={end_date}"
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else []
-  except Exception:
-    return []
+  except Exception: return []
 
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_power_curve(athlete_id, api_key):
+def fetch_weather_intelligence():
   try:
-    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/power-curves?curves=42d&type=Ride"
-    res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
-    return res.json() if res.status_code == 200 else {}
-  except Exception:
-    return []
+    url = "https://api.open-meteo.com/v1/forecast?latitude=1.3521&longitude=103.8198&current=temperature_2m,relative_humidity_2m,wind_speed_10m"
+    res = requests.get(url, timeout=5)
+    return res.json().get("current", {})
+  except Exception: return {}
 
-# --- PARALLEL DATA FETCHING ---
-with st.spinner("Syncing live metrics & power duration curve from Intervals.icu..."):
+with st.spinner("Syncing multi-sport telemetry & safety metrics..."):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_wellness = executor.submit(fetch_intervals_wellness, ATHLETE_ID, INTERVALS_API_KEY)
         future_activities = executor.submit(fetch_recent_activities, ATHLETE_ID, INTERVALS_API_KEY)
         future_stats = executor.submit(fetch_athlete_stats, ATHLETE_ID, INTERVALS_API_KEY)
         future_planned = executor.submit(fetch_planned_workouts, ATHLETE_ID, INTERVALS_API_KEY)
-        future_power = executor.submit(fetch_power_curve, ATHLETE_ID, INTERVALS_API_KEY)
+        future_weather = executor.submit(fetch_weather_intelligence)
 
         wellness_list = future_wellness.result()
         activities_data = future_activities.result()
         athlete_stats = future_stats.result()
         planned_data = future_planned.result()
-        power_curve_data = future_power.result()
+        weather_data = future_weather.result()
 
-# Extract Metrics Safely
 ctl, atl, tsb, sleep_score, hrv = 0, 0, 0, 0, 0
 if wellness_list:
-    latest_record = wellness_list[-1]
-    ctl = latest_record.get("ctl", 0)
-    atl = latest_record.get("atl", 0)
-    tsb = latest_record.get("tsb", 0)
-    for record in reversed(wellness_list):
-        if sleep_score == 0 and record.get("sleepScore"):
-            sleep_score = record.get("sleepScore")
-        if hrv == 0 and record.get("hrv"):
-            hrv = record.get("hrv")
+    latest = wellness_list[-1]
+    ctl, atl, tsb = latest.get("ctl", 0), latest.get("atl", 0), latest.get("tsb", 0)
+    for r in reversed(wellness_list):
+        if sleep_score == 0 and r.get("sleepScore"): sleep_score = r.get("sleepScore")
+        if hrv == 0 and r.get("hrv"): hrv = r.get("hrv")
 
-athlete_zones = {
-    "ftp": athlete_stats.get("ftp", athlete_stats.get("icu_ftp", 250)),
-    "max_hr": athlete_stats.get("max_hr", 190)
-}
+# --- MULTI-SPORT GOALS CONFIG ---
+if "goals" not in st.session_state:
+    st.session_state.goals = {
+        "primary_sport": "Cycling (Road)",
+        "secondary_sport": "Running",
+        "strength_sessions_per_week": 2,
+        "event_name": "Target Gran Fondo & Half Marathon",
+        "event_date": datetime.date.today() + datetime.timedelta(days=60),
+        "kpi_target": "Maintain 4.2 W/kg cycling while building running aerobic base"
+    }
 
-# --- 2. SESSION STATE & CONFIG ---
-if "performance_goals" not in st.session_state:
-  st.session_state.performance_goals = "Maintain aerobic base, peak for upcoming events, and balance fatigue."
-
-if "event_date" not in st.session_state:
-  st.session_state.event_date = datetime.date.today() + datetime.timedelta(days=60)
-
-if "weekly_report" not in st.session_state:
-  st.session_state.weekly_report = None
-
-if "gear_items" not in st.session_state:
-    st.session_state.gear_items = [
-        {"name": "Continental GP5000 Tires (28mm)", "distance_km": 1450, "max_km": 4000},
-        {"name": "Shimano Dura-Ace Chain", "distance_km": 2100, "max_km": 3500},
-        {"name": "Shimano Dura-Ace Cassette (11-34)", "distance_km": 4200, "max_km": 10000},
-        {"name": "BBInfinite T47a Ceramic Bottom Bracket", "distance_km": 4200, "max_km": 15000}
-    ]
+if "webhook_url" not in st.session_state:
+    st.session_state.webhook_url = ""
 
 if "messages" not in st.session_state:
-    try:
-        response = supabase.table("chat_messages").select("*").eq("user_id", USER_ID).order("created_at").execute()
-        db_messages = response.data
-        if db_messages:
-            st.session_state.messages = [{"role": msg["role"], "content": msg["content"]} for msg in db_messages]
-        else:
-            st.session_state.messages = [{
-                "role": "model",
-                "content": f"Hello! Telemetry & Power Curve loaded securely. Ask me to review target feasibility, build a workout, or push workouts to your calendar!"
-            }]
-    except Exception:
-        st.session_state.messages = [{"role": "model", "content": "Hello! Running in local fallback mode."}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! Multi-sport engine & automated safety sentinel active. Cycling + Running + S&C monitored."}]
+
+if "debrief_logs" not in st.session_state: st.session_state.debrief_logs = []
+if "periodization_review" not in st.session_state: st.session_state.periodization_review = None
 
 with st.sidebar:
-  st.write(f"👤 Logged in as: **{st.session_state.user.email}**")
-  
-  st.markdown("---")
-  st.header("🧠 AI Provider Settings")
-  selected_provider = st.selectbox(
-      "Preferred AI Engine",
-      ["⚡ Auto-Fallback Chain", "OpenAI GPT", "Anthropic Claude", "Google Gemini"],
-      help="Select your primary LLM engine with automatic multi-provider cross-fallback."
-  )
+    st.write(f"👤 **{st.session_state.user.email}**")
+    selected_provider = st.selectbox("AI Engine", ["⚡ Auto-Fallback Chain", "OpenAI GPT", "Anthropic Claude", "Google Gemini"])
+    
+    st.markdown("---")
+    st.header("🚨 Safety & Push Notifications")
+    st.session_state.webhook_url = st.text_input("Discord/Telegram Webhook URL", value=st.session_state.webhook_url, type="password", help="Enter a webhook URL to receive automated push alerts when TSB drops too low.")
+    
+    st.markdown("---")
+    st.header("🎯 Multi-Sport & Strength Goals")
+    with st.form("goal_form"):
+        st.session_state.goals["primary_sport"] = st.selectbox("Primary Sport", ["Cycling (Road)", "Cycling (Time Trial)", "Gravel"], index=0)
+        st.session_state.goals["secondary_sport"] = st.selectbox("Secondary Sport", ["Running", "Trail Running", "Swimming", "None"], index=0)
+        st.session_state.goals["strength_sessions_per_week"] = st.slider("Strength Sessions / Week", 0, 4, 2)
+        st.session_state.goals["event_name"] = st.text_input("Event / Objective", value=st.session_state.goals["event_name"])
+        st.session_state.goals["kpi_target"] = st.text_input("KPI Target", value=st.session_state.goals["kpi_target"])
+        st.session_state.goals["event_date"] = st.date_input("Target Date", value=st.session_state.goals["event_date"])
+        if st.form_submit_button("Update Strategy"): st.success("Strategy updated.")
 
-  if st.button("Log Out"):
-      supabase.auth.sign_out()
-      st.session_state.user = None
-      st.rerun()
+    st.markdown("---")
+    if st.button("🗑️ Clear Chat History"):
+        st.session_state.messages = []
+        st.rerun()
 
-  st.markdown("---")
-  st.header("🎯 Target Event & Goals")
-  new_goal = st.text_area("Update your current goals:", value=st.session_state.performance_goals)
-  target_event = st.date_input("Target Event Date:", value=st.session_state.event_date)
+    if st.button("Log Out"):
+        supabase.auth.sign_out()
+        st.session_state.user = None
+        st.rerun()
 
-  if st.button("Save Configuration"):
-    st.session_state.performance_goals = new_goal
-    st.session_state.event_date = target_event
-    st.success("Configuration updated!")
-    st.rerun()
+days_to_event = (st.session_state.goals["event_date"] - datetime.date.today()).days
 
-  st.markdown("---")
-  st.header("📊 Weekly Check-In")
-  if st.button("Run Weekly Progress Report"):
-    with st.spinner("Analyzing performance trends across multi-LLM router..."):
-      report_prompt = (
-          "Generate a formal Weekly Progress Report. Review past 14 days of "
-          f"completed activities ({activities_data}) against planned calendar events ({planned_data}). "
-          f"Analyze overall metrics ({athlete_stats}), Power Duration Curve profile ({power_curve_data}), "
-          f"and recovery trends (Sleep: {sleep_score}, HRV: {hrv}) against goals: "
-          f"'{st.session_state.performance_goals}' and event date ({st.session_state.event_date}). "
-          "Critique pacing compliance and suggest adjustments."
-      )
-      
-      try:
-          report_text, model_used = execute_multiprovider_generation(report_prompt, preferred_provider=selected_provider, is_stream=False)
-          st.session_state.weekly_report = f"{report_text}\n\n*(Generated via: {model_used})*"
-          st.rerun()
-      except Exception as e:
-          st.error(f"Could not generate report: {e}")
+# --- AUTOMATED SAFETY EVALUATION ENGINE ---
+def evaluate_safety_risk(tsb, strength_freq, secondary_sport):
+    risk = "NORMAL"
+    msg = "Training load is balanced across your sports and recovery."
+    if tsb < -25 and strength_freq >= 2 and secondary_sport != "None":
+        risk = "HIGH"
+        msg = f"CRITICAL OVERREACHING RISK: TSB is deeply negative ({tsb:.1f}) while maintaining {secondary_sport} and {strength_freq}x weekly strength sessions. High risk of neuromuscular breakdown or overuse injury. Immediate recovery or strength tapering required."
+    elif tsb < -15:
+        risk = "MODERATE"
+        msg = f"ELEVATED FATIGUE: Form TSB is {tsb:.1f}. Monitor running impact loads and leg strength volume closely this week."
+    return risk, msg
 
-# Calculate Readiness & Days
-if tsb < -25 or (sleep_score > 0 and sleep_score < 60):
-  readiness_status = "🔴 RED - RECOVERY REQUIRED"
-  readiness_advice = "High fatigue detected. Pivot to active recovery or rest."
-elif -25 <= tsb <= 5 and sleep_score >= 70:
-  readiness_status = "🟢 GREEN - PRIMED FOR HARD SESSION"
-  readiness_advice = "Body is well-adapted and ready for high intensity."
-else:
-  readiness_status = "🟡 YELLOW - AEROBIC / ZONE 2"
-  readiness_advice = "Keep workouts structured in Zone 2 or light endurance."
+def send_push_alert(webhook_url, message):
+    if not webhook_url: return False
+    try:
+        payload = {"content": f"🚨 **AI Coach Safety Alert**: {message}"} if "discord" in webhook_url else {"text": f"🚨 AI Coach Safety Alert: {message}"}
+        res = requests.post(webhook_url, json=payload, timeout=5)
+        return res.status_code in [200, 204]
+    except:
+        return False
 
-days_to_event = (st.session_state.event_date - datetime.date.today()).days
+safety_risk, safety_msg = evaluate_safety_risk(tsb, st.session_state.goals["strength_sessions_per_week"], st.session_state.goals["secondary_sport"])
 
-
-# --- 3. TABBED NAVIGATION SUITE ---
-tab_dash, tab_coach, tab_gear, tab_fuel, tab_fit, tab_cal = st.tabs([
-    "📊 Command Center", 
-    "🤖 AI Coach & Builder", 
-    "🛠️ Gear Tracker",
-    "⚡ Fueling Calculator",
-    "📈 FIT Analyzer",
-    "📅 Calendar & Compliance"
+# --- NAVIGATION SUITE ---
+tab_dash, tab_coach, tab_strength, tab_fuel, tab_fit, tab_debrief, tab_cal = st.tabs([
+    "📊 Dashboard", "🤖 AI Coach", "🏋️‍♂️ Strength & S&C", "⚡ Fueling", "📈 Multi-Sport Fit", "📝 Debrief", "📅 Calendar"
 ])
 
-# ================= TAB 1: COMMAND CENTER =================
+# ================= TAB 1: DASHBOARD =================
 with tab_dash:
-    st.markdown("### Daily Readiness & Training Load")
-    col_r1, col_r2 = st.columns([2, 1])
-    with col_r1:
-      st.subheader(f"Status: {readiness_status}")
-      st.info(readiness_advice)
-    with col_r2:
-      st.subheader("🏁 Event Countdown")
-      st.metric("Days to Target Peak", f"{days_to_event} Days")
+    st.markdown("### Multi-Sport Readiness & Automated Safety Sentinel")
+    
+    # --- AUTOMATED FATIGUE & OVERTRAINING ALERT BANNER ---
+    if safety_risk == "HIGH":
+        st.error(f"🚨 **HIGH OOVERTRAINING RISK DETECTED**\n\n{safety_msg}")
+        if st.session_state.webhook_url:
+            if st.button("📤 Send Immediate Push Alert via Webhook"):
+                if send_push_alert(st.session_state.webhook_url, safety_msg):
+                    st.success("Push notification sent successfully!")
+                else:
+                    st.error("Failed to deliver webhook alert.")
+    elif safety_risk == "MODERATE":
+        st.warning(f"⚠️ **Moderate Fatigue Warning**: {safety_msg}")
+    else:
+        st.success(f"🟢 **Status Normal**: {safety_msg}")
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Fitness (CTL)", round(ctl, 1))
@@ -395,365 +335,114 @@ with tab_dash:
     m3.metric("Form (TSB)", round(tsb, 1))
     m4.metric("Sleep Score", f"{sleep_score}/100" if sleep_score > 0 else "N/A")
 
-    # --- FEATURE 5: MORNING AUDIO BRIEFING (TTS) ---
-    st.markdown("---")
-    st.subheader("🎙️ AI Morning Audio Briefing")
-    st.caption("Generate a synthesized 60-second audio briefing summarizing your recovery, sleep score, and daily focus.")
-    
-    if st.button("🔊 Generate Morning Briefing Audio", type="primary"):
-        if not openai_client:
-            st.error("OpenAI API key is required to generate audio briefings using TTS.")
-        else:
-            with st.spinner("Synthesizing coaching voice brief..."):
-                brief_script = (
-                    f"Good morning! Here is your daily coaching brief. "
-                    f"Your current readiness status is {readiness_status}. "
-                    f"Fitness CTL is {round(ctl, 1)}, Fatigue ATL is {round(atl, 1)}, and Form TSB is {round(tsb, 1)}. "
-                    f"Your last recorded sleep score is {sleep_score} out of 100. "
-                    f"Recommendation for today: {readiness_advice}. Train smart and stay aero!"
-                )
-                try:
-                    speech_response = openai_client.audio.speech.create(
-                        model="tts-1",
-                        voice="alloy",
-                        input=brief_script
-                    )
-                    audio_bytes = speech_response.content
-                    st.audio(audio_bytes, format="audio/mp3")
-                    st.success("Audio briefing generated successfully!")
-                except Exception as e:
-                    st.error(f"Failed to generate audio: {e}")
-
-    try:
-        fig_gauge = go.Figure(go.Indicator(
-            mode = "gauge+number",
-            value = tsb,
-            domain = {'x': [0, 1], 'y': [0, 1]},
-            title = {'text': "Form (TSB) Spectrum"},
-            gauge = {
-                'axis': {'range': [-50, 30]},
-                'bar': {'color': "black"},
-                'steps' : [
-                    {'range': [-50, -25], 'color': "rgba(255, 0, 0, 0.4)"}, 
-                    {'range': [-25, -10], 'color': "rgba(0, 128, 0, 0.5)"}, 
-                    {'range': [-10, 5], 'color': "rgba(255, 255, 0, 0.5)"},  
-                    {'range': [5, 30], 'color': "rgba(0, 0, 255, 0.4)"}     
-                ]
-            }
-        ))
-        fig_gauge.update_layout(height=250, margin=dict(l=20, r=20, t=30, b=10))
-        st.plotly_chart(fig_gauge, use_container_width=True)
-    except Exception:
-        pass
-
-    if activities_data:
-      try:
-        df_act = pd.DataFrame(activities_data)
-        if "start_date_local" in df_act.columns and "icu_training_load" in df_act.columns:
-          df_act["Date"] = pd.to_datetime(df_act["start_date_local"]).dt.date
-          chart_data = df_act.groupby("Date")["icu_training_load"].sum().reset_index()
-
-          fig = go.Figure()
-          fig.add_trace(go.Bar(
-              x=chart_data["Date"], y=chart_data["icu_training_load"],
-              name="Daily TSS", marker_color="#1f77b4"
-          ))
-          fig.update_layout(
-              title="14-Day Training Load (TSS) Distribution",
-              xaxis_title="Date", yaxis_title="TSS", height=250,
-              margin=dict(l=20, r=20, t=30, b=20),
-          )
-          st.plotly_chart(fig, use_container_width=True)
-      except Exception:
-        pass
-
-    if st.session_state.weekly_report:
-      with st.expander("📅 Latest Weekly Progress Report", expanded=True):
-        st.markdown(st.session_state.weekly_report)
-        if st.button("Clear Report"):
-          st.session_state.weekly_report = None
-          st.rerun()
-
-
-# ================= TAB 2: AI COACH & WORKOUT BUILDER =================
-with tab_coach:
-    st.markdown("### Interactive AI Sports Scientist")
-    st.caption("Ask for target reviews, structured workouts, or MyWhoosh `.zwo` exports. Push workouts directly to your Intervals.icu calendar.")
-
-    for i, message in enumerate(st.session_state.messages):
-      display_text = message["content"]
-      has_workout = "<workout_file>" in display_text
-      if has_workout:
-          display_text = display_text.split("<workout_file>")[0].strip()
-
-      with st.chat_message(message["role"]):
-        st.markdown(display_text)
-        
-        if has_workout and message["role"] == "model":
-            try:
-                workout_xml = message["content"].split("<workout_file>")[1].split("</workout_file>")[0].strip()
-                workout_xml = workout_xml.replace("```xml", "").replace("```", "").strip()
-                
-                col_btn1, col_btn2 = st.columns(2)
-                with col_btn1:
-                    st.download_button(
-                        label="⬇️ Download MyWhoosh (.zwo)",
-                        data=workout_xml,
-                        file_name=f"Coach_Workout_{datetime.date.today()}.zwo",
-                        mime="application/xml",
-                        type="primary",
-                        key=f"download_{i}"
-                    )
-                
-                # --- FEATURE 1: PUSH TO INTERVALS.ICU CALENDAR ---
-                with col_btn2:
-                    if st.button("🚀 Push to Intervals.icu Calendar", key=f"push_cal_{i}"):
-                        try:
-                            target_workout_date = (datetime.date.today() + datetime.timedelta(days=1)).isoformat() + "T00:00:00"
-                            payload = {
-                                "category": "WORKOUT",
-                                "start_date_local": target_workout_date,
-                                "type": "Ride",
-                                "name": f"AI Coach Workout - {datetime.date.today()}",
-                                "description": display_text[:300],
-                                "filename": "workout.zwo",
-                                "file_contents": workout_xml
-                            }
-                            url = f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events"
-                            response = requests.post(url, auth=("API_KEY", INTERVALS_API_KEY), json=payload, timeout=10)
-                            if response.status_code in [200, 201]:
-                                st.success("✅ Workout successfully pushed to your Intervals.icu calendar for tomorrow!")
-                            else:
-                                st.error(f"Failed to push to Intervals.icu: {response.text}")
-                        except Exception as ex:
-                            st.error(f"Error connecting to Intervals.icu API: {ex}")
-            except Exception:
-                pass
-
-    if prompt := st.chat_input("Ask: 'Are my current targets reasonable and how do I get there?'...", key="coach_chat_input"):
-      st.session_state.messages.append({"role": "user", "content": prompt})
-      
-      try:
-          supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "user", "content": prompt}).execute()
-      except Exception:
-          pass
-
-      with st.chat_message("user"):
-        st.markdown(prompt)
-
-      with st.chat_message("model"):
-        with st.spinner("Consulting multi-LLM sports science core..."):
-          
-          context_payload = f"""
-                You are an elite endurance sports science coach.
-                ATHLETE PROFILE & EQUIPMENT: 
-                - Setup: Custom road bike setup (Cervélo Soloist Size 48, S-Works Power Pro Mirror saddle, Magene P515 power meter, Dura-Ace drivetrain).
-                GOALS & TARGETS: {st.session_state.performance_goals} (Target Event in {days_to_event} days on {st.session_state.event_date})
-                READINESS: {readiness_status} | CTL (Fitness): {ctl} | ATL (Fatigue): {atl} | TSB (Form): {tsb} | Sleep: {sleep_score} | HRV: {hrv}
-                POWER & HR ZONES: {athlete_zones}
-                42-DAY POWER DURATION CURVE PROFILE: {power_curve_data}
-                PLANNED WORKOUTS (Calendar): {planned_data}
-                RECENT ACTIVITIES (Completed): {activities_data}
-
-                COACHING INSTRUCTIONS:
-                1. TARGET FEASIBILITY & ROADMAP: Critically evaluate whether the athlete's stated goals and event timeline ({days_to_event} days away) are reasonable given their current CTL, ATL, TSB, recovery, and Power Duration Curve limiters. Provide a clear, structured, actionable roadmap on how to bridge the gap safely without overtraining.
-                2. FEEDBACK LOOP: Compare 'Planned Workouts' vs 'Recent Activities'. Critique pacing discipline and compliance.
-                3. PLAN FORMULATION: If asked for a workout, prescribe exact watts based on the athlete's FTP and zones. Structure as Warmup -> Main Set -> Cool Down.
-                4. INDOOR EXPORT (MYWHOOSH): If the athlete asks for a MyWhoosh or Zwift workout, generate the exact XML structure for a `.zwo` file. 
-                   - YOU MUST wrap the raw XML code strictly inside `<workout_file>` and `</workout_file>` tags at the very end of your response. 
-                   - Do not put markdown around the XML tags.
-                """
-          for msg in st.session_state.messages[:-1]:
-            context_payload += f"\n{msg['role'].upper()}: {msg['content']}\n"
-          context_payload += f"\nUSER: {prompt}\n"
-
-          message_placeholder = st.empty()
-          full_response = ""
-          
-          try:
-            stream_result, active_model_name = execute_multiprovider_generation(
-                context_payload, preferred_provider=selected_provider, is_stream=True
-            )
-            
-            if "OpenAI" in active_model_name:
-                for chunk in stream_result:
-                    if chunk.choices[0].delta.content:
-                        full_response += chunk.choices[0].delta.content
-                        message_placeholder.markdown(full_response + "▌")
-            elif "Anthropic" in active_model_name:
-                with stream_result as stream:
-                    for text in stream.text_stream:
-                        full_response += text
-                        message_placeholder.markdown(full_response + "▌")
-            else:
-                for chunk in stream_result:
-                    if chunk.text:
-                        full_response += chunk.text
-                        message_placeholder.markdown(full_response + "▌")
-            
-            final_display = f"{full_response}\n\n*(Engine: {active_model_name})*"
-            message_placeholder.markdown(final_display)
-            
-            st.session_state.messages.append({"role": "model", "content": final_display})
-            
-            try:
-                supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "model", "content": final_display}).execute()
-            except Exception:
-                pass
-
-            st.rerun()
-
-          except Exception as e:
-            st.error(f"⚠️ Multi-Provider Router Error: {str(e)}")
-
-
-# ================= TAB 3: GEAR TRACKER =================
-with tab_gear:
-    st.markdown("### 🛠️ Custom Build & Component Wear Tracker")
-    st.caption("Monitor component lifespan for high-end components (Continental GP5000, Dura-Ace chains, ceramic bottom brackets).")
-    
-    col_g1, col_g2 = st.columns([2, 1])
-    with col_g1:
-        for idx, item in enumerate(st.session_state.gear_items):
-            pct = min(100.0, (item["distance_km"] / item["max_km"]) * 100)
-            st.write(f"**{item['name']}** — {item['distance_km']} km / {item['max_km']} km max ({pct:.1f}%)")
-            st.progress(pct / 100.0)
-            
-    with col_g2:
-        st.subheader("➕ Log Ride Distance")
-        added_km = st.number_input("Add Kilometers to All Gear:", min_value=0, max_value=300, value=50)
-        if st.button("Update Component Wear"):
-            for item in st.session_state.gear_items:
-                item["distance_km"] += added_km
-            st.success(f"Added {added_km} km to all tracked components!")
-            st.rerun()
-            
+    if weather_data:
         st.markdown("---")
-        if st.button("🔄 Reset Component (Serviced/Replaced)"):
-            reset_target = st.selectbox("Select Component to Reset:", [i["name"] for i in st.session_state.gear_items])
-            for item in st.session_state.gear_items:
-                if item["name"] == reset_target:
-                    item["distance_km"] = 0
-            st.success(f"Reset {reset_target} distance to 0 km!")
+        st.subheader("🌤️ Environmental Conditions")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Temperature", f"{weather_data.get('temperature_2m')} °C")
+        c2.metric("Humidity", f"{weather_data.get('relative_humidity_2m')}%")
+        c3.metric("Wind Speed", f"{weather_data.get('wind_speed_10m')} km/h")
+
+    st.markdown("---")
+    st.subheader("🔄 Proactive Multi-Sport Periodization")
+    if st.button("Run Periodization Audit", type="primary"):
+        with st.spinner("Analyzing cycling, running, and strength balance..."):
+            prompt = f"Audit my multi-sport plan. Primary: {st.session_state.goals['primary_sport']}, Secondary: {st.session_state.goals['secondary_sport']}, Strength: {st.session_state.goals['strength_sessions_per_week']}x/wk. CTL: {ctl}, TSB: {tsb}. Safety Risk Level: {safety_risk}. Event in {days_to_event} days."
+            res, model = execute_multiprovider_generation(prompt, preferred_provider=selected_provider)
+            st.session_state.periodization_review = f"{res}\n\n*(Engine: {model})*"
             st.rerun()
 
+    if st.session_state.periodization_review:
+        with st.expander("📋 Periodization Audit Results", expanded=True):
+            st.markdown(st.session_state.periodization_review)
+            if st.button("Clear Review"): st.session_state.periodization_review = None; st.rerun()
 
-# ================= TAB 4: FUELING CALCULATOR =================
-with tab_fuel:
-    st.markdown("### ⚡ Race-Day & Long-Ride Nutrition Calculator")
-    st.caption("Calculate precise hourly carbohydrate grams, sodium, and fluid requirements based on duration and intensity.")
-    
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        ride_duration_hrs = st.slider("Planned Ride Duration (Hours)", 1.0, 8.0, 3.5, 0.5)
-        ride_intensity = st.selectbox("Intensity Level", ["Zone 2 Endurance", "Tempo / Sweetspot", "Race Pace / Threshold", "Gran Fondo / Climbing"])
-        body_weight_kg = st.number_input("Athlete Body Weight (kg)", 45.0, 100.0, 58.0, 0.5)
+# ================= TAB 2: AI COACH =================
+with tab_coach:
+    st.markdown("### Multi-Sport & Strength AI Coach")
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]): st.markdown(msg["content"])
+            
+    if prompt := st.chat_input("Ask your coach about balancing cycling, running, and strength..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"): st.markdown(prompt)
         
-    with col_f2:
-        if ride_intensity == "Zone 2 Endurance":
-            carb_g_per_hr = 60
-            sodium_mg_per_hr = 500
-        elif ride_intensity == "Tempo / Sweetspot":
-            carb_g_per_hr = 75
-            sodium_mg_per_hr = 700
-        elif ride_intensity == "Race Pace / Threshold":
-            carb_g_per_hr = 90
-            sodium_mg_per_hr = 850
-        else:
-            carb_g_per_hr = 80
-            sodium_mg_per_hr = 750
-            
-        total_carbs = carb_g_per_hr * ride_duration_hrs
-        total_sodium = sodium_mg_per_hr * ride_duration_hrs
-        fluid_ml_hr = int(body_weight_kg * 8.5)
-        total_fluid_l = (fluid_ml_hr * ride_duration_hrs) / 1000
-        
-        st.subheader("📋 Prescription Breakdown")
-        st.metric("Carbohydrates / Hour", f"{carb_g_per_hr} g/hr", f"Total: {int(total_carbs)}g")
-        st.metric("Sodium / Electrolytes", f"{sodium_mg_per_hr} mg/hr", f"Total: {int(total_sodium)}mg")
-        st.metric("Fluid Intake Target", f"{fluid_ml_hr} ml/hr", f"Total: {total_fluid_l:.1f} Liters")
-
-
-# ================= TAB 5: FIT & STREAM ANALYZER =================
-with tab_fit:
-    st.markdown("### 📈 Activity Stream & Performance Analyzer")
-    st.caption("Analyze advanced pacing efficiency, Variability Index (VI), and Efficiency Factor (EF) from recent rides.")
-    
-    if activities_data:
-        act_options = {f"{a.get('start_date_local', '')[:10]} - {a.get('name', 'Ride')} (TSS: {a.get('icu_training_load', 0)})": a for a in activities_data if a.get("type") == "Ride"}
-        
-        if act_options:
-            selected_act_label = st.selectbox("Select Recent Ride to Analyze:", list(act_options.keys()))
-            chosen_act = act_options[selected_act_label]
-            
-            norm_power = chosen_act.get("icu_weighted_avg_watts", 0)
-            avg_power = chosen_act.get("average_watts", 0)
-            avg_hr = chosen_act.get("average_heartrate", 0)
-            duration_s = chosen_act.get("moving_time", 0)
-            distance_m = chosen_act.get("distance", 0)
-            
-            vi = (norm_power / avg_power) if avg_power and avg_power > 0 else 1.0
-            ef = (norm_power / avg_hr) if avg_hr and avg_hr > 0 else 0.0
-            
-            col_a1, col_a2, col_a3, col_a4 = st.columns(4)
-            col_a1.metric("Normalized Power", f"{int(norm_power)} W" if norm_power else "N/A")
-            col_a2.metric("Variability Index (VI)", f"{vi:.2f}", "Target < 1.05 for steady pacing")
-            col_a3.metric("Efficiency Factor (EF)", f"{ef:.2f} W/bpm", "Power-to-HR ratio")
-            col_a4.metric("Distance", f"{(distance_m/1000):.2f} km" if distance_m else "N/A")
-            
-            if st.button("🤖 Ask AI to Critique Pacing & Efficiency"):
-                critique_prompt = f"Critique this ride ({chosen_act.get('name')}): Normalized Power {norm_power}W, Average Power {avg_power}W, Variability Index {vi:.2f}, Efficiency Factor {ef:.2f}, Duration {duration_s/60:.1f} mins. Evaluate pacing discipline."
-                with st.spinner("Analyzing ride metrics..."):
-                    critique_text, used_m = execute_multiprovider_generation(critique_prompt, preferred_provider=selected_provider)
-                    st.markdown(critique_text)
-        else:
-            st.info("No completed bike rides found in the recent window.")
-    else:
-        st.info("No activity data available to analyze.")
-
-
-# ================= TAB 6: CALENDAR & COMPLIANCE =================
-with tab_cal:
-    st.markdown("### Planned vs. Actual Training Compliance")
-    st.caption("Review your scheduled calendar blocks against executed Garmin activities.")
-    
-    col_c1, col_c2 = st.columns(2)
-    
-    with col_c1:
-        st.subheader("📅 Scheduled Calendar Events")
-        if planned_data:
-            try:
-                df_planned = pd.DataFrame(planned_data)
-                if "start_date_local" in df_planned.columns:
-                    df_planned["Date"] = pd.to_datetime(df_planned["start_date_local"]).dt.strftime("%Y-%m-%d")
-                if "name" not in df_planned.columns and "summary" in df_planned.columns:
-                    df_planned["name"] = df_planned["summary"]
-                display_cols = [c for c in ["Date", "name", "type", "category", "load"] if c in df_planned.columns or c == "Date"]
-                st.dataframe(df_planned[[c for c in display_cols if c in df_planned.columns]], use_container_width=True, hide_index=True)
-            except Exception:
-                st.write("Could not parse planned events table.")
-        else:
-            st.info("No planned events found for this window.")
-            
-    with col_c2:
-        st.subheader("🚴‍♂️ Completed Activities")
-        if activities_data:
-            try:
-                df_act = pd.DataFrame(activities_data)
-                if "start_date_local" in df_act.columns:
-                    df_act["Date"] = pd.to_datetime(df_act["start_date_local"]).dt.strftime("%Y-%m-%d")
-                if "moving_time" in df_act.columns:
-                    df_act["Duration (min)"] = (df_act["moving_time"] / 60).round(1)
-                if "distance" in df_act.columns:
-                    df_act["Distance (km)"] = (df_act["distance"] / 1000).round(2)
-                if "icu_training_load" in df_act.columns:
-                    df_act["TSS"] = df_act["icu_training_load"].round(0)
-
-                columns_to_show = ["Date", "name", "type", "TSS", "Duration (min)", "Distance (km)"]
-                available_cols = [c for c in columns_to_show if c in df_act.columns]
+        with st.chat_message("model"):
+            with st.spinner("Consulting multi-sport coaching core..."):
+                payload = f"""
+                You are an elite endurance coach specializing in multi-sport athletes where {st.session_state.goals['primary_sport']} is primary and {st.session_state.goals['secondary_sport']} is secondary, supported by {st.session_state.goals['strength_sessions_per_week']} weekly gym sessions.
+                GOALS: {st.session_state.goals}
+                METRICS: CTL={ctl}, ATL={atl}, TSB={tsb} (Safety Risk: {safety_risk}).
+                RECENT ACTIVITIES: {activities_data}
                 
-                st.dataframe(df_act[available_cols], use_container_width=True, hide_index=True)
-            except Exception:
-                st.write("Could not parse activities table.")
-        else:
-            st.info("No completed activities found for this window.")
+                Provide precise coaching advice, balancing aerobic load with injury prevention and strength work. If prescribing a workout, include exact wattage or pace zones and structural sets.
+                """ + prompt
+                resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
+                full_resp = f"{resp}\n\n*(Engine: {engine})*"
+                st.markdown(full_resp)
+                st.session_state.messages.append({"role": "model", "content": full_resp})
+
+# ================= TAB 3: STRENGTH & S&C WORKOUT BUILDER =================
+with tab_strength:
+    st.markdown("### 🏋️‍♂️ Strength & Conditioning for Endurance Athletes")
+    st.caption("Custom strength sessions designed to bulletproof your joints, enhance force production on the bike, and support running durability.")
+    
+    st_focus = st.selectbox("Select Focus Area", [
+        "Cycling Force & Posterior Chain (Deadlifts, Bulgarian Split Squats)", 
+        "Running Durability & Core Stability (Single-leg stability, Plyometrics)", 
+        "Full Body Injury Prevention & Mobility"
+    ])
+    
+    if st.button("Generate Custom S&C Workout", type="primary"):
+        with st.spinner("Designing strength session..."):
+            sc_prompt = f"Design a 45-minute gym strength workout for a cyclist ({st.session_state.goals['primary_sport']}) and runner ({st.session_state.goals['secondary_sport']}) focusing on: {st_focus}. Include exercise name, sets, reps, and specific endurance carryover notes."
+            sc_res, sc_model = execute_multiprovider_generation(sc_prompt, preferred_provider=selected_provider)
+            st.markdown(sc_res)
+
+# ================= TAB 4: FUELING =================
+with tab_fuel:
+    st.markdown("### ⚡ Fueling Calculator")
+    col1, col2 = st.columns(2)
+    with col1:
+        dur = st.slider("Duration (Hours)", 1.0, 6.0, 3.0, 0.5)
+        sport_type = st.selectbox("Activity Sport", ["Cycling", "Running"])
+        wt = st.number_input("Weight (kg)", 45.0, 100.0, 58.0)
+    with col2:
+        carbs = 90 if sport_type == "Cycling" else 60
+        st.metric("Recommended Carbs", f"{carbs} g/hr", f"Total: {int(carbs * dur)}g")
+        st.metric("Fluid Target", f"{int(wt * 8)} ml/hr")
+
+# ================= TAB 5: MULTI-SPORT FIT ANALYZER =================
+with tab_fit:
+    st.markdown("### 📈 Multi-Sport Activity & Load Breakdown")
+    if activities_data:
+        df_act = pd.DataFrame(activities_data)
+        if "type" in df_act.columns:
+            st.bar_chart(df_act.groupby("type")["icu_training_load"].sum())
+        
+        act_opts = {f"{a.get('start_date_local', '')[:10]} - {a.get('name', 'Workout')} ({a.get('type', 'Ride')})": a for a in activities_data}
+        chosen_lbl = st.selectbox("Select Activity to Inspect:", list(act_opts.keys()))
+        chosen = act_opts[chosen_lbl]
+        st.json(chosen)
+    else:
+        st.info("No activities found.")
+
+# ================= TAB 6: DEBRIEF =================
+with tab_debrief:
+    st.markdown("### 📝 Post-Workout Qualitative Debrief")
+    with st.form("debrief"):
+        d_date = st.date_input("Date")
+        d_sport = st.selectbox("Sport", ["Cycling", "Running", "Strength"])
+        d_rpe = st.slider("RPE (1-10)", 1, 10, 5)
+        d_notes = st.text_area("Notes")
+        if st.form_submit_button("Save Debrief"):
+            st.session_state.debrief_logs.append({"date": str(d_date), "sport": d_sport, "rpe": d_rpe, "notes": d_notes})
+            st.success("Debrief saved to AI context memory!")
+
+# ================= TAB 7: CALENDAR =================
+with tab_cal:
+    st.markdown("### 📅 Planned vs Actual Calendar")
+    if planned_data:
+        st.dataframe(pd.DataFrame(planned_data), use_container_width=True)
+    else:
+        st.info("No upcoming calendar events found.")
