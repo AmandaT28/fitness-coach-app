@@ -6,12 +6,22 @@ from google.genai.errors import APIError, ServerError
 import requests
 import streamlit as st
 
-# Load environment variables
-load_dotenv()
+# Load environment variables safely for local or cloud deployment
+try:
+  from dotenv import load_dotenv
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-INTERVALS_API_KEY = os.getenv("INTERVALS_API_KEY")
-ATHLETE_ID = os.getenv("INTERVALS_ATHLETE_ID")
+  load_dotenv()
+except ImportError:
+  pass
+
+# Grab keys from Streamlit Secrets (Cloud) or environment (Local)
+GEMIN_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+INTERVALS_API_KEY = st.secrets.get("INTERVALS_API_KEY") or os.getenv(
+    "INTERVALS_API_KEY"
+)
+ATHLETE_ID = st.secrets.get("INTERVALS_ATHLETE_ID") or os.getenv(
+    "INTERVALS_ATHLETE_ID"
+)
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
