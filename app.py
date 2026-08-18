@@ -4,6 +4,8 @@ import time
 import concurrent.futures
 from dotenv import load_dotenv
 from google import genai
+from openai import OpenAI
+import anthropic
 import requests
 import streamlit as st
 from supabase import create_client, Client
@@ -14,59 +16,104 @@ try:
 except ImportError:
   pass
 
-# Grab keys from Streamlit Secrets or environment
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+# Grab backend and multi-provider keys from Streamlit Secrets or environment
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
-
-if not GEMINI_API_KEY:
-  st.error("❌ GEMINI_API_KEY is missing! Configure it in Streamlit Cloud Secrets.")
-  st.stop()
+GEMINI_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+OPENAI_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+ANTHROPIC_KEY = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
   st.error("❌ Supabase credentials are missing! Add SUPABASE_URL and SUPABASE_KEY to Secrets.")
   st.stop()
 
-# Initialize Clients
-client = genai.Client(api_key=GEMINI_API_KEY)
+# Initialize Database & Clients conditionally based on available keys
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+google_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
+openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
+anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
 # App UI Configuration
 st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂️", layout="wide")
 
-st.title("🚴‍♂️ AI Sports Science Coach • Pro Command Center")
-st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu & Supabase Auth")
+st.title("🚴‍♂️ AI Sports Science Coach • Multi-Provider Engine")
+st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu, Supabase & Multi-LLM Fallbacks")
 
-# --- RESILIENT MODEL FALLBACK EXECUTOR WITH EXTENDED BACKOFF ---
-def execute_with_model_fallback(contents, is_stream=False):
-    """Cycles through production models with extended backoff delays to bypass 503 traffic spikes."""
-    production_models = [
-        "gemini-3.6-flash",
-        "gemini-3.7-flash",
-        "gemini-3.5-flash",
-        "gemini-3.1-pro-preview"
-    ]
+# --- MULTI-PROVIDER CROSS-PROVIDER FALLBACK ROUTER ---
+def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain", is_stream=False):
+    """
+    Tries the preferred provider first, then cascades across OpenAI, Anthropic, 
+    and Google Gemini to completely bypass service interruptions and 503 spikes.
+    """
     
-    last_exception = None
-    for model_index, model_name in enumerate(production_models):
-        for attempt in range(3): 
+    # Helper wrappers for clean execution
+    def call_openai(stream=False):
+        if not openai_client: raise Exception("OpenAI API key missing")
+        if stream:
+            return openai_client.chat.completions.create(
+                model="gpt-4o", messages=[{"role": "user", "content": prompt}], stream=True
+            ), "OpenAI GPT-4o"
+        else:
+            res = openai_client.chat.completions.create(
+                model="gpt-4o", messages=[{"role": "user", "content": prompt}]
+            )
+            return res.choices[0].message.content, "OpenAI GPT-4o"
+
+    def call_anthropic(stream=False):
+        if not anthropic_client: raise Exception("Anthropic API key missing")
+        if stream:
+            # Anthropic streaming implementation handled iteratively
+            return anthropic_client.messages.stream(
+                model="claude-3-5-sonnet-20241022", max_tokens=2048, messages=[{"role": "user", "content": prompt}]
+            ), "Anthropic Claude"
+        else:
+            res = anthropic_client.messages.create(
+                model="claude-3-5-sonnet-20241022", max_tokens=2048, messages=[{"role": "user", "content": prompt}]
+            )
+            return res.content[0].text, "Anthropic Claude"
+
+    def call_google(stream=False):
+        if not google_client: raise Exception("Google API key missing")
+        models = ["gemini-3.7-flash", "gemini-3.6-flash"]
+        last_err = None
+        for m in models:
             try:
-                if is_stream:
-                    return client.models.generate_content_stream(model=model_name, contents=contents), model_name
+                if stream:
+                    return google_client.models.generate_content_stream(model=m, contents=prompt), f"Google {m}"
                 else:
-                    return client.models.generate_content(model=model_name, contents=contents), model_name
+                    return google_client.models.generate_content(model=m, contents=prompt).text, f"Google {m}"
             except Exception as e:
-                last_exception = e
-                error_str = str(e)
-                if "503" in error_str or "UNAVAILABLE" in error_str or "rate limit" in error_str.lower():
-                    # Progressive backoff delay: 2s, 4s, 8s per model
-                    sleep_time = (2 ** attempt) + (model_index * 1)
-                    time.sleep(sleep_time)
-                    continue
-                else:
-                    raise e 
-                    
-    raise Exception(f"Servers are experiencing exceptionally high traffic. Please wait 10 seconds and try your request again. (Last error: {str(last_exception)})")
+                last_err = e
+                continue
+        raise last_err
+
+    # 1. Try User's Preferred Provider First
+    if preferred_provider == "OpenAI GPT" and openai_client:
+        try: return call_openai(is_stream)
+        except Exception: st.toast("OpenAI busy, falling back...", icon="⚠️")
+    elif preferred_provider == "Anthropic Claude" and anthropic_client:
+        try: return call_anthropic(is_stream)
+        except Exception: st.toast("Claude busy, falling back...", icon="⚠️")
+    elif preferred_provider == "Google Gemini" and google_client:
+        try: return call_google(is_stream)
+        except Exception: st.toast("Gemini busy, falling back...", icon="⚠️")
+
+    # 2. Universal Cross-Provider Fallback Roster
+    provider_stack = [
+        ("OpenAI", lambda: call_openai(is_stream)),
+        ("Anthropic", lambda: call_anthropic(is_stream)),
+        ("Google", lambda: call_google(is_stream))
+    ]
+
+    for name, action in provider_stack:
+        try:
+            return action()
+        except Exception:
+            continue
+
+    raise Exception("All configured AI providers (OpenAI, Anthropic, Google) are currently experiencing outages or missing keys.")
+
 
 # --- AUTHENTICATION FLOW (SUPABASE AUTH) ---
 if "user" not in st.session_state:
@@ -152,9 +199,7 @@ def fetch_intervals_wellness(athlete_id, api_key):
     start_date = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/wellness?oldest={start_date}&newest={end_date}"
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
-    if res.status_code == 200 and res.json():
-        return res.json()
-    return []
+    return res.json() if res.status_code == 200 and res.json() else []
   except Exception:
     return []
 
@@ -176,7 +221,7 @@ def fetch_athlete_stats(athlete_id, api_key):
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else {}
   except Exception:
-    return []
+    return {}
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_planned_workouts(athlete_id, api_key):
@@ -196,7 +241,7 @@ def fetch_power_curve(athlete_id, api_key):
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else {}
   except Exception:
-    return []
+    return {}
 
 # --- PARALLEL DATA FETCHING FOR INSTANT LOAD ---
 with st.spinner("Syncing live metrics & power duration curve from Intervals.icu..."):
@@ -215,13 +260,11 @@ with st.spinner("Syncing live metrics & power duration curve from Intervals.icu.
 
 # Extract Metrics Safely
 ctl, atl, tsb, sleep_score, hrv = 0, 0, 0, 0, 0
-
 if wellness_list:
     latest_record = wellness_list[-1]
     ctl = latest_record.get("ctl", 0)
     atl = latest_record.get("atl", 0)
     tsb = latest_record.get("tsb", 0)
-    
     for record in reversed(wellness_list):
         if sleep_score == 0 and record.get("sleepScore"):
             sleep_score = record.get("sleepScore")
@@ -252,13 +295,22 @@ if "messages" not in st.session_state:
         else:
             st.session_state.messages = [{
                 "role": "model",
-                "content": f"Hello! Telemetry & Power Curve loaded. Your session is securely authenticated via Supabase. Ask me to review target feasibility or build a workout!"
+                "content": f"Hello! Telemetry & Power Curve loaded securely via Supabase. Ask me to review target feasibility or build a workout!"
             }]
     except Exception:
         st.session_state.messages = [{"role": "model", "content": "Hello! Running in local fallback mode."}]
 
 with st.sidebar:
   st.write(f"👤 Logged in as: **{st.session_state.user.email}**")
+  
+  st.markdown("---")
+  st.header("🧠 AI Provider Settings")
+  selected_provider = st.selectbox(
+      "Preferred AI Engine",
+      ["⚡ Auto-Fallback Chain", "OpenAI GPT", "Anthropic Claude", "Google Gemini"],
+      help="Select your primary LLM engine. If it experiences high traffic or downtime, the app automatically switches to the other providers."
+  )
+
   if st.button("Log Out"):
       supabase.auth.sign_out()
       st.session_state.user = None
@@ -278,7 +330,7 @@ with st.sidebar:
   st.markdown("---")
   st.header("📊 Weekly Check-In")
   if st.button("Run Weekly Progress Report"):
-    with st.spinner("Analyzing performance trends & compliance..."):
+    with st.spinner("Analyzing performance trends across multi-LLM router..."):
       report_prompt = (
           "Generate a formal Weekly Progress Report. Review past 14 days of "
           f"completed activities ({activities_data}) against planned calendar events ({planned_data}). "
@@ -289,8 +341,8 @@ with st.sidebar:
       )
       
       try:
-          response_obj, used_model = execute_with_model_fallback(report_prompt, is_stream=False)
-          st.session_state.weekly_report = response_obj.text
+          report_text, model_used = execute_multiprovider_generation(report_prompt, preferred_provider=selected_provider, is_stream=False)
+          st.session_state.weekly_report = f"{report_text}\n\n*(Generated via: {model_used})*"
           st.rerun()
       except Exception as e:
           st.error(f"Could not generate report: {e}")
@@ -389,7 +441,7 @@ with tab_dash:
 # ================= TAB 2: AI COACH & WORKOUT BUILDER =================
 with tab_coach:
     st.markdown("### Interactive AI Sports Scientist")
-    st.caption("Ask for a target feasibility review, structured workouts, pacing check, or MyWhoosh `.zwo` export. Chat syncs via Supabase Auth.")
+    st.caption("Ask for target reviews, structured workouts, or MyWhoosh `.zwo` exports. Multi-LLM router active.")
 
     for i, message in enumerate(st.session_state.messages):
       display_text = message["content"]
@@ -428,7 +480,7 @@ with tab_coach:
         st.markdown(prompt)
 
       with st.chat_message("model"):
-        with st.spinner("Analyzing telemetry, power curve, and formulating roadmap..."):
+        with st.spinner("Consulting multi-LLM sports science core..."):
           
           context_payload = f"""
                 You are an elite endurance sports science coach.
@@ -457,25 +509,41 @@ with tab_coach:
           full_response = ""
           
           try:
-            response_stream, active_model = execute_with_model_fallback(context_payload, is_stream=True)
+            stream_result, active_model_name = execute_multiprovider_generation(
+                context_payload, preferred_provider=selected_provider, is_stream=True
+            )
             
-            for chunk in response_stream:
-                if chunk.text:
-                    full_response += chunk.text
-                    message_placeholder.markdown(full_response + "▌")
+            # Handle streaming chunks across different SDK return structures
+            if "OpenAI" in active_model_name:
+                for chunk in stream_result:
+                    if chunk.choices[0].delta.content:
+                        full_response += chunk.choices[0].delta.content
+                        message_placeholder.markdown(full_response + "▌")
+            elif "Anthropic" in active_model_name:
+                with stream_result as stream:
+                    for text in stream.text_stream:
+                        full_response += text
+                        message_placeholder.markdown(full_response + "▌")
+            else: # Google Gemini Stream
+                for chunk in stream_result:
+                    if chunk.text:
+                        full_response += chunk.text
+                        message_placeholder.markdown(full_response + "▌")
             
-            message_placeholder.markdown(full_response)
-            st.session_state.messages.append({"role": "model", "content": full_response})
+            final_display = f"{full_response}\n\n*(Engine: {active_model_name})*"
+            message_placeholder.markdown(final_display)
+            
+            st.session_state.messages.append({"role": "model", "content": final_display})
             
             try:
-                supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "model", "content": full_response}).execute()
+                supabase.table("chat_messages").insert({"user_id": USER_ID, "role": "model", "content": final_display}).execute()
             except Exception:
                 pass
 
             st.rerun()
 
           except Exception as e:
-            st.error(f"⚠️ {str(e)}")
+            st.error(f"⚠️ Multi-Provider Router Error: {str(e)}")
 
 
 # ================= TAB 3: CALENDAR & COMPLIANCE =================
