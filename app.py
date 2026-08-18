@@ -1,6 +1,5 @@
 import datetime
 import os
-import time
 import concurrent.futures
 import xml.etree.ElementTree as ET
 import math
@@ -17,9 +16,9 @@ import io
 
 # Load environment variables safely
 try:
-  load_dotenv()
+    load_dotenv()
 except ImportError:
-  pass
+    pass
 
 # Grab keys from Streamlit Secrets or environment
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
@@ -29,8 +28,8 @@ OPENAI_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 ANTHROPIC_KEY = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-  st.error("❌ Supabase credentials are missing! Add SUPABASE_URL and SUPABASE_KEY to Secrets.")
-  st.stop()
+    st.error("❌ Supabase credentials are missing! Add SUPABASE_URL and SUPABASE_KEY to Secrets.")
+    st.stop()
 
 # Initialize Database & Clients
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -122,7 +121,7 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
 
     def call_google(stream=False):
         if not google_client: raise Exception("Google API key missing")
-        models = ["gemini-3.7-flash", "gemini-3.6-flash"]
+        models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
         last_err = None
         for m in models:
             try:
@@ -150,15 +149,15 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
     elif preferred_provider == "Google Gemini" and google_client:
         active_stack.insert(0, active_stack.pop([i for i, p in enumerate(active_stack) if p[0] == "Google"][0]))
 
-    last_error = None
+    last_error = ""
     for name, action in active_stack:
         try:
             return action()
         except Exception as e:
-            last_error = e
+            last_error += f"[{name} Error: {str(e)}] "
             continue
 
-    raise Exception(f"All active AI providers failed. Last error: {str(last_error)}")
+    raise Exception(f"All active AI providers failed. Details: {last_error}")
 
 
 # --- AUTHENTICATION FLOW (SUPABASE AUTH) ---
@@ -219,123 +218,122 @@ ATHLETE_ID = user_profile["intervals_athlete_id"]
 # --- DATA FETCHING ---
 @st.cache_data(ttl=300, show_spinner=False) 
 def fetch_intervals_wellness(athlete_id, api_key):
-  try:
-    end_date = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
-    start_date = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
-    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/wellness?oldest={start_date}&newest={end_date}"
-    res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
-    return res.json() if res.status_code == 200 and res.json() else []
-  except Exception: return []
+    try:
+        end_date = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+        start_date = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
+        url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/wellness?oldest={start_date}&newest={end_date}"
+        res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
+        return res.json() if res.status_code == 200 and res.json() else []
+    except Exception: return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_recent_activities(athlete_id, api_key):
-  try:
-    end_date = datetime.date.today().isoformat()
-    start_date = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
-    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/activities?oldest={start_date}&newest={end_date}"
-    res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
-    return res.json() if res.status_code == 200 else []
-  except Exception: return []
+    try:
+        end_date = datetime.date.today().isoformat()
+        start_date = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
+        url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/activities?oldest={start_date}&newest={end_date}"
+        res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
+        return res.json() if res.status_code == 200 else []
+    except Exception: return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_athlete_stats(athlete_id, api_key):
-  try:
-    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
-    res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
-    return res.json() if res.status_code == 200 else {}
-  except Exception: return []
+    try:
+        url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
+        res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
+        return res.json() if res.status_code == 200 else {}
+    except Exception: return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_planned_workouts(athlete_id, api_key):
-  try:
-    end_date = (datetime.date.today() + datetime.timedelta(days=7)).isoformat()
-    start_date = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
-    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events?oldest={start_date}&newest={end_date}"
-    res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
-    return res.json() if res.status_code == 200 else []
-  except Exception: return []
+    try:
+        end_date = (datetime.date.today() + datetime.timedelta(days=7)).isoformat()
+        start_date = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
+        url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events?oldest={start_date}&newest={end_date}"
+        res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
+        return res.json() if res.status_code == 200 else []
+    except Exception: return []
 
 def fetch_rain_intelligence():
-  try:
-    url = "https://api.open-meteo.com/v1/forecast?latitude=1.3521&longitude=103.8198&current=precipitation,weather_code"
-    res = requests.get(url, timeout=5)
-    data = res.json().get("current", {})
-    precip = data.get("precipitation", 0.0)
-    w_code = data.get("weather_code", 0)
-    return precip > 0.1 or w_code in [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99]
-  except Exception:
-    return False
+    try:
+        url = "https://api.open-meteo.com/v1/forecast?latitude=1.3521&longitude=103.8198&current=precipitation,weather_code"
+        res = requests.get(url, timeout=5)
+        data = res.json().get("current", {})
+        precip = data.get("precipitation", 0.0)
+        w_code = data.get("weather_code", 0)
+        return precip > 0.1 or w_code in [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99]
+    except Exception:
+        return False
 
 def parse_gpx(file_bytes):
-  try:
     try:
-      xml_content = file_bytes.decode('utf-8')
-    except UnicodeDecodeError:
-      try:
-        xml_content = file_bytes.decode('latin-1')
-      except:
-        xml_content = file_bytes.decode('utf-16', errors='ignore')
+        try:
+            xml_content = file_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                xml_content = file_bytes.decode('latin-1')
+            except:
+                xml_content = file_bytes.decode('utf-16', errors='ignore')
+                
+        root = ET.fromstring(xml_content)
         
-    tree = ET.ElementTree(io.StringIO(xml_content))
-    root = tree.getroot()
-    latlons = []
-    elevations = []
-    
-    for elem in root.iter():
-      tag = elem.tag.split('}')[-1].lower()
-      if any(p in tag for p in ['pt', 'point', 'node', 'trkpt', 'rtept', 'wpt']):
-        lat = None
-        lon = None
-        for k, v in elem.attrib.items():
-          k_low = k.split('}')[-1].lower()
-          if k_low in ['lat', 'latitude']:
-            try: lat = float(v)
-            except: pass
-          elif k_low in ['lon', 'lng', 'longitude']:
-            try: lon = float(v)
-            except: pass
-            
-        if lat is not None and lon is not None:
-          latlons.append((lat, lon))
-          ele_val = elevations[-1] if elevations else 0.0
-          for child in elem:
-            child_tag = child.tag.split('}')[-1].lower()
-            if child_tag in ['ele', 'elevation', 'alt', 'altitude']:
-              try:
-                ele_val = float(child.text)
-                break
-              except:
-                pass
-          elevations.append(ele_val)
-            
-    if not latlons:
-      return {"distance_km": 30.0, "elevation_gain_m": 300.0, "max_elevation": 120.0, "min_elevation": 10.0}
-
-    total_ele_gain = 0
-    for i in range(1, len(elevations)):
-      diff = elevations[i] - elevations[i-1]
-      if diff > 0: 
-        total_ele_gain += diff
+        latlons = []
+        elevations = []
         
-    total_dist_km = 0
-    for i in range(1, len(latlons)):
-      lat1, lon1 = latlons[i-1]
-      lat2, lon2 = latlons[i]
-      R = 6371
-      dlat = math.radians(lat2 - lat1)
-      dlon = math.radians(lon2 - lon1)
-      a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
-      c = 2 * math.asin(math.sqrt(a))
-      total_dist_km += R * c
+        for elem in root.iter():
+            tag = elem.tag.split('}')[-1].lower()
+            if tag in ['trkpt', 'rtept']:
+                lat_str = elem.attrib.get('lat') or elem.attrib.get('latitude')
+                lon_str = elem.attrib.get('lon') or elem.attrib.get('longitude')
+                
+                if lat_str and lon_str:
+                    try:
+                        lat = float(lat_str)
+                        lon = float(lon_str)
+                        latlons.append((lat, lon))
+                        
+                        ele_val = elevations[-1] if elevations else 0.0
+                        for child in elem:
+                            if child.tag.split('}')[-1].lower() in ['ele', 'elevation', 'alt']:
+                                try:
+                                    ele_val = float(child.text)
+                                except (TypeError, ValueError):
+                                    pass
+                                break
+                        elevations.append(ele_val)
+                    except ValueError:
+                        pass
+                        
+        if not latlons:
+            return None
 
-    return {
-        "distance_km": round(max(total_dist_km, 1.0), 2),
-        "elevation_gain_m": round(total_ele_gain, 1),
-        "max_elevation": round(max(elevations), 1) if elevations else 0,
-        "min_elevation": round(min(elevations), 1) if elevations else 0
-    }
-  except Exception:
-    return {"distance_km": 30.0, "elevation_gain_m": 300.0, "max_elevation": 120.0, "min_elevation": 10.0}
+        total_ele_gain = 0
+        for i in range(1, len(elevations)):
+            diff = elevations[i] - elevations[i-1]
+            if diff > 0: 
+                total_ele_gain += diff
+                
+        total_dist_km = 0
+        for i in range(1, len(latlons)):
+            lat1, lon1 = latlons[i-1]
+            lat2, lon2 = latlons[i]
+            R = 6371.0 
+            dlat = math.radians(lat2 - lat1)
+            dlon = math.radians(lon2 - lon1)
+            a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+            c = 2 * math.asin(math.sqrt(a))
+            total_dist_km += R * c
+
+        return {
+            "distance_km": round(max(total_dist_km, 0.1), 2),
+            "elevation_gain_m": round(total_ele_gain, 1),
+            "max_elevation": round(max(elevations), 1) if elevations else 0,
+            "min_elevation": round(min(elevations), 1) if elevations else 0
+        }
+        
+    except Exception as e:
+        st.error(f"XML Parsing Error: {str(e)}")
+        return None
 
 with st.spinner("Syncing multi-sport telemetry & weather intelligence..."):
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -375,6 +373,18 @@ if "messages" not in st.session_state:
 
 if "debrief_logs" not in st.session_state: st.session_state.debrief_logs = []
 if "periodization_review" not in st.session_state: st.session_state.periodization_review = None
+
+# Hardware Integration Context for AI Payload
+equipment_context = """
+Athlete Equipment Profile:
+- Bike: Cervélo Soloist (Size 48)
+- Gearing: Magene 50-34T chainrings, Dura-Ace 11-34T cassette
+- Crank: Magene TEO P515 Carbon (160mm) with P515 Spider power meter
+- Cockpit: THE ONE PRO Aero Carbon handlebars
+- Pedals: Wahoo Speedplay (Titanium Spindles)
+- Computer: Garmin Edge 530
+Note: Factor the 160mm crank length and 1:1 lowest gear ratio (34-34) into biomechanics, cadence, and climbing strategies.
+"""
 
 with st.sidebar:
     st.markdown(f"👤 **{st.session_state.user.email}**")
@@ -441,10 +451,13 @@ with tab_dash:
     st.subheader("🔄 Proactive Multi-Sport Periodization")
     if st.button("Run Periodization Audit", type="primary"):
         with st.spinner("Analyzing cycling, running, and strength balance..."):
-            prompt = f"Audit my multi-sport plan. Primary: {st.session_state.goals['primary_sport']}, Secondary: {st.session_state.goals['secondary_sport']}, Strength: {st.session_state.goals['strength_sessions_per_week']}x/wk. Rain Status: {'Raining - Suggesting indoor alternatives' if is_raining else 'Clear'}. CTL: {ctl}, TSB: {tsb}. Event in {days_to_event} days."
-            res, model = execute_multiprovider_generation(prompt, preferred_provider=selected_provider)
-            st.session_state.periodization_review = f"{res}\n\n*(Engine: {model})*"
-            st.rerun()
+            prompt = f"Audit my multi-sport plan. Primary: {st.session_state.goals['primary_sport']}, Secondary: {st.session_state.goals['secondary_sport']}, Strength: {st.session_state.goals['strength_sessions_per_week']}x/wk. Rain Status: {'Raining - Suggesting indoor alternatives' if is_raining else 'Clear'}. CTL: {ctl}, TSB: {tsb}. Event in {days_to_event} days. {equipment_context}"
+            try:
+                res, model = execute_multiprovider_generation(prompt, preferred_provider=selected_provider)
+                st.session_state.periodization_review = f"{res}\n\n*(Engine: {model})*"
+                st.rerun()
+            except Exception as e:
+                st.error(f"Generation Failed: {str(e)}")
 
     if st.session_state.periodization_review:
         with st.expander("📋 Periodization Audit Results", expanded=True):
@@ -468,14 +481,18 @@ with tab_coach:
                 GOALS: {st.session_state.goals}
                 METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.
                 WEATHER STATUS: {'Raining (Outdoor rides blocked; suggest indoor trainer/MyWhoosh or gym alternatives)' if is_raining else 'Clear'}
-                RECENT ACTIVITIES: {activities_data}
+                {equipment_context}
                 
                 Provide precise coaching advice, balancing aerobic load with injury prevention and strength work. If prescribing a workout, include exact wattage or pace zones and structural sets.
                 """ + prompt
-                resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
-                full_resp = f"{resp}\n\n*(Engine: {engine})*"
-                st.markdown(full_resp)
-                st.session_state.messages.append({"role": "model", "content": full_resp})
+                
+                try:
+                    resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
+                    full_resp = f"{resp}\n\n*(Engine: {engine})*"
+                    st.markdown(full_resp)
+                    st.session_state.messages.append({"role": "model", "content": full_resp})
+                except Exception as e:
+                    st.error(f"AI Generation Failed: {str(e)}")
 
 # ================= TAB 3: ROUTE STRATEGIST & PLANNER =================
 with tab_route:
@@ -500,12 +517,16 @@ with tab_route:
                         f"Act as an elite cycling head coach. Analyze this uploaded route for a {st.session_state.goals['primary_sport']} rider: "
                         f"Distance: {route_metrics['distance_km']} km, Elevation Gain: {route_metrics['elevation_gain_m']} m, Max Elevation: {route_metrics['max_elevation']} m. "
                         f"Athlete Readiness: CTL={ctl}, TSB={tsb}. "
-                        "Provide a comprehensive race/ride strategy: 1) Pacing breakdown across climbs vs flats, 2) Power targets relative to FTP, 3) Specific fueling and hydration strategy for this distance and climbing profile."
+                        f"{equipment_context} "
+                        "Provide a comprehensive race/ride strategy: 1) Pacing breakdown across climbs vs flats based on the gearing provided, 2) Power targets relative to FTP, 3) Specific fueling and hydration strategy."
                     )
-                    route_res, route_model = execute_multiprovider_generation(route_prompt, preferred_provider=selected_provider)
-                    st.markdown("---")
-                    st.markdown(route_res)
-                    st.caption(f"Generated via: {route_model}")
+                    try:
+                        route_res, route_model = execute_multiprovider_generation(route_prompt, preferred_provider=selected_provider)
+                        st.markdown("---")
+                        st.markdown(route_res)
+                        st.caption(f"Generated via: {route_model}")
+                    except Exception as e:
+                        st.error(f"Strategy Generation Failed: {str(e)}")
         else:
             st.error("Could not parse the uploaded GPX file. Ensure it contains valid track points and elevation data.")
 
@@ -522,9 +543,13 @@ with tab_strength:
     
     if st.button("Generate Custom S&C Workout", type="primary"):
         with st.spinner("Designing strength session..."):
-            sc_prompt = f"Design a 45-minute gym strength workout for a cyclist ({st.session_state.goals['primary_sport']}) and runner ({st.session_state.goals['secondary_sport']}) focusing on: {st_focus}. Include exercise name, sets, reps, and specific endurance carryover notes."
-            sc_res, sc_model = execute_multiprovider_generation(sc_prompt, preferred_provider=selected_provider)
-            st.markdown(sc_res)
+            sc_prompt = f"{equipment_context}\nDesign a 45-minute gym strength workout for a cyclist ({st.session_state.goals['primary_sport']}) and runner ({st.session_state.goals['secondary_sport']}) focusing on: {st_focus}. Include exercise name, sets, reps, and specific endurance carryover notes."
+            try:
+                sc_res, sc_model = execute_multiprovider_generation(sc_prompt, preferred_provider=selected_provider)
+                st.markdown(sc_res)
+                st.caption(f"Generated via: {sc_model}")
+            except Exception as e:
+                st.error(f"Workout Generation Failed: {str(e)}")
 
 # ================= TAB 5: FUELING =================
 with tab_fuel:
