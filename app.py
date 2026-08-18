@@ -37,14 +37,23 @@ st.set_page_config(page_title="AI Sports Science Coach", page_icon="🚴‍♂�
 st.title("🚴‍♂️ AI Sports Science Coach • Pro Command Center")
 st.caption("High-Performance Endurance Engine • Powered by Garmin, Intervals.icu & Supabase Auth")
 
-# --- ROBUST MODEL FALLBACK EXECUTOR ---
+# --- EXPANDED MULTI-TIER MODEL FALLBACK CHAIN ---
 def execute_with_model_fallback(contents, is_stream=False):
-    """Tries multiple model versions sequentially if a 503 UNAVAILABLE spike occurs."""
-    model_fallback_chain = ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-2.5-flash"]
+    """Sequentially falls back across an expanded chain of Flash, Lite, and Pro models if 503 capacity spikes occur."""
+    model_fallback_chain = [
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-2.5-pro",
+        "gemini-3.1-pro-preview",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash"
+    ]
     
     last_exception = None
     for model_name in model_fallback_chain:
-        for attempt in range(2): # Quick retry per model
+        for attempt in range(2): 
             try:
                 if is_stream:
                     return client.models.generate_content_stream(model=model_name, contents=contents), model_name
@@ -54,12 +63,12 @@ def execute_with_model_fallback(contents, is_stream=False):
                 last_exception = e
                 error_str = str(e)
                 if "503" in error_str or "UNAVAILABLE" in error_str or "rate limit" in error_str.lower():
-                    time.sleep(1) # Brief pause before retry/fallback
+                    time.sleep(0.5) 
                     continue
                 else:
-                    raise e # Raise immediately if it's a non-availability error (like bad auth)
+                    raise e 
                     
-    raise Exception(f"All model endpoints are currently experiencing high demand. Last error: {str(last_exception)}")
+    raise Exception(f"All model endpoints in the fallback roster are currently busy. Last error: {str(last_exception)}")
 
 # --- AUTHENTICATION FLOW (SUPABASE AUTH) ---
 if "user" not in st.session_state:
@@ -169,7 +178,7 @@ def fetch_athlete_stats(athlete_id, api_key):
     res = requests.get(url, auth=("API_KEY", api_key), timeout=8)
     return res.json() if res.status_code == 200 else {}
   except Exception:
-    return {}
+    return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_planned_workouts(athlete_id, api_key):
@@ -450,7 +459,7 @@ with tab_coach:
           full_response = ""
           
           try:
-            # Execute streaming call utilizing the robust fallback mechanism
+            # Execute streaming call utilizing the expanded multi-tier fallback chain
             response_stream, active_model = execute_with_model_fallback(context_payload, is_stream=True)
             
             for chunk in response_stream:
