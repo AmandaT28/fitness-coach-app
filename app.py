@@ -219,14 +219,15 @@ if not user_profile or not user_profile.get("intervals_api_key") or not user_pro
 INTERVALS_API_KEY = user_profile["intervals_api_key"]
 ATHLETE_ID = user_profile["intervals_athlete_id"]
 
-# --- INITIALIZE GOALS & TARGET EVENT IN SESSION STATE ---
-if "goals" not in st.session_state:
-    st.session_state.goals = {
-        "primary_sport": "Cycling (Road)",
-        "event_name": "Target Gran Fondo / Race",
-        "event_date": datetime.date.today() + datetime.timedelta(days=60),
-        "target_metric": "Maintain 4.2 W/kg or build aerobic base"
-    }
+# --- SAFE GOALS & TARGET EVENT INITIALIZATION ---
+if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict):
+    st.session_state.goals = {}
+
+# Ensure all default keys exist
+st.session_state.goals.setdefault("primary_sport", "Cycling (Road)")
+st.session_state.goals.setdefault("event_name", "Target Gran Fondo / Race")
+st.session_state.goals.setdefault("event_date", datetime.date.today() + datetime.timedelta(days=60))
+st.session_state.goals.setdefault("target_metric", "Maintain 4.2 W/kg or build aerobic base")
 
 # --- DATA FETCHING (Optimized Timeouts) ---
 @st.cache_data(ttl=300, show_spinner=False) 
