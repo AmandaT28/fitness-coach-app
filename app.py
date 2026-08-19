@@ -48,14 +48,20 @@ st.markdown("""
         display: none !important;
     }
     
-    /* STICKY NAVIGATION TABS PINNED TO TOP */
-    div[data-testid="stVerticalBlock"] div:has(> div.stTabs) {
+    /* --- STICKY PINNED NAVIGATION TABS --- */
+    header[data-testid="stHeader"] {
+        background-color: transparent;
+    }
+    
+    /* Locks the main tab container to the top header area */
+    div[data-testid="stVerticalBlock"] > div:has(div.stTabs) {
         position: sticky;
-        top: 2.85rem;
-        z-index: 999;
-        background-color: white;
-        padding-top: 10px;
-        padding-bottom: 5px;
+        top: 0rem;
+        z-index: 99999;
+        background-color: #ffffff;
+        padding-top: 1rem;
+        padding-bottom: 0.5rem;
+        margin-top: -1rem;
     }
 
     .stCard {
