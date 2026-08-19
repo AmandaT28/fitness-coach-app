@@ -47,16 +47,6 @@ st.markdown("""
         visibility: hidden !important;
         display: none !important;
     }
-    
-    /* STICKY NAVIGATION TABS PINNED TO TOP */
-    div[data-testid="stVerticalBlock"] div:has(> div.stTabs) {
-        position: sticky;
-        top: 2.85rem;
-        z-index: 999;
-        background-color: white;
-        padding-top: 10px;
-        padding-bottom: 5px;
-    }
 
     .stCard {
         background-color: #ffffff;
@@ -228,6 +218,7 @@ if st.session_state.user:
         st.session_state.goals = {}
     st.session_state.goals["event_name"] = user_profile.get("event_name") or "Bintan Round Island"
     st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Survive steep climbs on group rides & improve threshold power"
+    st.session_state.goals["race_date"] = user_profile.get("race_date") or str(datetime.date(2026, 10, 24))
 
 else:
     current_creds = st.session_state.user_credentials
@@ -246,6 +237,8 @@ else:
         st.session_state.goals["event_name"] = "Bintan Round Island"
     if "target_metric" not in st.session_state.goals:
         st.session_state.goals["target_metric"] = "Survive steep climbs on group rides & improve threshold power"
+    if "race_date" not in st.session_state.goals:
+        st.session_state.goals["race_date"] = str(datetime.date(2026, 10, 24))
 
 # --- INITIALIZE MESSAGES STATE EARLY ---
 if "messages" not in st.session_state:
@@ -349,8 +342,11 @@ if wellness_list:
     for r in reversed(wellness_list):
         if sleep_score == 0 and r.get("sleepScore"): sleep_score = r.get("sleepScore")
 
-race_date = datetime.date(2026, 10, 24)
-days_left = (race_date - datetime.date.today()).days
+try:
+    race_date_obj = datetime.datetime.strptime(st.session_state.goals["race_date"], "%Y-%m-%d").date()
+except:
+    race_date_obj = datetime.date(2026, 10, 24)
+days_left = (race_date_obj - datetime.date.today()).days
 
 # --- AUTOMATED POST-WORKOUT CHECKER ---
 if activities_data and st.session_state.auto_debriefed_id != activities_data[0].get('id'):
@@ -372,10 +368,56 @@ if activities_data and st.session_state.auto_debriefed_id != activities_data[0].
         st.session_state.messages.append({"role": "model", "content": f"🚨 **Autonomous Post-Ride Debrief ({act_name}):**\n\n{auto_res}"})
     except: pass
 
-# --- SIDEBAR ---
+# --- TOP NATIVE NAVIGATION BAR ---
+selected_nav = st.radio(
+    "Navigation Suite",
+    [
+        "📊 Command Center", 
+        "🤖 AI Coach & Sparring", 
+        "📅 Training Calendar", 
+        "🔍 Activity Inspector", 
+        "💊 Recovery & Supplements", 
+        "🗺️ Route Strategist"
+    ],
+    horizontal=True,
+    label_visibility="collapsed"
+)
+
+st.markdown("---")
+
+# --- SIDEBAR (QUICK LINKS & PROFILE CONTROLS) ---
 with st.sidebar:
     st.markdown(f"👤 **{display_name}**")
-            
+    
+    st.markdown("---")
+    st.subheader("⚡ Quick Navigation Links")
+    sidebar_nav = st.radio(
+        "Secondary Navigation",
+        [
+            "📊 Command Center", 
+            "🤖 AI Coach & Sparring", 
+            "📅 Training Calendar", 
+            "🔍 Activity Inspector", 
+            "💊 Recovery & Supplements", 
+            "🗺️ Route Strategist"
+        ],
+        index=[
+            "📊 Command Center", 
+            "🤖 AI Coach & Sparring", 
+            "📅 Training Calendar", 
+            "🔍 Activity Inspector", 
+            "💊 Recovery & Supplements", 
+            "🗺️ Route Strategist"
+        ].index(selected_nav),
+        key="sidebar_nav_selector",
+        label_visibility="collapsed"
+    )
+    
+    if sidebar_nav != selected_nav:
+        selected_nav = sidebar_nav
+        st.rerun()
+
+    st.markdown("---")
     st.subheader("⚙️ Athlete & Equipment Profile")
     with st.form("gear_profile_form"):
         custom_gear = st.text_area("Bike Build & Gear Notes", value=st.session_state.athlete_gear, height=100)
@@ -400,12 +442,6 @@ with st.sidebar:
                 localS.setItem("athlete_profile_config", current_creds)
                 st.success("Saved to browser memory!")
 
-    if st.session_state.user:
-        st.markdown("---")
-        with st.expander("🛠️ Manage App & Owner Controls"):
-            st.caption("Owner management tools and links:")
-            st.write(f"Logged in as Owner ID: {st.session_state.user.id[:8]}...")
-
     st.markdown("---")
     st.subheader("🎭 Coaching Persona")
     coach_persona = st.selectbox("Select AI Style", ["Collaborative Peer (Balanced & Brainstorming)", "Sports Scientist (Data & Periodization Focus)", "Drill Sergeant (Strict & Direct Accountability)"])
@@ -415,11 +451,25 @@ with st.sidebar:
     with st.form("goal_feedback_form"):
         ev_name = st.text_input("Target Race", value=st.session_state.goals["event_name"])
         t_metric = st.text_input("Key Objective", value=st.session_state.goals["target_metric"])
+        
+        try:
+            default_date = datetime.datetime.strptime(st.session_state.goals["race_date"], "%Y-%m-%d").date()
+        except:
+            default_date = datetime.date(2026, 10, 24)
+            
+        r_date = st.date_input("Target Race Date", value=default_date)
+        
         if st.form_submit_button("Update Goals", use_container_width=True):
             st.session_state.goals["event_name"] = ev_name
             st.session_state.goals["target_metric"] = t_metric
+            st.session_state.goals["race_date"] = str(r_date)
+            
             if st.session_state.user:
-                supabase.table("profiles").update({"event_name": ev_name, "target_metric": t_metric}).eq("id", USER_ID).execute()
+                supabase.table("profiles").update({
+                    "event_name": ev_name, 
+                    "target_metric": t_metric,
+                    "race_date": str(r_date)
+                }).eq("id", USER_ID).execute()
             st.success("Goals updated!")
 
     st.markdown("---")
@@ -440,19 +490,14 @@ with st.sidebar:
         st.query_params.clear()
         st.rerun()
 
-# --- NAVIGATION SUITE (PINNED TO TOP) ---
-tab_dash, tab_coach, tab_calendar, tab_history, tab_recovery, tab_strat = st.tabs([
-    "📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "💊 Recovery & Supplements", "🗺️ Route Strategist"
-])
-
-# ================= TAB 1: COMMAND CENTER =================
-with tab_dash:
+# ================= VIEW 1: COMMAND CENTER =================
+if selected_nav == "📊 Command Center":
     st.markdown(f"### ☀️ Autonomous AI Performance Coach • Command Center")
     
     st.markdown(f"""
     <div style="background-color: #fef9e7; border: 1px solid #f9e79f; padding: 16px; border-radius: 14px; margin-bottom: 16px;">
         <span style="font-size: 0.75rem; font-weight: bold; color: #d68910; background: #fcf3cf; padding: 2px 6px; border-radius: 4px;">📊 INTERVALS.ICU & GARMIN SYNC ACTIVE</span>
-        <div style="font-weight: bold; font-size: 1.1rem; margin-top: 4px;">Target Race: {st.session_state.goals['event_name']} ({days_left} days left)</div>
+        <div style="font-weight: bold; font-size: 1.1rem; margin-top: 4px;">Target Race: {st.session_state.goals['event_name']} ({days_left} days left — {race_date_obj.strftime('%B %d, %Y')})</div>
         <div style="color: #666; font-size: 0.85rem; margin-top: 4px;">Objective: {st.session_state.goals['target_metric']}</div>
         <hr style="margin: 10px 0; border-top: 1px solid #fce881;">
         <div style="font-size: 0.9rem; font-weight: 500; color: #333;">
@@ -504,11 +549,11 @@ with tab_dash:
                 "role": "model", 
                 "content": "I've pulled up your 90-day trends. What specific part of your progression would you like to tweak?"
             })
-            st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
+            st.success("Context loaded! Select **🤖 AI Coach & Sparring**.")
             st.rerun()
             
-# ================= TAB 2: AI COACH & SPARRING CHAT =================
-with tab_coach:
+# ================= VIEW 2: AI COACH & SPARRING CHAT =================
+elif selected_nav == "🤖 AI Coach & Sparring":
     st.markdown("### 🤖 AI Coach & Collaborative Sparring Partner")
     st.caption(f"Active Persona: **{coach_persona}** | Proposes plans first, and only syncs to Intervals.icu when you explicitly agree!")
 
@@ -559,7 +604,7 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         "",
         "COACHING RULE - PLAN FIRST, ASK FOR AGREEMENT:",
         "1. When the athlete asks for a training plan or calendar adjustments, present the proposal clearly in chat first.",
-        "2. ONLY include <icu_workout> or <icu_reschedule> tags if the user has explicitly confirmed/agreed to the plan in this prompt or prior conversation (e.g., saying 'yes sync it', 'looks good go ahead', or clicking a plan button). If they are just asking for a proposal or brainstorming, do NOT output sync tags yet.",
+        "2. ONLY include <icu_workout> or <icu_reschedule> tags if the user has explicitly confirmed/agreed to the plan in this prompt or prior conversation (e.g., saying 'yes sync it', 'looks good go ahead'). If they are just asking for a proposal, do NOT output sync tags yet.",
         "",
         "CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside standard markdown xml block formatting.",
         "CRITICAL CALENDAR CREATION INSTRUCTION: If approved/agreed, output a JSON array wrapped EXACTLY in <icu_workout> ... </icu_workout> tags with fields: 'start_date_local' (YYYY-MM-DD), 'name', 'description', 'type' ('Ride'), 'indoor' (boolean).",
@@ -572,7 +617,6 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         try:
             resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
             
-            # --- 1. HANDLE NEW WORKOUTS PUSH (ONLY IF AGREED/TAGGED) ---
             icu_matches = re.findall(r'<icu_workout>\s*(.*?)\s*</icu_workout>', resp, re.DOTALL)
             parsed_workouts = 0
             
@@ -600,7 +644,6 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                     except Exception:
                         pass 
 
-            # --- 2. HANDLE RESCHEDULING (ONLY IF AGREED/TAGGED) ---
             resched_matches = re.findall(r'<icu_reschedule>\s*(.*?)\s*</icu_reschedule>', resp, re.DOTALL)
             resched_count = 0
             
@@ -643,8 +686,8 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         except Exception as e:
             st.error(f"AI Generation Failed: {str(e)}")
 
-# ================= TAB 3: TRAINING CALENDAR =================
-with tab_calendar:
+# ================= VIEW 3: TRAINING CALENDAR =================
+elif selected_nav == "📅 Training Calendar":
     st.markdown("### 📅 Training Calendar & 2-Week Block Planner")
     st.caption("Review your schedule, plan 2-week blocks, or ask the AI coach to move, shift, or reschedule workouts on the fly.")
 
@@ -762,7 +805,7 @@ with tab_calendar:
                     "role": "model", 
                     "content": f"I'm drafting your 2-week block proposal focused on '{plan_focus}'. Review it in the chat and let me know if you want me to sync it!"
                 })
-                st.success("Proposal requested! Head to the **AI Coach & Sparring** tab.")
+                st.success("Proposal requested! Head to **AI Coach & Sparring**.")
                 st.rerun()
                 
         with c_pbtn2:
@@ -775,7 +818,7 @@ with tab_calendar:
                     "role": "model", 
                     "content": "Here is how shifting your schedule forward by 1 day looks..."
                 })
-                st.success("Proposal requested! Head to the **AI Coach & Sparring** tab.")
+                st.success("Proposal requested! Head to **AI Coach & Sparring**.")
                 st.rerun()
 
     with c_cal2:
@@ -787,8 +830,8 @@ with tab_calendar:
             "3. Reply with **'Looks good, sync it'** or **'Approved'** to automatically push it to Intervals.icu!"
         )
 
-# ================= TAB 4: ACTIVITY INSPECTOR =================
-with tab_history:
+# ================= VIEW 4: ACTIVITY INSPECTOR =================
+elif selected_nav == "🔍 Activity Inspector":
     st.markdown("### 🔍 Past Activity Inspector & Deep Debrief")
     st.caption("Select any past activity from your 90-day history to run an AI-powered performance debrief with clear activity and date identification.")
 
@@ -866,13 +909,13 @@ with tab_history:
                     "role": "model", 
                     "content": f"I have the details for '{act_display_name}' ({act_display_date}) right here. What specific section would you like to unpack?"
                 })
-                st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
+                st.success("Context loaded! Head to **AI Coach & Sparring**.")
                 st.rerun()
     else:
         st.info("No activities found in your Intervals.icu sync history.")
 
-# ================= TAB 5: RECOVERY & SUPPLEMENTS =================
-with tab_recovery:
+# ================= VIEW 5: RECOVERY & SUPPLEMENTS =================
+elif selected_nav == "💊 Recovery & Supplements":
     st.markdown("### 💊 Dynamic Recovery & Supplement Protocol")
     st.caption("Manage your personal supplement stack. The AI coach dynamically tracks these to optimize your recovery and training adaptation.")
 
@@ -923,11 +966,11 @@ with tab_recovery:
             "role": "model", 
             "content": "I've loaded your updated supplement stack into our chat. Let's optimize your recovery!"
         })
-        st.success("Context loaded with your live stack! Head to the **AI Coach & Sparring** tab.")
+        st.success("Context loaded with your live stack! Head to **AI Coach & Sparring**.")
         st.rerun()
 
-# ================= TAB 6: ROUTE STRATEGIST =================
-with tab_strat:
+# ================= VIEW 6: ROUTE STRATEGIST =================
+elif selected_nav == "🗺️ Route Strategist":
     st.markdown("### 🗺️ Route Pacing & Climbing Strategist")
     uploaded_gpx = st.file_uploader("Upload GPX Route File (.gpx)", type=["gpx"])
     
