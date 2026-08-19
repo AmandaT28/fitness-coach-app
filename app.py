@@ -76,7 +76,7 @@ st.markdown("""
 
 # --- DUAL GOOGLE API KEYS INITIALIZATION ---
 PRIMARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("primary_key") or st.secrets.get("GEMINI_API_KEY") or os.getenv("PRIMARY_KEY") or os.getenv("GEMINI_API_KEY")
-SECONDARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("secondary_key") or st.secrets.get("SECONDARY_GEMINI_KEY") or os.getenv("SECONDARY_KEY")
+SECONDARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("secondary_key") or os.getenv("SECONDARY_GEMINI_KEY") or os.getenv("SECONDARY_KEY")
 
 primary_google_client = genai.Client(api_key=PRIMARY_GEMINI_KEY) if PRIMARY_GEMINI_KEY else None
 secondary_google_client = genai.Client(api_key=SECONDARY_GEMINI_KEY) if SECONDARY_GEMINI_KEY else None
@@ -305,7 +305,7 @@ if "user_supplements" not in st.session_state:
     ]
 
 if not st.session_state.messages:
-    st.session_state.messages = [{"role": "model", "content": "Hello! I am your autonomous AI Performance Coach. I'm actively monitoring your Intervals.icu & Garmin sync pipeline, gear profile, and training calendar. How can I help you train today?"}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! I am your autonomous AI Performance Coach. I'm actively monitoring your Intervals.icu & Garmin sync pipeline and training calendar. How can I help you train today?"}]
 
 if "selected_activity_analysis" not in st.session_state:
     st.session_state.selected_activity_analysis = None
@@ -358,9 +358,8 @@ if activities_data and st.session_state.auto_debriefed_id != activities_data[0].
     auto_prompt = "\n".join([
         "[Autonomous Post-Workout Auto-Debrief]",
         f"A new activity has synced via Garmin / Intervals.icu: {latest_act}",
-        f"Athlete Gear/Setup: {st.session_state.athlete_gear}",
         f"Goal: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
-        "Provide a concise, high-level autonomous performance debrief."
+        "Provide a concise, high-level autonomous performance debrief. Only mention gear or limitations if there is a specific issue or impact worth highlighting."
     ])
 
     try:
@@ -368,20 +367,32 @@ if activities_data and st.session_state.auto_debriefed_id != activities_data[0].
         st.session_state.messages.append({"role": "model", "content": f"🚨 **Autonomous Post-Ride Debrief ({act_name}):**\n\n{auto_res}"})
     except: pass
 
+# --- INITIALIZE SHARED NAVIGATION STATE ---
+NAV_OPTIONS = [
+    "📊 Command Center", 
+    "🤖 AI Coach & Sparring", 
+    "📅 Training Calendar", 
+    "🔍 Activity Inspector", 
+    "💊 Recovery & Supplements", 
+    "🗺️ Route Strategist"
+]
+
+if "active_nav" not in st.session_state:
+    st.session_state.active_nav = "📊 Command Center"
+
 # --- TOP NATIVE NAVIGATION BAR ---
-selected_nav = st.radio(
-    "Navigation Suite",
-    [
-        "📊 Command Center", 
-        "🤖 AI Coach & Sparring", 
-        "📅 Training Calendar", 
-        "🔍 Activity Inspector", 
-        "💊 Recovery & Supplements", 
-        "🗺️ Route Strategist"
-    ],
+top_nav = st.radio(
+    "Navigation Suite Top",
+    NAV_OPTIONS,
+    index=NAV_OPTIONS.index(st.session_state.active_nav),
     horizontal=True,
-    label_visibility="collapsed"
+    label_visibility="collapsed",
+    key="top_nav_widget"
 )
+
+if top_nav != st.session_state.active_nav:
+    st.session_state.active_nav = top_nav
+    st.rerun()
 
 st.markdown("---")
 
@@ -393,28 +404,14 @@ with st.sidebar:
     st.subheader("⚡ Quick Navigation Links")
     sidebar_nav = st.radio(
         "Secondary Navigation",
-        [
-            "📊 Command Center", 
-            "🤖 AI Coach & Sparring", 
-            "📅 Training Calendar", 
-            "🔍 Activity Inspector", 
-            "💊 Recovery & Supplements", 
-            "🗺️ Route Strategist"
-        ],
-        index=[
-            "📊 Command Center", 
-            "🤖 AI Coach & Sparring", 
-            "📅 Training Calendar", 
-            "🔍 Activity Inspector", 
-            "💊 Recovery & Supplements", 
-            "🗺️ Route Strategist"
-        ].index(selected_nav),
+        NAV_OPTIONS,
+        index=NAV_OPTIONS.index(st.session_state.active_nav),
         key="sidebar_nav_selector",
         label_visibility="collapsed"
     )
     
-    if sidebar_nav != selected_nav:
-        selected_nav = sidebar_nav
+    if sidebar_nav != st.session_state.active_nav:
+        st.session_state.active_nav = sidebar_nav
         st.rerun()
 
     st.markdown("---")
@@ -490,6 +487,8 @@ with st.sidebar:
         st.query_params.clear()
         st.rerun()
 
+selected_nav = st.session_state.active_nav
+
 # ================= VIEW 1: COMMAND CENTER =================
 if selected_nav == "📊 Command Center":
     st.markdown(f"### ☀️ Autonomous AI Performance Coach • Command Center")
@@ -517,28 +516,30 @@ if selected_nav == "📊 Command Center":
 
     if "cached_trend_analysis" not in st.session_state:
         st.session_state.cached_trend_analysis = None
+    if "trend_analysis_timestamp" not in st.session_state:
+        st.session_state.trend_analysis_timestamp = None
 
     if st.button("🚀 Run 90-Day Trend Synthesis", type="primary"):
         trend_payload = "\n".join([
             "Perform a rigorous, detailed 90-day sports science trend analysis based on my wellness and training data:",
             f"CTL (Fitness): {ctl}, ATL (Fatigue): {atl}, TSB (Form): {tsb}",
-            f"Athlete Gear/Setup: {st.session_state.athlete_gear}",
-            f"Physical Notes: {st.session_state.athlete_limitations}",
             f"Recent Activities Summary: {activities_data[:25] if activities_data else 'None'}",
             f"Target Event: {st.session_state.goals['event_name']} in {days_left} days.",
             f"Objective: {st.session_state.goals['target_metric']}",
             "",
-            "Provide a structured analysis covering fitness trajectory, consistency, climbing readiness, and next steps."
+            "Provide a structured analysis covering fitness trajectory, consistency, climbing readiness, and next steps. Only mention equipment or physical limitations if there is a specific issue or impact."
         ])
 
         with st.spinner("Synthesizing 90-day performance trends..."):
             try:
                 trend_res, _ = execute_multiprovider_generation(trend_payload, preferred_provider=selected_provider)
                 st.session_state.cached_trend_analysis = trend_res
+                st.session_state.trend_analysis_timestamp = datetime.datetime.now().strftime("%B %d, %Y at %H:%M")
             except Exception as e:
                 st.error(f"Trend synthesis failed: {e}")
 
     if st.session_state.cached_trend_analysis:
+        st.caption(f"🕒 Analysis generated on: **{st.session_state.trend_analysis_timestamp}**")
         st.markdown(st.session_state.cached_trend_analysis)
         if st.button("💬 Discuss These Trends With Coach", key="discuss_trends_btn"):
             st.session_state.messages.append({
@@ -549,7 +550,7 @@ if selected_nav == "📊 Command Center":
                 "role": "model", 
                 "content": "I've pulled up your 90-day trends. What specific part of your progression would you like to tweak?"
             })
-            st.success("Context loaded! Select **🤖 AI Coach & Sparring**.")
+            st.session_state.active_nav = "🤖 AI Coach & Sparring"
             st.rerun()
             
 # ================= VIEW 2: AI COACH & SPARRING CHAT =================
@@ -594,13 +595,16 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
     
     payload = "\n".join([
         f"You are an elite cycling sports science coach acting with the persona: '{coach_persona}'.",
-        f"ATHLETE GEAR & SETUP: {st.session_state.athlete_gear}",
-        f"PHYSICAL LIMITATIONS / NOTES: {st.session_state.athlete_limitations}",
         f"ACTIVE SUPPLEMENT STACK: {stack_summary}",
         f"GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
         f"METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.",
         f"ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}",
         f"CURRENT UPCOMING SCHEDULE (NEXT 14 DAYS): {planned_events[:20] if planned_events else 'None'}",
+        "",
+        "COACHING RULE - GEAR & LIMITATIONS:",
+        f"Athlete Bike Build / Gear: {st.session_state.athlete_gear}",
+        f"Athlete Physical Limitations: {st.session_state.athlete_limitations}",
+        "Do NOT repeat or list the gear or limitation details in your response unless there is a specific mechanical issue, injury risk, or direct performance impact that the user should be aware of.",
         "",
         "COACHING RULE - PLAN FIRST, ASK FOR AGREEMENT:",
         "1. When the athlete asks for a training plan or calendar adjustments, present the proposal clearly in chat first.",
@@ -689,7 +693,7 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
 # ================= VIEW 3: TRAINING CALENDAR =================
 elif selected_nav == "📅 Training Calendar":
     st.markdown("### 📅 Training Calendar & 2-Week Block Planner")
-    st.caption("Review your schedule, plan 2-week blocks, or ask the AI coach to move, shift, or reschedule workouts on the fly.")
+    st.caption("Review your schedule, view full session details, or click into any day to inspect double sessions.")
 
     c_cal1, c_cal2 = st.columns([2, 1])
     with c_cal1:
@@ -706,7 +710,7 @@ elif selected_nav == "📅 Training Calendar":
                         "date": dt,
                         "name": ev.get('name', 'Planned Workout'),
                         "type": ev.get('type', 'Ride'),
-                        "desc": ev.get('description', ''),
+                        "desc": ev.get('description', 'No description provided.'),
                         "status": "Planned"
                     })
         
@@ -724,18 +728,10 @@ elif selected_nav == "📅 Training Calendar":
                         "desc": f"Distance: {dist_km} km | Time: {dur_min} mins | Avg Power: {act.get('average_watts', 'N/A')}W",
                         "status": "Completed"
                     })
-        
-        seen = set()
-        unique_timeline = []
-        for item in combined_timeline:
-            identifier = (item['date'], item['name'])
-            if identifier not in seen:
-                seen.add(identifier)
-                unique_timeline.append(item)
 
         upcoming = []
         past = []
-        for item in unique_timeline:
+        for item in combined_timeline:
             try:
                 dt_obj = datetime.datetime.strptime(item['date'], "%Y-%m-%d")
                 item['formatted_date'] = dt_obj.strftime("%A, %b %d")
@@ -755,32 +751,18 @@ elif selected_nav == "📅 Training Calendar":
         with tab_up:
             if upcoming:
                 for item in upcoming:
-                    st.markdown(f"""
-                    <div style="background-color: #ffffff; border-left: 4px solid #3498db; padding: 14px 18px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); margin-bottom: 12px; border: 1px solid #f0f2f6;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                            <span style="font-size: 0.85rem; font-weight: 700; color: #7f8c8d; text-transform: uppercase;">{item['formatted_date']}</span>
-                            <span style="font-size: 0.75rem; background: #eaf2f8; color: #2980b9; padding: 3px 10px; border-radius: 12px; font-weight: 700;">Upcoming</span>
-                        </div>
-                        <div style="font-size: 1.1rem; font-weight: 700; color: #2c3e50; margin-bottom: 6px;">{item['name']}</div>
-                        <div style="font-size: 0.9rem; color: #555; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4;">{item['desc']}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    with st.expander(f"{item['formatted_date']} — {item['name']} ({item['status']})"):
+                        st.markdown(f"**Type:** {item['type']}")
+                        st.markdown(f"**Full Details / Notes:**\n\n{item['desc']}")
             else:
                 st.info("No upcoming workouts scheduled.")
 
         with tab_past:
             if past:
                 for item in past:
-                    st.markdown(f"""
-                    <div style="background-color: #fcfcfc; border-left: 4px solid #95a5a6; padding: 14px 18px; border-radius: 8px; margin-bottom: 12px; border: 1px solid #f0f2f6;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                            <span style="font-size: 0.85rem; font-weight: 700; color: #7f8c8d; text-transform: uppercase;">{item['formatted_date']}</span>
-                            <span style="font-size: 0.75rem; background: #eaeded; color: #7f8c8d; padding: 3px 10px; border-radius: 12px; font-weight: 700;">Completed</span>
-                        </div>
-                        <div style="font-size: 1.1rem; font-weight: 700; color: #34495e; margin-bottom: 6px;">{item['name']}</div>
-                        <div style="font-size: 0.9rem; color: #555;">{item['desc']}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    with st.expander(f"{item['formatted_date']} — {item['name']} ({item['status']})"):
+                        st.markdown(f"**Type:** {item['type']}")
+                        st.markdown(f"**Activity Summary:**\n\n{item['desc']}")
             else:
                 st.info("No activities recorded in the past 7 days.")
 
@@ -805,7 +787,7 @@ elif selected_nav == "📅 Training Calendar":
                     "role": "model", 
                     "content": f"I'm drafting your 2-week block proposal focused on '{plan_focus}'. Review it in the chat and let me know if you want me to sync it!"
                 })
-                st.success("Proposal requested! Head to **AI Coach & Sparring**.")
+                st.session_state.active_nav = "🤖 AI Coach & Sparring"
                 st.rerun()
                 
         with c_pbtn2:
@@ -818,7 +800,7 @@ elif selected_nav == "📅 Training Calendar":
                     "role": "model", 
                     "content": "Here is how shifting your schedule forward by 1 day looks..."
                 })
-                st.success("Proposal requested! Head to **AI Coach & Sparring**.")
+                st.session_state.active_nav = "🤖 AI Coach & Sparring"
                 st.rerun()
 
     with c_cal2:
@@ -880,10 +862,9 @@ elif selected_nav == "🔍 Activity Inspector":
                     f"Activity Name: {act_display_name}",
                     f"Activity Date: {act_display_date}",
                     f"Activity Details: {selected_act}",
-                    f"Athlete Gear/Setup: {st.session_state.athlete_gear}",
                     f"Target Event Goal: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
                     "",
-                    "Evaluate: 1) Intensity distribution, 2) Pacing efficiency, 3) Strengths, and 4) Areas for improvement."
+                    "Evaluate: 1) Intensity distribution, 2) Pacing efficiency, 3) Strengths, and 4) Areas for improvement. Only mention equipment or physical limitations if there is a specific issue or impact."
                 ])
 
                 try:
@@ -909,7 +890,7 @@ elif selected_nav == "🔍 Activity Inspector":
                     "role": "model", 
                     "content": f"I have the details for '{act_display_name}' ({act_display_date}) right here. What specific section would you like to unpack?"
                 })
-                st.success("Context loaded! Head to **AI Coach & Sparring**.")
+                st.session_state.active_nav = "🤖 AI Coach & Sparring"
                 st.rerun()
     else:
         st.info("No activities found in your Intervals.icu sync history.")
@@ -966,7 +947,7 @@ elif selected_nav == "💊 Recovery & Supplements":
             "role": "model", 
             "content": "I've loaded your updated supplement stack into our chat. Let's optimize your recovery!"
         })
-        st.success("Context loaded with your live stack! Head to **AI Coach & Sparring**.")
+        st.session_state.active_nav = "🤖 AI Coach & Sparring"
         st.rerun()
 
 # ================= VIEW 6: ROUTE STRATEGIST =================
@@ -1011,9 +992,8 @@ elif selected_nav == "🗺️ Route Strategist":
                 with st.spinner("Analyzing route profile..."):
                     strat_prompt = "\n".join([
                         f"Analyze this route profile: Distance {route_metrics['distance_km']} km, Elevation Gain {route_metrics['elevation_gain_m']} m.",
-                        f"Athlete Gear/Setup: {st.session_state.athlete_gear}",
                         f"Objective: {st.session_state.goals['target_metric']}",
-                        "Provide precise power pacing targets and climbing strategies."
+                        "Provide precise power pacing targets and climbing strategies. Only reference gear or physical limitations if there is a specific issue or impact."
                     ])
                     try:
                         strat_res, strat_model = execute_multiprovider_generation(strat_prompt, preferred_provider=selected_provider)
