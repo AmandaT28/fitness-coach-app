@@ -4,6 +4,8 @@ import concurrent.futures
 import xml.etree.ElementTree as ET
 import math
 import re
+import base64
+import json
 from dotenv import load_dotenv
 from google import genai
 from openai import OpenAI
@@ -12,6 +14,7 @@ import requests
 import streamlit as st
 from supabase import create_client, Client
 import pandas as pd
+from streamlit_local_storage import LocalStorage
 
 # Load environment variables safely
 try:
@@ -21,7 +24,6 @@ except ImportError:
 
 SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
-GEMINI_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 OPENAI_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 ANTHROPIC_KEY = st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
 
@@ -30,7 +32,6 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     st.stop()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-google_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
@@ -98,7 +99,6 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
         res = anthropic_client.messages.create(model="claude-3-5-sonnet-20241022", max_tokens=1500, messages=[{"role": "user", "content": prompt}])
         return res.content[0].text, "Anthropic Claude"
 
-    # Prioritize Google Flash first for speed if Auto is selected
     if preferred_provider == "⚡ Auto-Fallback Chain":
         active_chain = [call_google, call_openai, call_anthropic]
     elif "Google" in preferred_provider:
@@ -113,30 +113,36 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
         except: continue
     raise Exception("All AI providers failed.")
 
-import streamlit as st
-from supabase import create_client, Client
-from streamlit_local_storage import LocalStorage
-
-# Initialize Supabase (from secrets)
-SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
-SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
-
 localS = LocalStorage()
 
-# Session state initialization for credentials
+# --- URL TOKEN HANDLER FOR MOBILE / CROSS-DEVICE GUESTS ---
+query_params = st.query_params
+url_token = query_params.get("token")
+
+if url_token and "user_credentials" not in st.session_state:
+    try:
+        decoded = base64.urlsafe_b64decode(url_token.encode("utf-8"))
+        guest_config = json.loads(decoded.decode("utf-8"))
+        if guest_config and "icu_key" in guest_config:
+            localS.setItem("athlete_profile_config", guest_config)
+            st.session_state.user_credentials = guest_config
+            st.rerun()
+    except:
+        pass
+
+# Initialize session state flags
 if "user_credentials" not in st.session_state:
     st.session_state.user_credentials = None
 
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# 1. Check if Supabase session is active or if browser local storage has guest credentials
+# Check browser local storage for guest credentials
 stored_guest = localS.getItem("athlete_profile_config")
 if not st.session_state.user and stored_guest and not st.session_state.user_credentials:
     st.session_state.user_credentials = stored_guest
 
-# If neither you nor a guest is logged in, show the dual-pathway login portal
+# Show Dual-Pathway Login Portal if neither owner nor guest is logged in
 if not st.session_state.user and not st.session_state.user_credentials:
     st.markdown("### 🔐 Elite Athlete Portal • Authentication")
     
@@ -170,7 +176,9 @@ if not st.session_state.user and not st.session_state.user_credentials:
                         "name": col_name.strip() if col_name else "Guest Athlete",
                         "icu_key": icu_key.strip(),
                         "icu_id": icu_id.strip(),
-                        "gemini_key": gemini_key.strip()
+                        "gemini_key": gemini_key.strip(),
+                        "gear": "",
+                        "limitations": ""
                     }
                     localS.setItem("athlete_profile_config", config_data)
                     st.session_state.user_credentials = config_data
@@ -180,9 +188,8 @@ if not st.session_state.user and not st.session_state.user_credentials:
                     st.warning("Please fill in all required fields.")
     st.stop()
 
-# --- RESOLVE ACTIVE VARIABLES BASED ON WHO LOGGED IN ---
+# --- RESOLVE ACTIVE VARIABLES & CLOUD SYNCED NOTES ---
 if st.session_state.user:
-    # YOU (Owner via Supabase)
     USER_ID = st.session_state.user.id
     profile_res = supabase.table("profiles").select("*").eq("id", USER_ID).execute()
     user_profile = profile_res.data[0] if profile_res.data else {}
@@ -191,42 +198,38 @@ if st.session_state.user:
     ATHLETE_ID = user_profile.get("intervals_athlete_id")
     GEMINI_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
     display_name = st.session_state.user.email
+
+    if "athlete_gear" not in st.session_state:
+        st.session_state.athlete_gear = user_profile.get("gear_notes") or ""
+    if "athlete_limitations" not in st.session_state:
+        st.session_state.athlete_limitations = user_profile.get("limitations_notes") or ""
+        
+    if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict):
+        st.session_state.goals = {}
+    st.session_state.goals["event_name"] = user_profile.get("event_name") or "Bintan Round Island"
+    st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Survive steep climbs on group rides & improve threshold power"
+
 else:
-    # FRIEND / GUEST (Via Browser Storage Keys)
     current_creds = st.session_state.user_credentials
     INTERVALS_API_KEY = current_creds["icu_key"]
     ATHLETE_ID = current_creds["icu_id"]
     GEMINI_KEY = current_creds["gemini_key"]
     display_name = current_creds["name"]
 
+    if "athlete_gear" not in st.session_state:
+        st.session_state.athlete_gear = current_creds.get("gear", "")
+    if "athlete_limitations" not in st.session_state:
+        st.session_state.athlete_limitations = current_creds.get("limitations", "")
+
+    if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict):
+        st.session_state.goals = {}
+    if "event_name" not in st.session_state.goals:
+        st.session_state.goals["event_name"] = "Bintan Round Island"
+    if "target_metric" not in st.session_state.goals:
+        st.session_state.goals["target_metric"] = "Survive steep climbs on group rides & improve threshold power"
+
 google_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
-# --- UNIVERSAL SESSION STATE INITIALIZATION ---
-if "athlete_gear" not in st.session_state:
-    st.session_state.athlete_gear = "Cervélo Soloist (48), 160mm crankset, dual power meter, Wahoo Speedplay titanium pedals, GP5000 28mm tires."
-
-if "athlete_limitations" not in st.session_state:
-    st.session_state.athlete_limitations = "None reported. Focus on climbing efficiency and cadence consistency."
-
-if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict):
-    st.session_state.goals = {}
-
-if "event_name" not in st.session_state.goals:
-    st.session_state.goals["event_name"] = "Bintan Round Island"
-
-if "target_metric" not in st.session_state.goals:
-    st.session_state.goals["target_metric"] = "Survive steep climbs on group rides & improve threshold power"
-    
-# --- INITIALIZE GEAR & LIMITATIONS IN SESSION STATE ---
-if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict):
-    st.session_state.goals = {}
-
-if "event_name" not in st.session_state.goals:
-    st.session_state.goals["event_name"] = "Bintan Round Island"
-
-if "target_metric" not in st.session_state.goals:
-    st.session_state.goals["target_metric"] = "Survive steep climbs on group rides & improve threshold power"
-    
 # --- INITIALIZE SESSION STATES ---
 if "user_supplements" not in st.session_state:
     st.session_state.user_supplements = [
@@ -299,7 +302,7 @@ if activities_data and st.session_state.auto_debriefed_id != activities_data[0].
         st.session_state.messages.append({"role": "model", "content": f"🚨 **Autonomous Post-Ride Debrief ({act_name}):**\n\n{auto_res}"})
     except: pass
 
-# --- SIDEBAR (Customizable Profile & Gear Settings) ---
+# --- SIDEBAR (Customizable Profile, Gear & Mobile Link Exporter) ---
 with st.sidebar:
     st.markdown(f"👤 **{display_name}**")
             
@@ -307,10 +310,35 @@ with st.sidebar:
     with st.form("gear_profile_form"):
         custom_gear = st.text_area("Bike Build & Gear Notes", value=st.session_state.athlete_gear, height=100)
         custom_limits = st.text_area("Physical Limitations / Notes", value=st.session_state.athlete_limitations, height=70)
-        if st.form_submit_button("Update Profile", use_container_width=True):
+        
+        if st.form_submit_button("Save Profile", use_container_width=True):
             st.session_state.athlete_gear = custom_gear
             st.session_state.athlete_limitations = custom_limits
-            st.success("Gear & profile updated!")
+            
+            if st.session_state.user:
+                try:
+                    supabase.table("profiles").update({
+                        "gear_notes": custom_gear,
+                        "limitations_notes": custom_limits
+                    }).eq("id", USER_ID).execute()
+                    st.success("Synced to Supabase cloud!")
+                except Exception as e:
+                    st.error(f"Sync failed: {e}")
+            else:
+                current_creds["gear"] = custom_gear
+                current_creds["limitations"] = custom_limits
+                localS.setItem("athlete_profile_config", current_creds)
+                st.success("Saved to browser memory!")
+
+    # --- MOBILE LINK EXPORTER FOR FRIENDS ---
+    if not st.session_state.user:
+        st.markdown("---")
+        with st.expander("📱 Transfer to Mobile / New Device"):
+            st.caption("Copy this private link and open it on your phone to log in instantly without re-typing your keys:")
+            token_str = base64.urlsafe_b64encode(json.dumps(current_creds).encode("utf-8")).decode("utf-8")
+            base_url = st.context.headers.get("Host", "your-app.streamlit.app")
+            mobile_link = f"https://{base_url}/?token={token_str}"
+            st.code(mobile_link, language="text")
 
     st.markdown("---")
     st.subheader("🎭 Coaching Persona")
@@ -324,7 +352,8 @@ with st.sidebar:
         if st.form_submit_button("Update Goals", use_container_width=True):
             st.session_state.goals["event_name"] = ev_name
             st.session_state.goals["target_metric"] = t_metric
-            supabase.table("profiles").update({"event_name": ev_name, "target_metric": t_metric}).eq("id", USER_ID).execute()
+            if st.session_state.user:
+                supabase.table("profiles").update({"event_name": ev_name, "target_metric": t_metric}).eq("id", USER_ID).execute()
             st.success("Goals updated!")
 
     st.markdown("---")
@@ -335,7 +364,6 @@ with st.sidebar:
         st.session_state.messages = [{"role": "model", "content": "Chat history cleared. What topic or idea would you like to discuss next?"}]
         st.rerun()
 
-    # Logout button that handles both Supabase owner logout and guest clearing
     if st.button("Log Out / Switch Account", use_container_width=True):
         if st.session_state.user:
             supabase.auth.sign_out()
@@ -343,6 +371,7 @@ with st.sidebar:
         if st.session_state.user_credentials:
             localS.deleteItem("athlete_profile_config")
             st.session_state.user_credentials = None
+        st.query_params.clear()
         st.rerun()
 
 # --- NAVIGATION SUITE ---
@@ -441,13 +470,10 @@ with tab_coach:
                         )
 
     if prompt := st.chat_input("Ask your coach to plan training or bounce an idea..."):
-        # 1. Immediately append user prompt to session state
         st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        # 2. Force Streamlit to rerun instantly so the user message appears on screen right away
         st.rerun()
 
-# --- BACKGROUND AI PROCESSOR (Runs immediately after user message is rendered) ---
+# --- BACKGROUND AI PROCESSOR ---
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     last_user_prompt = st.session_state.messages[-1]["content"]
     
@@ -483,7 +509,6 @@ with tab_calendar:
     c_cal1, c_cal2 = st.columns([2, 1])
     with c_cal1:
         st.markdown("#### 🗓️ Your 21-Day Training Timeline")
-        
         today_str = datetime.date.today().isoformat()
         
         if planned_events or activities_data:
@@ -699,7 +724,6 @@ with tab_recovery:
         st.info("Your supplement stack is currently empty. Add one above!")
 
     st.markdown("---")
-    
     if st.button("💬 Discuss Updated Supplement Stack With Coach", key="discuss_supplements_btn"):
         stack_desc = ", ".join([f"{s['name']} ({s['timing']})" for s in st.session_state.user_supplements])
         st.session_state.messages.append({
