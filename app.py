@@ -74,10 +74,20 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
         res = anthropic_client.messages.create(model="claude-3-5-sonnet-20241022", max_tokens=2048, messages=[{"role": "user", "content": prompt}])
         return res.content[0].text, "Anthropic Claude"
     def call_google():
-        for m in ["gemini-2.5-flash", "gemini-3.5-flash"]:
+        # Updated to your preferred Gemini models (3.5, 3.6, 3.7 flash and pro-preview)
+        models = [
+            "gemini-3.7-pro-preview", 
+            "gemini-3.7-flash", 
+            "gemini-3.6-pro-preview", 
+            "gemini-3.6-flash", 
+            "gemini-3.5-pro-preview", 
+            "gemini-3.5-flash"
+        ]
+        for m in models:
             try:
                 return google_client.models.generate_content(model=m, contents=prompt).text, f"Google {m}"
-            except: continue
+            except: 
+                continue
         raise Exception("Google failed")
 
     active = []
