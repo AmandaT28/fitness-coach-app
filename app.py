@@ -336,44 +336,58 @@ with tab_calendar:
 
 # ================= TAB 4: RECOVERY & SUPPLEMENTS =================
 with tab_recovery:
-    st.markdown("### 💊 Proactive Recovery & Supplement Protocol")
-    st.caption("Optimized timing and protocols based on your personal supplement stack to maximize adaptation and minimize inflammation.")
+    st.markdown("### 💊 Dynamic Recovery & Supplement Protocol")
+    st.caption("Manage your personal supplement stack. The AI coach dynamically tracks these to optimize your recovery and training adaptation.")
 
-    st.markdown("""
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-        <div class="stCard">
-            <h4 style="color: #d68910; margin-top:0;">🌅 Morning / Pre-Ride Routine</h4>
-            <ul>
-                <li><strong>NMN:</strong> Take upon waking on an empty stomach to support cellular NAD+ and mitochondrial function.</li>
-                <li><strong>Turmeric:</strong> Take with breakfast containing healthy fats and black pepper to manage baseline systemic inflammation from heavy training blocks.</li>
-                <li><strong>Fish Oil:</strong> Take with your first meal to support cardiovascular health and joint lubrication.</li>
-            </ul>
-        </div>
-        <div class="stCard">
-            <h4 style="color: #2e86c1; margin-top:0;">⚡ Post-Ride / Immediate Recovery</h4>
-            <ul>
-                <li><strong>Protein:</strong> Consume 25–40g within 45 minutes post-ride combined with carbohydrates to jumpstart muscle glycogen resynthesis and repair.</li>
-                <li><strong>Creatine:</strong> Take post-workout (ideally with your protein/carbs shake) to maximize cellular uptake for ATP replenishment and sprint/climbing power.</li>
-                <li><strong>Collagen:</strong> Take 15g of collagen peptides combined with Vitamin C approx. 30–60 minutes before strength training or heavy loading to fortify tendons and ligaments.</li>
-            </ul>
-        </div>
-    </div>
+    # Form to add a new supplement
+    with st.form("add_supplement_form", clear_on_submit=True):
+        st.markdown("#### Add New Supplement")
+        col_s1, col_s2, col_s3 = st.columns([1, 1, 2])
+        new_name = col_s1.text_input("Supplement Name")
+        new_timing = col_s2.text_input("Target Timing (e.g., Pre-bed)")
+        new_notes = col_s3.text_input("Purpose / Notes")
+        
+        if st.form_submit_button("➕ Add to Stack", use_container_width=True):
+            if new_name:
+                st.session_state.user_supplements.append({
+                    "name": new_name.strip(), 
+                    "timing": new_timing.strip() if new_timing else "As needed", 
+                    "notes": new_notes.strip() if new_notes else "Custom supplement"
+                })
+                st.success(f"Added {new_name} to your stack!")
+                st.rerun()
+            else:
+                st.warning("Please enter a supplement name.")
+
+    st.markdown("---")
+    st.markdown("#### 📋 Current Active Supplement Stack")
+
+    # Render dynamic dataframe/table of supplements
+    if st.session_state.user_supplements:
+        df_supps = pd.DataFrame(st.session_state.user_supplements)
+        st.dataframe(df_supps, use_container_width=True, hide_index=True)
+
+        # Option to remove a supplement by name
+        supp_names = [s["name"] for s in st.session_state.user_supplements]
+        to_remove = st.selectbox("Select a supplement to remove (optional):", ["-- Select --"] + supp_names)
+        if to_remove != "-- Select --":
+            if st.button("🗑️ Remove Selected Supplement"):
+                st.session_state.user_supplements = [s for s in st.session_state.user_supplements if s["name"] != to_remove]
+                st.success(f"Removed {to_remove} from your stack.")
+                st.rerun()
+    else:
+        st.info("Your supplement stack is currently empty. Add one above!")
+
+    st.markdown("---")
     
-    <div class="stCard" style="margin-top: 16px;">
-        <h4 style="color: #27ae60; margin-top:0;">🌙 Evening / Before Bed</h4>
-        <ul>
-            <li><strong>Magnesium:</strong> Take 300–400mg (Glycinate form recommended) 30 minutes before sleep. This enhances nervous system recovery, promotes deep slow-wave sleep, and prevents cramping.</li>
-            <li><strong>Fish Oil (Optional split dose):</strong> Evening dose assists with nocturnal inflammatory regulation.</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    if st.button("💬 Discuss Supplement Timing with Coach", key="discuss_supplements_btn"):
+    # Dynamic Chat Trigger using the live stack
+    if st.button("💬 Discuss Updated Supplement Stack With Coach", key="discuss_supplements_btn"):
+        stack_desc = ", ".join([f"{s['name']} ({s['timing']})" for s in st.session_state.user_supplements])
         st.session_state.messages.append({
             "role": "user", 
-            "content": "Let's review my personal supplement stack (creatine, protein, turmeric, fish oil, NMN, collagen, magnesium). How should I time these around my upcoming high-intensity indoor MyWhoosh sessions and weekend outdoor group rides to maximize recovery and reduce climbing fatigue?"
+            "content": f"Let's review my current active supplement stack: {stack_desc}. How should I coordinate these around my training schedule to optimize recovery and mitigate climbing fatigue?"
         })
-        st.success("Context loaded! Go to the **AI Coach & Sparring** tab to start chatting.")
+        st.success("Context loaded with your live stack! Go to the **AI Coach & Sparring** tab to start chatting.")
 
 # ================= TAB 5: ACTIVITY INSPECTOR =================
 with tab_history:
