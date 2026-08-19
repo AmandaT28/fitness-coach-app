@@ -345,11 +345,11 @@ with tab_coach:
             except Exception as e:
                 st.error(f"AI Generation Failed: {str(e)}")
 
-# ================= TAB 3: TRAINING CALENDAR (2-Week View) =================
+# ================= TAB 3: TRAINING CALENDAR (3-Week View) =================
 with tab_calendar:
-    st.markdown("### 📅 2-Week Training Calendar & Prescription Adjuster")
-    st.caption("Review your 14-day training block (past week & upcoming week) synced from Intervals.icu, and use the prescription adjuster to plan updates.")
-
+    st.markdown("### 📅 3-Week Training Calendar & Prescription Adjuster")
+    st.caption("Review your 21-day training block (past week & next 2 weeks) synced from Intervals.icu to plan ahead.")
+    
     c_cal1, c_cal2 = st.columns([2, 1])
     with c_cal1:
         st.markdown("#### 14-Day Schedule View")
