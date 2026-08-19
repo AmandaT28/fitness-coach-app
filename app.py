@@ -184,7 +184,9 @@ if st.session_state.user:
     INTERVALS_API_KEY = user_profile.get("intervals_api_key")
     ATHLETE_ID = user_profile.get("intervals_athlete_id")
     GEMINI_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
-    display_name = st.session_state.user.email
+    
+    # Updated owner display name
+    display_name = "Amanda"
 
     if "athlete_gear" not in st.session_state:
         st.session_state.athlete_gear = user_profile.get("gear_notes") or ""
