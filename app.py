@@ -261,27 +261,37 @@ with tab_history:
     st.caption("Select any past activity from your 90-day history to run an AI-powered performance debrief.")
 
     if activities_data:
-        # Create a clean display dataframe of past activities
+        # Create a clean display dataframe of past activities with safe checks
         act_options = {}
         for act in activities_data:
             name = act.get("name", "Unnamed Activity")
-            for act in activities_data:
-            name = act.get("name", "Unnamed Activity")
             date = act.get("start_date_local", "")[:10]
+            
             raw_dist = act.get("distance")
-            dist = round((raw_dist if raw_dist is not None else 0) / 1000, 1)
+            dist = round(((raw_dist if raw_dist is not None else 0) / 1000), 1)
+            
             raw_time = act.get("moving_time")
             dur_min = int((raw_time if raw_time is not None else 0) / 60)
+            
+            label = f"{date} — {name} ({dist} km, {dur_min} mins)"
             act_options[label] = act
 
         selected_label = st.selectbox("Choose a past activity to analyze:", list(act_options.keys()))
         selected_act = act_options[selected_label]
 
-      col_info1, col_info2, col_info3 = st.columns(3)
+        col_info1, col_info2, col_info3 = st.columns(3)
         
         sel_dist = selected_act.get("distance")
         safe_dist = round(((sel_dist if sel_dist is not None else 0) / 1000), 2)
         col_info1.metric("Distance", f"{safe_dist} km")
+        
+        sel_time = selected_act.get("moving_time")
+        safe_time = int((sel_time if sel_time is not None else 0) / 60)
+        col_info2.metric("Moving Time", f"{safe_time} mins")
+        
+        avg_watts = selected_act.get("average_watts")
+        safe_watts = f"{avg_watts} W" if avg_watts is not None else "N/A"
+        col_info3.metric("Average Power", safe_watts)
         
         sel_time = selected_act.get("moving_time")
         safe_time = int((sel_time if sel_time is not None else 0) / 60)
