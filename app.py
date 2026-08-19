@@ -38,11 +38,10 @@ openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
 # App UI Configuration & Mobile-Responsive Custom CSS Styling
-st.set_page_config(page_title="AI Sports Science Coach • Elite Suite", page_icon="🚴‍♂️", layout="wide")
+st.set_page_config(page_title="AI Cycling Performance Coach", page_icon="🚴‍♂️", layout="wide")
 
 st.markdown("""
 <style>
-    /* Global Card & Container Styling */
     .stCard {
         background-color: var(--background-secondary-color, #ffffff);
         border: 1px solid rgba(128, 128, 128, 0.15);
@@ -51,8 +50,6 @@ st.markdown("""
         margin-bottom: 16px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
     }
-    
-    /* Metric Card Polish */
     div[data-testid="stMetric"] {
         background-color: rgba(128, 128, 128, 0.03);
         border: 1px solid rgba(128, 128, 128, 0.1);
@@ -60,38 +57,21 @@ st.markdown("""
         border-radius: 10px;
         box-shadow: 0 2px 6px rgba(0,0,0,0.01);
     }
-
-    /* Button Polish */
     .stButton > button {
         border-radius: 8px;
         font-weight: 600;
         transition: all 0.2s ease-in-out;
     }
-    
-    /* Tab Container Spacing */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 8px 8px 0px 0px;
-        padding: 10px 16px;
-        font-weight: 500;
-    }
-
-    /* Mobile Responsive Adjustments */
     @media (max-width: 768px) {
         .main .block-container {
             padding: 1rem 0.75rem;
-        }
-        h1 {
-            font-size: 1.75rem !important;
         }
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🚴‍♂️🏃‍♂️ AI Sports Science Coach")
-st.caption("Multi-Sport Elite Command Center • Intervals.icu & Multi-LLM Integrated")
+st.title("🚴‍♂️ AI Cycling Performance Coach")
+st.caption("Indoor MyWhoosh & Outdoor Group Ride Intelligence • Intervals.icu Integrated")
 
 # --- MULTI-PROVIDER CROSS-PROVIDER FALLBACK ROUTER ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain", is_stream=False):
@@ -121,7 +101,7 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
 
     def call_google(stream=False):
         if not google_client: raise Exception("Google API key missing")
-        models = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.1-pro-preview"]
+        models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash", "gemini-3.1-pro-preview"]
         last_err = None
         for m in models:
             try:
@@ -223,11 +203,9 @@ ATHLETE_ID = user_profile["intervals_athlete_id"]
 if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict):
     st.session_state.goals = {}
 
-# Load stored goals from Supabase profile if available
-st.session_state.goals["primary_sport"] = user_profile.get("primary_sport") or "Cycling (Road)"
-st.session_state.goals["event_name"] = user_profile.get("event_name") or "Target Gran Fondo / Race"
+st.session_state.goals["primary_sport"] = user_profile.get("primary_sport") or "Cycling (Road & Climbing)"
+st.session_state.goals["event_name"] = user_profile.get("event_name") or "Weekend Group Rides (No More Getting Dropped)"
 
-# Handle safe date parsing from string/date format stored in database
 db_date = user_profile.get("event_date")
 if db_date:
     try:
@@ -240,9 +218,9 @@ if db_date:
 else:
     st.session_state.goals["event_date"] = datetime.date.today() + datetime.timedelta(days=60)
 
-st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Maintain 4.2 W/kg or build aerobic base"
+st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Survive steep climbs on Saturday club rides and improve threshold power"
 
-# --- DATA FETCHING (Optimized Timeouts) ---
+# --- DATA FETCHING ---
 @st.cache_data(ttl=300, show_spinner=False) 
 def fetch_intervals_wellness(athlete_id, api_key):
     try:
@@ -261,14 +239,6 @@ def fetch_recent_activities(athlete_id, api_key):
         url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/activities?oldest={start_date}&newest={end_date}"
         res = requests.get(url, auth=("API_KEY", api_key), timeout=5)
         return res.json() if res.status_code == 200 else []
-    except Exception: return []
-
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_athlete_stats(athlete_id, api_key):
-    try:
-        url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
-        res = requests.get(url, auth=("API_KEY", api_key), timeout=5)
-        return res.json() if res.status_code == 200 else {}
     except Exception: return []
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -304,7 +274,6 @@ def parse_gpx(file_bytes):
                 xml_content = file_bytes.decode('utf-16', errors='ignore')
                 
         root = ET.fromstring(xml_content)
-        
         latlons = []
         elevation_list = []
         
@@ -313,67 +282,49 @@ def parse_gpx(file_bytes):
             if tag in ['trkpt', 'rtept']:
                 lat_str = elem.attrib.get('lat') or elem.attrib.get('latitude')
                 lon_str = elem.attrib.get('lon') or elem.attrib.get('longitude')
-                
                 if lat_str and lon_str:
                     try:
-                        lat = float(lat_str)
-                        lon = float(lon_str)
+                        lat, lon = float(lat_str), float(lon_str)
                         latlons.append((lat, lon))
-                        
                         ele_val = elevation_list[-1] if elevation_list else 0.0
                         for child in elem:
                             if child.tag.split('}')[-1].lower() in ['ele', 'elevation', 'alt']:
-                                try:
-                                    ele_val = float(child.text)
-                                except (TypeError, ValueError):
-                                    pass
+                                try: ele_val = float(child.text)
+                                except: pass
                                 break
                         elevation_list.append(ele_val)
-                    except ValueError:
-                        pass
+                    except ValueError: pass
                         
-        if not latlons:
-            return None
+        if not latlons: return None
 
-        total_ele_gain = 0
-        for i in range(1, len(elevation_list)):
-            diff = elevation_list[i] - elevation_list[i-1]
-            if diff > 0: 
-                total_ele_gain += diff
-                
+        total_ele_gain = sum(max(0, elevation_list[i] - elevation_list[i-1]) for i in range(1, len(elevation_list)))
         total_dist_km = 0
         for i in range(1, len(latlons)):
             lat1, lon1 = latlons[i-1]
             lat2, lon2 = latlons[i]
             R = 6371.0 
-            dlat = math.radians(lat2 - lat1)
-            dlon = math.radians(lon2 - lon1)
+            dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
             a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
-            c = 2 * math.asin(math.sqrt(a))
-            total_dist_km += R * c
+            total_dist_km += R * (2 * math.asin(math.sqrt(a)))
 
         return {
             "distance_km": round(max(total_dist_km, 0.1), 2),
             "elevation_gain_m": round(total_ele_gain, 1),
-            "max_elevation": round(max(elevation_list), 1) if elevation_list else 0,
-            "min_elevation": round(min(elevation_list), 1) if elevation_list else 0
+            "max_elevation": round(max(elevation_list), 1) if elevation_list else 0
         }
-        
     except Exception as e:
         st.error(f"XML Parsing Error: {str(e)}")
         return None
 
-with st.spinner("Syncing multi-sport telemetry & weather intelligence..."):
+with st.spinner("Syncing telemetry & weather intelligence..."):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_wellness = executor.submit(fetch_intervals_wellness, ATHLETE_ID, INTERVALS_API_KEY)
         future_activities = executor.submit(fetch_recent_activities, ATHLETE_ID, INTERVALS_API_KEY)
-        future_stats = executor.submit(fetch_athlete_stats, ATHLETE_ID, INTERVALS_API_KEY)
         future_planned = executor.submit(fetch_planned_workouts, ATHLETE_ID, INTERVALS_API_KEY)
         future_rain = executor.submit(fetch_rain_intelligence)
 
         wellness_list = future_wellness.result()
         activities_data = future_activities.result()
-        athlete_stats = future_stats.result()
         planned_data = future_planned.result()
         is_raining = future_rain.result()
 
@@ -386,54 +337,42 @@ if wellness_list:
         if hrv == 0 and r.get("hrv"): hrv = r.get("hrv")
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "model", "content": "Hello! Elite Coaching engine active. Your target goals and live readiness loop are synced."}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! Your custom AI cycling coach is active. Ready to help you crush weekend group rides and conquer climbs without paying S$350/mo!"}]
 
 if "debrief_logs" not in st.session_state: st.session_state.debrief_logs = []
-if "periodization_review" not in st.session_state: st.session_state.periodization_review = None
+if "group_ride_logs" not in st.session_state: st.session_state.group_ride_logs = []
 
-# Hardware Integration Context for AI Payload
+# Custom Equipment Profile Context for AI Payload
 equipment_context = """
-Athlete Equipment Profile:
-- Bike: Cervélo Soloist (Size 48)
-- Gearing: Magene 50-34T chainrings, Dura-Ace 11-34T cassette
-- Crank: Magene TEO P515 Carbon (160mm) with P515 Spider power meter
+Athlete Bike Build & Equipment Context:
+- Bike: Cervélo Soloist (Size 48), ~6.9kg
+- Gearing: Magene 50-34T Compact Chainrings, Dura-Ace 11-34T 12-speed Cassette & Chain
+- Crankset & Power Meter: Magene TEO P515 Carbon (160mm crank arm length) with P515 Spider Dual-sided Power Meter
 - Cockpit: THE ONE PRO Aero Carbon handlebars
-- Pedals: Wahoo Speedplay (Titanium Spindles)
+- Pedals: Wahoo Speedplay (Upgraded with Titanium Spindles)
 - Computer: Garmin Edge 530
-Note: Factor the 160mm crank length and 1:1 lowest gear ratio (34-34) into biomechanics, cadence, and climbing strategies.
+Note: Account for the 160mm short crank arms and 1:1 climbing gear ratio (34-34) in cadence recommendations and power profiling.
 """
 
-# --- SIDEBAR (Goals & Targets Feedback Loop Input) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.markdown(f"👤 **{st.session_state.user.email}**")
-    
-    st.subheader("🎯 Target Event & Goals")
+    st.subheader("🎯 Primary Cycling Goals")
     with st.form("goal_feedback_form"):
-        p_sport = st.selectbox("Primary Discipline", ["Cycling (Road)", "Cycling (Time Trial)", "Gravel", "Triathlon"], index=0)
-        ev_name = st.text_input("Target Event Name", value=st.session_state.goals["event_name"])
-        ev_date = st.date_input("Target Event Date", value=st.session_state.goals["event_date"])
-        t_metric = st.text_input("Target Objective / KPI", value=st.session_state.goals["target_metric"])
+        ev_name = st.text_input("Main Focus / Event", value=st.session_state.goals["event_name"])
+        t_metric = st.text_input("Key Objective", value=st.session_state.goals["target_metric"])
         
-        if st.form_submit_button("Update Feedback Loop", use_container_width=True):
-            # Update Session State
-            st.session_state.goals = {
-                "primary_sport": p_sport,
-                "event_name": ev_name,
-                "event_date": ev_date,
-                "target_metric": t_metric
-            }
-            
-            # Persist to Supabase Database so it won't reset on login/reload
+        if st.form_submit_button("Update Goals", use_container_width=True):
+            st.session_state.goals["event_name"] = ev_name
+            st.session_state.goals["target_metric"] = t_metric
             try:
                 supabase.table("profiles").update({
-                    "primary_sport": p_sport,
                     "event_name": ev_name,
-                    "event_date": str(ev_date),
                     "target_metric": t_metric
                 }).eq("id", USER_ID).execute()
-                st.success("Goals updated & saved to cloud profile!")
+                st.success("Goals updated successfully!")
             except Exception as e:
-                st.error(f"Failed to sync goals to cloud: {e}")
+                st.error(f"Cloud update failed: {e}")
 
     st.markdown("---")
     selected_provider = st.selectbox("⚡ AI Engine Model", ["⚡ Auto-Fallback Chain", "OpenAI GPT", "Anthropic Claude", "Google Gemini"])
@@ -448,109 +387,84 @@ with st.sidebar:
         st.session_state.user = None
         st.rerun()
 
-days_to_event = (st.session_state.goals["event_date"] - datetime.date.today()).days
-
-# --- NAVIGATION SUITE (Consolidated) ---
+# --- NAVIGATION SUITE ---
 tab_cmd, tab_coach, tab_strat, tab_strength = st.tabs([
-    "📊 Command Center", "🤖 AI Coach & Logs", "🗺️ Event Strategist", "🏋️‍♂️ Strength"
+    "📊 Command Center", "🤖 AI Coach & MyWhoosh ZWO", "🗺️ Route Strategist", "🏋️‍♂️ Cross-Training"
 ])
 
-# ================= TAB 1: COMMAND CENTER (Dash + Calendar) =================
+# ================= TAB 1: COMMAND CENTER =================
 with tab_cmd:
-    st.markdown(f"### ☀️ Daily Coaching Briefing • Target: {st.session_state.goals['event_name']}")
+    st.markdown(f"### ☀️ Daily Coaching Briefing")
     with st.container():
         brief_col1, brief_col2 = st.columns([3, 1])
         with brief_col1:
             weather_advisory = (
-                "🌧️ **Rain / Wet Weather Alert:** Outdoor conditions are unfavorable. Switch to indoor smart trainer plans or shift to a gym strength session."
+                "🌧️ **Rain Alert:** Outdoor conditions wet. Switch your session to an indoor MyWhoosh workout."
                 if is_raining else
-                "☀️ **Weather Clear:** Outdoor routes are fully viable for your planned sessions."
+                "☀️ **Weather Clear:** Great conditions for outdoor riding or club workouts."
             )
             st.info(
-                f"**Feedback Loop Check:** Training for **{st.session_state.goals['event_name']}** ({days_to_event} days out). Objective: *{st.session_state.goals['target_metric']}*.\n\n"
+                f"**Current Focus:** *{st.session_state.goals['event_name']}*.\n\n"
                 f"{weather_advisory}\n\n"
-                f"**Readiness Audit:** Form TSB is currently `{tsb:.1f}`. Sleep score is logged at `{sleep_score}/100`. "
-                f"{'🟢 Body is primed for high output.' if tsb >= -15 else '🟡 Fatigue is building; prioritize recovery pacing.'}"
+                f"**Readiness:** Form TSB is `{tsb:.1f}`. Sleep score: `{sleep_score}/100`. "
+                f"{'🟢 Ready for high-intensity work.' if tsb >= -15 else '🟡 Fatigue is high; prioritize recovery pacing.'}"
             )
         with brief_col2:
-            st.metric("Event Countdown", f"{days_to_event} Days")
+            st.metric("Form (TSB)", round(tsb, 1))
 
     st.markdown("---")
-    
     col_met, col_cal = st.columns([1, 2])
-    
     with col_met:
         st.markdown("#### Training Load")
         st.metric("Fitness (CTL)", round(ctl, 1))
         st.metric("Fatigue (ATL)", round(atl, 1))
-        st.metric("Form (TSB)", round(tsb, 1))
         st.metric("Sleep Score", f"{sleep_score}/100" if sleep_score > 0 else "N/A")
-        
     with col_cal:
-        st.markdown("#### 📅 Upcoming Calendar")
+        st.markdown("#### 📅 Upcoming Calendar (Intervals.icu)")
         if planned_data:
             df_cal = pd.DataFrame(planned_data)
             display_cols = [c for c in ['start_date_local', 'name', 'type'] if c in df_cal.columns]
-            if display_cols:
-                st.dataframe(df_cal[display_cols], use_container_width=True, hide_index=True)
-            else:
-                st.dataframe(df_cal, use_container_width=True)
+            st.dataframe(df_cal[display_cols] if display_cols else df_cal, use_container_width=True, hide_index=True)
         else:
-            st.info("No upcoming calendar events found.")
+            st.info("No upcoming calendar events synced.")
 
     st.markdown("---")
-    st.subheader("🔄 Proactive Feedback Loop & Periodization Audit")
-    if st.button("Run Progress & Target Audit", type="primary"):
-        with st.spinner("Analyzing current progress against target event goals..."):
-            audit_prompt = f"""
-            Perform an elite progress and periodization audit for my target event: {st.session_state.goals['event_name']} in {days_to_event} days.
-            TARGET OBJECTIVE: {st.session_state.goals['target_metric']}
-            PRIMARY SPORT: {st.session_state.goals['primary_sport']}
-            CURRENT METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}, Sleep={sleep_score}.
-            WEATHER: {'Raining' if is_raining else 'Clear'}
-            RECENT DEBRIEFS: {st.session_state.debrief_logs}
-            {equipment_context}
-            
-            Evaluate if my current training load and form are properly aligned to hit my target objective by event day. Provide concrete adjustments if necessary.
-            """
-            try:
-                res, model = execute_multiprovider_generation(audit_prompt, preferred_provider=selected_provider)
-                st.session_state.periodization_review = f"{res}\n\n*(Engine: {model})*"
-                st.rerun()
-            except Exception as e:
-                st.error(f"Generation Failed: {str(e)}")
+    st.markdown("### 🏆 Recent Weekend Group Ride Performance History")
+    if st.session_state.group_ride_logs:
+        for gr in reversed(st.session_state.group_ride_logs):
+            with st.container():
+                st.markdown(f"**Date:** {gr['date']} | **Outcome:** {gr['outcome']} | **Max Climb HR/Power RPE:** {gr['rpe']}/10")
+                st.markdown(f"> *Notes:* {gr['notes']}")
+                st.divider()
+    else:
+        st.caption("No weekend group rides logged yet. Use the tracker below or in the Coach tab after your Saturday club rides.")
 
-    if st.session_state.periodization_review:
-        with st.expander("📋 Target Progress Audit Results", expanded=True):
-            st.markdown(st.session_state.periodization_review)
-            if st.button("Clear Review"): st.session_state.periodization_review = None; st.rerun()
-
-# ================= TAB 2: AI COACH & LOGS (Chat + Debrief) =================
+# ================= TAB 2: AI COACH & MYWHOOSH ZWO BUILDER =================
 with tab_coach:
     coach_col1, coach_col2 = st.columns([2, 1])
     
     with coach_col1:
-        st.markdown("### 🤖 Endurance AI Coach (Goal-Synced Feedback Loop)")
+        st.markdown("### 🤖 Cycling AI Coach")
         for msg in st.session_state.messages:
             with st.chat_message(msg["role"]): st.markdown(msg["content"])
                 
-        if prompt := st.chat_input("Ask your coach about how your recent sessions match your event targets..."):
+        if prompt := st.chat_input("Ask for a climbing workout, review your last ride, or plan your week..."):
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"): st.markdown(prompt)
             
             with st.chat_message("model"):
-                with st.spinner("Consulting coaching core..."):
+                with st.spinner("Analyzing performance metrics..."):
                     payload = f"""
-                    You are an elite endurance coach. Your feedback loop is continuously tracking the athlete's target event: {st.session_state.goals['event_name']} ({days_to_event} days away).
-                    TARGET OBJECTIVE: {st.session_state.goals['target_metric']}
+                    You are an elite cycling performance coach helping an active cyclist avoid getting dropped on group ride climbs.
+                    GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})
                     METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.
-                    WEATHER STATUS: {'Raining (Outdoor rides blocked; suggest indoor trainer/MyWhoosh or gym alternatives)' if is_raining else 'Clear'}
-                    DEBRIEF LOGS: {st.session_state.debrief_logs}
+                    WEATHER: {'Raining (Indoor MyWhoosh required)' if is_raining else 'Clear'}
+                    DEBRIEFS: {st.session_state.debrief_logs}
+                    GROUP RIDE HISTORY: {st.session_state.group_ride_logs}
                     {equipment_context}
                     
-                    Provide precise coaching advice, explicitly reviewing how the user's question or recent output aligns with hitting their target objective on event day. If prescribing a workout, include exact wattage or pace zones.
+                    Provide precise, actionable cycling coaching feedback. Include exact power zones (% of FTP) and cadence recommendations suited to a 160mm crank setup.
                     """ + prompt
-                    
                     try:
                         resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
                         full_resp = f"{resp}\n\n*(Engine: {engine})*"
@@ -560,85 +474,123 @@ with tab_coach:
                         st.error(f"AI Generation Failed: {str(e)}")
                         
     with coach_col2:
-        st.markdown("### 📝 Workout Debrief")
-        st.caption("Log qualitative feedback. Feeds directly into the AI goal feedback loop.")
-        with st.form("debrief"):
-            d_date = st.date_input("Date")
-            d_sport = st.selectbox("Sport", ["Cycling", "Running", "Strength"])
-            d_rpe = st.slider("RPE (1-10)", 1, 10, 5)
-            d_notes = st.text_area("Notes & Feel")
-            if st.form_submit_button("Save Debrief", use_container_width=True):
-                st.session_state.debrief_logs.append({"date": str(d_date), "sport": d_sport, "rpe": d_rpe, "notes": d_notes})
-                st.success("Logged into feedback loop!")
-
-# ================= TAB 3: EVENT STRATEGIST (Route + Fueling) =================
-with tab_strat:
-    st.markdown(f"### 🗺️ Route & Fueling Strategist for {st.session_state.goals['event_name']}")
-    
-    st.markdown("#### ⚡ Fueling & Hydration Calculator")
-    f_col1, f_col2 = st.columns(2)
-    with f_col1:
-        dur = st.slider("Estimated Duration (Hours)", 1.0, 6.0, 3.0, 0.5)
-        sport_type = st.selectbox("Activity Sport", ["Cycling", "Running"])
-        wt = st.number_input("Weight (kg)", 45.0, 100.0, 58.0)
-    with f_col2:
-        carbs = 90 if sport_type == "Cycling" else 60
-        st.metric("Recommended Carbs", f"{carbs} g/hr", f"Total Target: {int(carbs * dur)}g")
-        st.metric("Fluid Target", f"{int(wt * 8)} ml/hr")
+        st.markdown("### 🛠️ MyWhoosh `.zwo` Generator")
+        st.caption("Select custom interval block templates to build MyWhoosh workout files.")
         
-    st.markdown("---")
-    st.markdown("#### 📍 GPX Pacing Planner")
-    st.caption("Upload a `.gpx` route file to get an AI-powered course breakdown aligned with your event targets.")
-    
-    uploaded_gpx = st.file_uploader("Upload Cycling Route (.gpx)", type=["gpx"])
+        with st.form("zwo_form"):
+            z_name = st.text_input("Workout Name", value="Climbing Threshold Builder")
+            z_type = st.selectbox("Interval Block Template", [
+                "Sweet Spot Pyramid (3x10min @ 88-93% FTP)",
+                "Threshold Over-Unders (Surge simulation for hills)",
+                "VO2 Max Punchy Hills (40s/20s micro-bursts)",
+                "Long Sustained Climbing Simulation (Sweet Spot + Surges)"
+            ])
+            ftp_val = st.number_input("Your FTP (Watts)", 100, 450, 240)
+            
+            if st.form_submit_button("Generate .zwo File", use_container_width=True):
+                with st.spinner("Building custom workout XML template..."):
+                    zwo_prompt = f"""
+                    Generate a structured MyWhoosh workout in valid XML format (.zwo) based on this interval block template:
+                    Workout Name: {z_name}
+                    Selected Template Structure: {z_type}
+                    Athlete FTP: {ftp_val}W
+                    {equipment_context}
+                    
+                    Return ONLY the XML structure wrapped inside a ```xml ... ``` code block, starting with <workout_file> and ending with </workout_file>. Include a proper warm-up, the requested intervals block sequence matching the template chosen, and a cool-down.
+                    """
+                    try:
+                        z_resp, _ = execute_multiprovider_generation(zwo_prompt, preferred_provider=selected_provider)
+                        if "```xml" in z_resp:
+                            zwo_code = z_resp.split("```xml")[1].split("```")[0].strip()
+                        elif "```" in z_resp:
+                            zwo_code = z_resp.split("```")[1].split("```")[0].strip()
+                        else:
+                            zwo_code = z_resp
+                            
+                        st.session_state.latest_zwo = zwo_code
+                        st.session_state.latest_zwo_name = z_name.replace(" ", "_")
+                        st.success("Workout generated successfully!")
+                    except Exception as e:
+                        st.error(f"Failed to generate workout file: {e}")
+                        
+        if "latest_zwo" in st.session_state:
+            st.download_button(
+                label="📥 Download MyWhoosh Workout (.zwo)",
+                data=st.session_state.latest_zwo,
+                file_name=f"{st.session_state.latest_zwo_name}.zwo",
+                mime="application/xml",
+                use_container_width=True
+            )
+
+        st.markdown("---")
+        st.markdown("### 🚴‍♂️ Weekend Group Ride Debrief")
+        with st.form("group_ride_debrief_form"):
+            gr_date = st.date_input("Ride Date (Saturday)")
+            gr_outcome = st.selectbox("Group Ride Outcome", [
+                "Stuck with lead group on all climbs (Success!)",
+                "Got dropped on the steepest climb section",
+                "Suffered on punchy hills but hung on",
+                "Recovered well / Easy social recovery ride"
+            ])
+            gr_rpe = st.slider("Climb Intensity RPE", 1, 10, 8)
+            gr_notes = st.text_area("Group Ride Notes (Which climb hurt? Where did the gap open?)")
+            
+            if st.form_submit_button("Log Group Ride Result", use_container_width=True):
+                st.session_state.group_ride_logs.append({
+                    "date": str(gr_date),
+                    "outcome": gr_outcome,
+                    "rpe": gr_rpe,
+                    "notes": gr_notes
+                })
+                st.success("Group ride result logged to AI performance memory!")
+
+# ================= TAB 3: ROUTE STRATEGIST =================
+with tab_strat:
+    st.markdown("### 🗺️ Route Climbing & Pacing Strategist")
+    uploaded_gpx = st.file_uploader("Upload GPX Route File", type=["gpx"])
     
     if uploaded_gpx:
-        gpx_bytes = uploaded_gpx.read()
-        route_metrics = parse_gpx(gpx_bytes)
-        
+        route_metrics = parse_gpx(uploaded_gpx.read())
         if route_metrics:
-            col_r1, col_r2, col_r3 = st.columns(3)
-            col_r1.metric("Route Distance", f"{route_metrics['distance_km']} km")
-            col_r2.metric("Elevation Gain", f"{route_metrics['elevation_gain_m']} m")
-            col_r3.metric("Max Elevation", f"{route_metrics['max_elevation']} m")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Distance", f"{route_metrics['distance_km']} km")
+            c2.metric("Elevation Gain", f"{route_metrics['elevation_gain_m']} m")
+            c3.metric("Max Elevation", f"{route_metrics['max_elevation']} m")
             
-            if st.button("🤖 Generate AI Course Strategy & Target Pacing", type="primary"):
-                with st.spinner("Analyzing route profile against target event goals..."):
-                    route_prompt = (
-                        f"Act as an elite cycling head coach. Analyze this uploaded route for target event '{st.session_state.goals['event_name']}': "
-                        f"Distance: {route_metrics['distance_km']} km, Elevation Gain: {route_metrics['elevation_gain_m']} m, Max Elevation: {route_metrics['max_elevation']} m. "
-                        f"Target Objective: {st.session_state.goals['target_metric']}. "
-                        f"Athlete Readiness: CTL={ctl}, TSB={tsb}. Total Fueling target: {int(carbs * dur)}g carbs over {dur} hours. "
-                        f"{equipment_context} "
-                        "Provide a comprehensive race/ride strategy: 1) Pacing breakdown across climbs vs flats based on the gearing provided, 2) Power targets relative to FTP, 3) Specific fueling execution strategy."
-                    )
+            if st.button("🤖 Generate Climbing & Gearing Strategy", type="primary"):
+                with st.spinner("Analyzing route profile..."):
+                    strat_prompt = f"""
+                    Analyze this route profile for climbing performance: Distance {route_metrics['distance_km']} km, Elevation Gain {route_metrics['elevation_gain_m']} m.
+                    Objective: {st.session_state.goals['target_metric']}
+                    {equipment_context}
+                    
+                    Provide precise pacing advice, specific power targets for the climbs, and how to manage the 34-34 climbing gear ratio so the athlete doesn't get dropped.
+                    """
                     try:
-                        route_res, route_model = execute_multiprovider_generation(route_prompt, preferred_provider=selected_provider)
+                        strat_res, strat_model = execute_multiprovider_generation(strat_prompt, preferred_provider=selected_provider)
                         st.markdown("---")
-                        st.markdown(route_res)
-                        st.caption(f"Generated via: {route_model}")
+                        st.markdown(strat_res)
+                        st.caption(f"Generated via: {strat_model}")
                     except Exception as e:
-                        st.error(f"Strategy Generation Failed: {str(e)}")
-        else:
-            st.error("Could not parse the uploaded GPX file. Ensure it contains valid track points and elevation data.")
+                        st.error(f"Strategy generation failed: {e}")
 
-# ================= TAB 4: STRENGTH =================
+# ================= TAB 4: CROSS-TRAINING =================
 with tab_strength:
-    st.markdown("### 🏋️‍♂️ Strength & Conditioning for Event Durability")
-    st.caption(f"Targeted strength sessions designed to support your objective of: *{st.session_state.goals['target_metric']}*.")
+    st.markdown("### 🏋️‍♂️ Running & Strength Cross-Training")
+    st.caption("Targeted supplementary training designed to improve cycling power and prevent injuries.")
     
-    st_focus = st.selectbox("Select Focus Area", [
-        "Cycling Force & Posterior Chain (Deadlifts, Bulgarian Split Squats)", 
-        "Running Durability & Core Stability (Single-leg stability, Plyometrics)", 
-        "Full Body Injury Prevention & Mobility"
+    st_focus = st.selectbox("Cross-Training Focus", [
+        "Core & Posterior Chain Strength for Cycling Climbs",
+        "Low-Impact Running for Aerobic Base Maintenance",
+        "Full Body Mobility & Injury Prevention"
     ])
     
-    if st.button("Generate Custom S&C Workout", type="primary"):
-        with st.spinner("Designing strength session..."):
-            sc_prompt = f"{equipment_context}\nDesign a 45-minute gym strength workout tailored for event '{st.session_state.goals['event_name']}' focusing on: {st_focus}. Include exercise name, sets, reps, and specific endurance carryover notes."
+    if st.button("Generate Cross-Training Session", type="primary"):
+        with st.spinner("Designing session..."):
+            xt_prompt = f"{equipment_context}\nDesign a 45-minute cross-training session focusing on: {st_focus} to support cycling climbing performance."
             try:
-                sc_res, sc_model = execute_multiprovider_generation(sc_prompt, preferred_provider=selected_provider)
-                st.markdown(sc_res)
-                st.caption(f"Generated via: {sc_model}")
+                xt_res, xt_model = execute_multiprovider_generation(xt_prompt, preferred_provider=selected_provider)
+                st.markdown(xt_res)
+                st.caption(f"Generated via: {xt_model}")
             except Exception as e:
-                st.error(f"Workout Generation Failed: {str(e)}")
+                st.error(f"Generation failed: {e}")
