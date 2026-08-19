@@ -232,8 +232,11 @@ with tab_dash:
             
             # Contextual Action: Jump to chat with this trend analysis context
             if st.button("💬 Discuss These Trends With Coach", key="discuss_trends_btn"):
-                st.session_state.messages.append({"role": "user", "content": "I'd like to discuss the 90-day trend analysis you just provided. Let's talk about my progression and ramp rate."})
-                st.info("Switched context! Go to the **AI Coach & Sparring** tab to continue your conversation.")
+                st.session_state.messages.append({
+                    "role": "user", 
+                    "content": f"Let's review my recent 90-day training trends (Fitness CTL: {round(ctl, 1)}, Fatigue ATL: {round(atl, 1)}, Form TSB: {round(tsb, 1)}). Based on my goal of '{st.session_state.goals['target_metric']}', am I progressing correctly?"
+                })
+                st.success("Context loaded! Go to the **AI Coach & Sparring** tab to start chatting.")
         except Exception as e:
             st.error(f"Could not generate deep trend analysis: {e}")
 
@@ -355,8 +358,11 @@ with tab_recovery:
     """, unsafe_allow_html=True)
     
     if st.button("💬 Discuss Supplement Timing with Coach", key="discuss_supplements_btn"):
-        st.session_state.messages.append({"role": "user", "content": "I want to review my supplement timing (creatine, protein, turmeric, fish oil, NMN, collagen, magnesium) relative to my upcoming high-intensity training blocks."})
-        st.info("Switched context! Go to the **AI Coach & Sparring** tab to discuss your supplements.")
+        st.session_state.messages.append({
+            "role": "user", 
+            "content": "Let's review my personal supplement stack (creatine, protein, turmeric, fish oil, NMN, collagen, magnesium). How should I time these around my upcoming high-intensity indoor MyWhoosh sessions and weekend outdoor group rides to maximize recovery and reduce climbing fatigue?"
+        })
+        st.success("Context loaded! Go to the **AI Coach & Sparring** tab to start chatting.")
 
 # ================= TAB 5: ACTIVITY INSPECTOR =================
 with tab_history:
@@ -411,8 +417,16 @@ with tab_history:
             st.markdown(st.session_state.selected_activity_analysis)
             
             if st.button("💬 Clarify This Debrief with Coach", key="discuss_debrief_btn"):
-                st.session_state.messages.append({"role": "user", "content": f"I want to ask some clarifications regarding the recent debrief for activity: {selected_act.get('name')}."})
-                st.info("Switched context! Go to the **AI Coach & Sparring** tab to chat about this specific ride.")
+                act_name = selected_act.get('name', 'Workout')
+                act_dist = round((selected_act.get('distance') or 0) / 1000, 2)
+                act_time = int((selected_act.get('moving_time') or 0) / 60)
+                act_watts = selected_act.get('average_watts', 'N/A')
+                
+                st.session_state.messages.append({
+                    "role": "user", 
+                    "content": f"I want to ask some clarifications regarding my recent activity '{act_name}' ({act_dist} km, {act_time} mins, {act_watts}W avg power). Let's review how it impacts my climbing preparation."
+                })
+                st.success("Context loaded! Go to the **AI Coach & Sparring** tab to start chatting.")
     else:
         st.info("No activities found in your Intervals.icu sync history.")
 
