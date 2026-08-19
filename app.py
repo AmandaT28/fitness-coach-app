@@ -285,8 +285,8 @@ if activities_data and st.session_state.auto_debriefed_id != activities_data[0].
 
 # --- SIDEBAR (Customizable Profile & Gear Settings) ---
 with st.sidebar:
-    st.markdown(f"👤 **{USER_ID}**")
-    
+    st.markdown(f"👤 **{display_name}**")
+            
     st.subheader("⚙️ Athlete & Equipment Profile")
     with st.form("gear_profile_form"):
         custom_gear = st.text_area("Bike Build & Gear Notes", value=st.session_state.athlete_gear, height=100)
@@ -319,9 +319,14 @@ with st.sidebar:
         st.session_state.messages = [{"role": "model", "content": "Chat history cleared. What topic or idea would you like to discuss next?"}]
         st.rerun()
 
-    if st.button("Log Out", use_container_width=True):
-        supabase.auth.sign_out()
-        st.session_state.user = None
+    # Logout button that handles both Supabase owner logout and guest clearing
+    if st.button("Log Out / Switch Account", use_container_width=True):
+        if st.session_state.user:
+            supabase.auth.sign_out()
+            st.session_state.user = None
+        if st.session_state.user_credentials:
+            localS.deleteItem("athlete_profile_config")
+            st.session_state.user_credentials = None
         st.rerun()
 
 # --- NAVIGATION SUITE ---
