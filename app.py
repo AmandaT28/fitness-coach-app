@@ -495,6 +495,7 @@ with tab_coach:
                 clean_content = re.sub(r"```xml\s*<\?xml.*?>.*?</\s*workout_file\s*>\s*```", "", msg["content"], flags=re.DOTALL)
                 clean_content = re.sub(r"```\s*<workout_file>.*?</\s*workout_file>\s*```", "", clean_content, flags=re.DOTALL)
                 clean_content = re.sub(r"<icu_workout>.*?</icu_workout>", "", clean_content, flags=re.DOTALL)
+                clean_content = re.sub(r"<icu_reschedule>.*?</icu_reschedule>", "", clean_content, flags=re.DOTALL)
                 st.markdown(clean_content.strip())
                 
                 if msg["role"] == "model":
@@ -516,7 +517,7 @@ with tab_coach:
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.rerun()
 
-# --- BACKGROUND AI PROCESSOR ---
+# --- BACKGROUND AI PROCESSOR WITH RESCHEDULING ENGINE ---
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     last_user_prompt = st.session_state.messages[-1]["content"]
     
@@ -530,20 +531,21 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         f"GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
         f"METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.",
         f"ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}",
-        f"UPCOMING SCHEDULE: {planned_events[:15] if planned_events else 'None'}",
+        f"CURRENT UPCOMING SCHEDULE (NEXT 14 DAYS): {planned_events[:20] if planned_events else 'None'}",
         "",
         "Provide concise, lightning-fast, and rigorous coaching insights matching your assigned persona.",
         "CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside standard markdown xml block formatting.",
-        "CRITICAL CALENDAR INSTRUCTION: If you are recommending new workouts to schedule, you MUST output a JSON array wrapped EXACTLY in <icu_workout> ... </icu_workout> tags. The JSON array must contain objects with: 'start_date_local' (YYYY-MM-DD), 'name', 'description' (the workout details in Intervals.icu text syntax), 'type' (always 'Ride'), and 'indoor' (boolean).",
+        "CRITICAL CALENDAR CREATION INSTRUCTION: If you are recommending new workouts to schedule, you MUST output a JSON array wrapped EXACTLY in <icu_workout> ... </icu_workout> tags with fields: 'start_date_local' (YYYY-MM-DD), 'name', 'description', 'type' ('Ride'), 'indoor' (boolean).",
+        "CRITICAL CALENDAR RESCHEDULING/MOVING INSTRUCTION: If the athlete wants to move, shift, reschedule, or delete existing workouts, you MUST output a JSON object wrapped EXACTLY in <icu_reschedule> ... </icu_reschedule> tags containing: 'delete_event_ids' (list of event IDs to remove, if any) and 'new_events' (list of new/moved events with 'start_date_local', 'name', 'description', 'type', 'indoor').",
         "",
         last_user_prompt
     ])
     
-    with st.spinner("Coach is thinking and updating calendars..."):
+    with st.spinner("Coach is analyzing calendar and syncing updates..."):
         try:
             resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
             
-            # --- INTERVALS.ICU API WORKOUT PUSHER ---
+            # --- 1. HANDLE NEW WORKOUTS PUSH ---
             icu_matches = re.findall(r'<icu_workout>\s*(.*?)\s*</icu_workout>', resp, re.DOTALL)
             parsed_workouts = 0
             
@@ -571,10 +573,44 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                     except Exception as e:
                         pass 
 
+            # --- 2. HANDLE RESCHEDULING / MOVING WORKOUTS ---
+            resched_matches = re.findall(r'<icu_reschedule>\s*(.*?)\s*</icu_reschedule>', resp, re.DOTALL)
+            resched_count = 0
+            
+            if resched_matches and ATHLETE_ID and INTERVALS_API_KEY:
+                for match_str in resched_matches:
+                    try:
+                        clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
+                        data = json.loads(clean_json_str)
+                        
+                        # Delete requested event IDs
+                        for ev_id in data.get("delete_event_ids", []):
+                            requests.delete(
+                                f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events/{ev_id}",
+                                auth=("API_KEY", INTERVALS_API_KEY),
+                                timeout=10
+                            )
+                            resched_count += 1
+                        
+                        # Add new/moved events
+                        for w in data.get("new_events", []):
+                            w['category'] = 'WORKOUT'
+                            if 'start_date_local' in w and len(w['start_date_local']) == 10:
+                                w['start_date_local'] += "T00:00:00"
+                            
+                            requests.post(
+                                f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events",
+                                json=w,
+                                auth=("API_KEY", INTERVALS_API_KEY),
+                                timeout=10
+                            )
+                    except Exception as e:
+                        pass
+
             full_resp = f"{resp}\n\n*(Engine: {engine})*"
             
-            if parsed_workouts > 0:
-                full_resp += f"\n\n✅ **Success:** Automatically synced {parsed_workouts} scheduled workout(s) directly to your Intervals.icu calendar!"
+            if parsed_workouts > 0 or resched_count > 0:
+                full_resp += f"\n\n✅ **Success:** Calendar synchronized automatically with Intervals.icu!"
                 fetch_intervals_data.clear() 
 
             st.session_state.messages.append({"role": "model", "content": full_resp})
@@ -584,8 +620,8 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
 
 # ================= TAB 3: TRAINING CALENDAR =================
 with tab_calendar:
-    st.markdown("### 📅 Training Calendar & Planner")
-    st.caption("Manage your past activities and upcoming scheduled workouts. Use the AI Planner to instantly build and push sessions to Intervals.icu.")
+    st.markdown("### 📅 Training Calendar & 2-Week Block Planner")
+    st.caption("Review your schedule, plan 2-week blocks, or ask the AI coach to move, shift, or reschedule workouts on the fly.")
 
     c_cal1, c_cal2 = st.columns([2, 1])
     with c_cal1:
@@ -598,6 +634,7 @@ with tab_calendar:
                 dt = ev.get('start_date_local', '')[:10]
                 if dt >= (datetime.date.today() - datetime.timedelta(days=7)).isoformat():
                     combined_timeline.append({
+                        "id": ev.get('id'),
                         "date": dt,
                         "name": ev.get('name', 'Planned Workout'),
                         "type": ev.get('type', 'Ride'),
@@ -612,6 +649,7 @@ with tab_calendar:
                     dist_km = round((act.get('distance') or 0) / 1000, 1)
                     dur_min = int((act.get('moving_time') or 0) / 60)
                     combined_timeline.append({
+                        "id": act.get('id'),
                         "date": dt,
                         "name": act.get('name', 'Recorded Activity'),
                         "type": act.get('type', 'Ride'),
@@ -619,7 +657,6 @@ with tab_calendar:
                         "status": "Completed"
                     })
         
-        # Deduplicate identical entries
         seen = set()
         unique_timeline = []
         for item in combined_timeline:
@@ -628,7 +665,6 @@ with tab_calendar:
                 seen.add(identifier)
                 unique_timeline.append(item)
 
-        # Split array into Upcoming and Past, and format the dates
         upcoming = []
         past = []
         for item in unique_timeline:
@@ -643,11 +679,9 @@ with tab_calendar:
             else:
                 past.append(item)
 
-        # Sort: Upcoming (closest first), Past (most recent first)
         upcoming = sorted(upcoming, key=lambda x: x['date'])
         past = sorted(past, key=lambda x: x['date'], reverse=True)
 
-        # The New Tabbed UI Fix
         tab_up, tab_past = st.tabs(["📅 Upcoming (Next 14 Days)", "✅ Past (Last 7 Days)"])
         
         with tab_up:
@@ -664,7 +698,7 @@ with tab_calendar:
                     </div>
                     """, unsafe_allow_html=True)
             else:
-                st.info("No upcoming workouts scheduled. Use the AI Planner below to generate a block!")
+                st.info("No upcoming workouts scheduled.")
 
         with tab_past:
             if past:
@@ -683,46 +717,52 @@ with tab_calendar:
                 st.info("No activities recorded in the past 7 days.")
 
         st.markdown("---")
-        st.markdown("#### 🤖 AI 2-Week Planner & Calendar Integrator")
+        st.markdown("#### 🤖 AI 2-Week Block Planner & Rescheduler")
         
-        plan_focus = st.selectbox("Planning Focus for Next 2 Weeks:", [
+        plan_focus = st.selectbox("Select 2-Week Block Focus:", [
             "Threshold Power & Sweet Spot Progression", 
             "Climbing Endurance & Resistance Blocks", 
             "Recovery & Taper Structure", 
             "Custom Indoor/Outdoor Balance"
         ])
         
-        if st.button("🤖 Generate 2-Week Training Plan & Push to Coach", type="primary"):
-            st.session_state.messages.append({
-                "role": "user", 
-                "content": f"Please design and plan my training schedule for the next 2 weeks with a focus on '{plan_focus}'. Schedule specific workouts and explicitly push them to my Intervals.icu calendar."
-            })
-            st.session_state.messages.append({
-                "role": "model", 
-                "content": f"I'm generating your 2-week training block focused on '{plan_focus}' and securely pushing it to your Intervals.icu calendar..."
-            })
-            st.success("Plan requested! Head to the **AI Coach & Sparring** tab to see it build out.")
-            st.rerun()
+        c_pbtn1, c_pbtn2 = st.columns(2)
+        with c_pbtn1:
+            if st.button("🚀 Build & Push 2-Week Block", type="primary", use_container_width=True):
+                st.session_state.messages.append({
+                    "role": "user", 
+                    "content": f"Please design a complete 2-week training block focused on '{plan_focus}' and push all workouts directly to my Intervals.icu calendar."
+                })
+                st.session_state.messages.append({
+                    "role": "model", 
+                    "content": f"I'm drafting your 2-week block focused on '{plan_focus}' and syncing it to your calendar..."
+                })
+                st.success("Plan requested! Head to the **AI Coach & Sparring** tab.")
+                st.rerun()
+                
+        with c_pbtn2:
+            if st.button("🔄 Shift Upcoming Week Forward 1 Day", use_container_width=True):
+                st.session_state.messages.append({
+                    "role": "user", 
+                    "content": "I need to shift all my workouts for the upcoming week forward by 1 day due to an unexpected scheduling conflict. Please reschedule them accordingly on my Intervals calendar."
+                })
+                st.session_state.messages.append({
+                    "role": "model", 
+                    "content": "Shifting your upcoming workouts forward by 1 day..."
+                })
+                st.success("Reschedule requested! Head to the **AI Coach & Sparring** tab.")
+                st.rerun()
 
     with c_cal2:
-        st.markdown("#### 🚨 Missed Workout Protocol")
+        st.markdown("#### 💬 Custom Rescheduling via Chat")
         st.info(
-            "**Human Coach Rulebook for Missed Sessions:**\n\n"
-            "1. **Never double up** high-intensity days to 'make up' for lost time.\n"
-            "2. If you missed an **easy/recovery ride**, drop it and move on.\n"
-            "3. If you missed a **key interval/climbing session**, evaluate your Form (TSB). If TSB > -10, shift it to today. If TSB < -20, skip it entirely to prevent overtraining."
+            "**How to move things around:**\n\n"
+            "You can talk directly to your coach in the **AI Coach & Sparring** tab to make custom adjustments anytime.\n\n"
+            "**Examples of what you can ask:**\n"
+            "• *'Move Thursday's threshold ride to Saturday morning.'*\n"
+            "• *'Swap my Tuesday and Wednesday workouts.'*\n"
+            "• *'Delete Friday's planned ride so I can take a rest day.'*"
         )
-        if st.button("🤖 Ask Coach About a Missed Workout", use_container_width=True):
-            st.session_state.messages.append({
-                "role": "user", 
-                "content": "I missed my scheduled workout yesterday. Given my current TSB and upcoming weekend group ride, what should I do?"
-            })
-            st.session_state.messages.append({
-                "role": "model", 
-                "content": "Let's figure out the best move for your missed session. Check your current TSB—is it holding steady or deeply negative?"
-            })
-            st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
-            st.rerun()
 
 # ================= TAB 4: ACTIVITY INSPECTOR =================
 with tab_history:
