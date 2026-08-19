@@ -48,20 +48,6 @@ st.markdown("""
         margin-bottom: 16px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.03);
     }
-    .calendarCard {
-        background-color: #f8f9fa;
-        border-left: 4px solid #2e86c1;
-        padding: 12px 16px;
-        border-radius: 8px;
-        margin-bottom: 10px;
-    }
-    .calendarCardPast {
-        background-color: #f1f2f6;
-        border-left: 4px solid #7f8c8d;
-        padding: 12px 16px;
-        border-radius: 8px;
-        margin-bottom: 10px;
-    }
     div[data-testid="stMetric"] {
         background-color: rgba(128, 128, 128, 0.02);
         border: 1px solid rgba(128, 128, 128, 0.08);
@@ -284,7 +270,7 @@ if not is_onboarded:
                 localS.setItem("athlete_profile_config", current_creds)
             
             st.rerun()
-    st.stop()  # Halts the rest of the app until they finish this one-time intro!
+    st.stop()  
     
 # --- INITIALIZE REMAINING SESSION STATES ---
 if "user_supplements" not in st.session_state:
@@ -317,9 +303,7 @@ def fetch_intervals_data(aid, key):
         end_14 = (today + datetime.timedelta(days=14)).isoformat()
         
         w_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/wellness?oldest={start_90}&newest={end_14}", auth=("API_KEY", key), timeout=5)
-        # 90 Days of Activities to ensure Inspector History never fails
         a_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/activities?oldest={start_90}&newest={end_14}", auth=("API_KEY", key), timeout=5)
-        # Past 7 Days & Future 14 Days of Planned Events
         e_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/events?oldest={start_7}&newest={end_14}", auth=("API_KEY", key), timeout=5)
         
         return (
@@ -508,7 +492,6 @@ with tab_coach:
     with chat_container:
         for idx, msg in enumerate(st.session_state.messages):
             with st.chat_message(msg["role"]):
-                # Clean out internal AI formatting logic so the UI looks beautiful
                 clean_content = re.sub(r"```xml\s*<\?xml.*?>.*?</\s*workout_file\s*>\s*```", "", msg["content"], flags=re.DOTALL)
                 clean_content = re.sub(r"```\s*<workout_file>.*?</\s*workout_file>\s*```", "", clean_content, flags=re.DOTALL)
                 clean_content = re.sub(r"<icu_workout>.*?</icu_workout>", "", clean_content, flags=re.DOTALL)
@@ -560,7 +543,7 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         try:
             resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
             
-            # --- NEW: INTERVALS.ICU API WORKOUT PUSHER ---
+            # --- INTERVALS.ICU API WORKOUT PUSHER ---
             icu_matches = re.findall(r'<icu_workout>\s*(.*?)\s*</icu_workout>', resp, re.DOTALL)
             parsed_workouts = 0
             
@@ -590,7 +573,6 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
 
             full_resp = f"{resp}\n\n*(Engine: {engine})*"
             
-            # Notify the user on screen if we successfully wrote to the API
             if parsed_workouts > 0:
                 full_resp += f"\n\n✅ **Success:** Automatically synced {parsed_workouts} scheduled workout(s) directly to your Intervals.icu calendar!"
                 fetch_intervals_data.clear() 
@@ -602,28 +584,28 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
 
 # ================= TAB 3: TRAINING CALENDAR =================
 with tab_calendar:
-    st.markdown("### 📅 3-Week Training Calendar & 2-Week Planner")
-    st.caption("Review completed past activities and scheduled upcoming workouts. Use the AI Planner to schedule new sessions for the next 2 weeks.")
+    st.markdown("### 📅 Training Calendar & Planner")
+    st.caption("Manage your past activities and upcoming scheduled workouts. Use the AI Planner to instantly build and push sessions to Intervals.icu.")
 
     c_cal1, c_cal2 = st.columns([2, 1])
     with c_cal1:
-        st.markdown("#### 🗓️ Your 21-Day Training Timeline")
+        st.markdown("#### 🗓️ Your Timeline")
         today_str = datetime.date.today().isoformat()
         
-        if planned_events or activities_data:
-            combined_timeline = []
+        combined_timeline = []
+        if planned_events:
             for ev in planned_events:
                 dt = ev.get('start_date_local', '')[:10]
-                # Filter down events to just the past 7 and future 14 days
                 if dt >= (datetime.date.today() - datetime.timedelta(days=7)).isoformat():
                     combined_timeline.append({
                         "date": dt,
                         "name": ev.get('name', 'Planned Workout'),
                         "type": ev.get('type', 'Ride'),
                         "desc": ev.get('description', ''),
-                        "status": "📅 Planned" if dt >= today_str else "✅ Completed / Past"
+                        "status": "Planned"
                     })
-            
+        
+        if activities_data:
             for act in activities_data:
                 dt = act.get('start_date_local', '')[:10]
                 if dt >= (datetime.date.today() - datetime.timedelta(days=7)).isoformat():
@@ -634,30 +616,71 @@ with tab_calendar:
                         "name": act.get('name', 'Recorded Activity'),
                         "type": act.get('type', 'Ride'),
                         "desc": f"Distance: {dist_km} km | Time: {dur_min} mins | Avg Power: {act.get('average_watts', 'N/A')}W",
-                        "status": "🏆 Recorded Activity"
+                        "status": "Completed"
                     })
-            
-            seen = set()
-            unique_timeline = []
-            for item in sorted(combined_timeline, key=lambda x: x['date'], reverse=True):
-                identifier = (item['date'], item['name'])
-                if identifier not in seen:
-                    seen.add(identifier)
-                    unique_timeline.append(item)
+        
+        # Deduplicate identical entries
+        seen = set()
+        unique_timeline = []
+        for item in combined_timeline:
+            identifier = (item['date'], item['name'])
+            if identifier not in seen:
+                seen.add(identifier)
+                unique_timeline.append(item)
 
-            for item in unique_timeline[:20]:
-                card_style = "calendarCard" if "Planned" in item['status'] else "calendarCardPast"
-                st.markdown(f"""
-                <div class="{card_style}">
-                    <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 0.95rem;">
-                        <span>{item['date']} — {item['name']}</span>
-                        <span style="font-size: 0.8rem; color: #555;">{item['status']}</span>
+        # Split array into Upcoming and Past, and format the dates
+        upcoming = []
+        past = []
+        for item in unique_timeline:
+            try:
+                dt_obj = datetime.datetime.strptime(item['date'], "%Y-%m-%d")
+                item['formatted_date'] = dt_obj.strftime("%A, %b %d")
+            except:
+                item['formatted_date'] = item['date']
+                
+            if item['date'] >= today_str:
+                upcoming.append(item)
+            else:
+                past.append(item)
+
+        # Sort: Upcoming (closest first), Past (most recent first)
+        upcoming = sorted(upcoming, key=lambda x: x['date'])
+        past = sorted(past, key=lambda x: x['date'], reverse=True)
+
+        # The New Tabbed UI Fix
+        tab_up, tab_past = st.tabs(["📅 Upcoming (Next 14 Days)", "✅ Past (Last 7 Days)"])
+        
+        with tab_up:
+            if upcoming:
+                for item in upcoming:
+                    st.markdown(f"""
+                    <div style="background-color: #ffffff; border-left: 4px solid #3498db; padding: 14px 18px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); margin-bottom: 12px; border: 1px solid #f0f2f6;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-size: 0.85rem; font-weight: 700; color: #7f8c8d; text-transform: uppercase;">{item['formatted_date']}</span>
+                            <span style="font-size: 0.75rem; background: #eaf2f8; color: #2980b9; padding: 3px 10px; border-radius: 12px; font-weight: 700;">Upcoming</span>
+                        </div>
+                        <div style="font-size: 1.1rem; font-weight: 700; color: #2c3e50; margin-bottom: 6px;">{item['name']}</div>
+                        <div style="font-size: 0.9rem; color: #555; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4;">{item['desc']}</div>
                     </div>
-                    <div style="font-size: 0.85rem; color: #444; margin-top: 4px;">{item['desc'][:120]}...</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info("No timeline events found.")
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("No upcoming workouts scheduled. Use the AI Planner below to generate a block!")
+
+        with tab_past:
+            if past:
+                for item in past:
+                    st.markdown(f"""
+                    <div style="background-color: #fcfcfc; border-left: 4px solid #95a5a6; padding: 14px 18px; border-radius: 8px; margin-bottom: 12px; border: 1px solid #f0f2f6;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-size: 0.85rem; font-weight: 700; color: #7f8c8d; text-transform: uppercase;">{item['formatted_date']}</span>
+                            <span style="font-size: 0.75rem; background: #eaeded; color: #7f8c8d; padding: 3px 10px; border-radius: 12px; font-weight: 700;">Completed</span>
+                        </div>
+                        <div style="font-size: 1.1rem; font-weight: 700; color: #34495e; margin-bottom: 6px;">{item['name']}</div>
+                        <div style="font-size: 0.9rem; color: #555;">{item['desc']}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("No activities recorded in the past 7 days.")
 
         st.markdown("---")
         st.markdown("#### 🤖 AI 2-Week Planner & Calendar Integrator")
