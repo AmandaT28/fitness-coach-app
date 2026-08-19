@@ -48,7 +48,7 @@ st.markdown("""
         display: none !important;
     }
 
-    # --- TOP STICKY NAVIGATION BAR ---
+   # --- TOP STICKY NAVIGATION BAR ---
 st.markdown("""
 <style>
     /* Fixes the top navigation container so it stays visible */
@@ -69,7 +69,6 @@ st.markdown("""
 with st.container():
     st.markdown('<div class="top-nav-container">', unsafe_allow_html=True)
     
-    # Use clean, prominent selectbox or radio pills for top navigation
     selected_nav = st.radio(
         "Navigation Suite",
         [
