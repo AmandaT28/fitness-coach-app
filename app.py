@@ -127,7 +127,8 @@ wellness = fetch_wellness(ATHLETE_ID, INTERVALS_API_KEY)
 latest = wellness[-1] if wellness else {}
 r_hr = latest.get("restingHR", 47)
 hrv = latest.get("hrv", 41)
-sleep_hrs = latest.get("sleepSecs", 22320) / 3600.0
+sleep_secs = latest.get("sleepSecs") if latest and latest.get("sleepSecs") is not None else 22320
+sleep_hrs = sleep_secs / 3600.0
 weight = latest.get("weight", 66.55)
 
 # Target Race Setup
