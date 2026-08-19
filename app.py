@@ -48,25 +48,18 @@ st.markdown("""
         display: none !important;
     }
     
-    /* --- ENLARGE & HIGHLIGHT SIDEBAR NAVIGATION --- */
-    /* Target the text labels inside the navigation radio buttons */
-    div[data-testid="stSidebar"] div[role="radiogroup"] label p {
-        font-size: 1.1rem !important;
-        font-weight: 600 !important;
-        padding-top: 4px;
-        padding-bottom: 4px;
-    }
-    
-    /* Add a clean card-like background wrapper around the sidebar radio group */
-    div[data-testid="stSidebar"] div[role="radiogroup"] {
-        background-color: var(--secondary-background-color);
-        padding: 12px;
-        border-radius: 10px;
-        border: 1px solid rgba(128, 128, 128, 0.2);
+    /* STICKY NAVIGATION TABS PINNED TO TOP */
+    div[data-testid="stVerticalBlock"] div:has(> div.stTabs) {
+        position: sticky;
+        top: 2.85rem;
+        z-index: 999;
+        background-color: white;
+        padding-top: 10px;
+        padding-bottom: 5px;
     }
 
     .stCard {
-        background-color: var(--secondary-background-color);
+        background-color: #ffffff;
         border: 1px solid rgba(128, 128, 128, 0.15);
         border-radius: 12px;
         padding: 20px;
@@ -74,7 +67,7 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(0,0,0,0.03);
     }
     div[data-testid="stMetric"] {
-        background-color: var(--secondary-background-color);
+        background-color: rgba(128, 128, 128, 0.02);
         border: 1px solid rgba(128, 128, 128, 0.08);
         padding: 12px 16px;
         border-radius: 10px;
@@ -82,6 +75,7 @@ st.markdown("""
     div[data-testid="stMetric"] label {
         font-size: 0.85rem !important;
         font-weight: 500;
+        color: #555555;
     }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
         font-size: 1.3rem !important;
@@ -378,26 +372,10 @@ if activities_data and st.session_state.auto_debriefed_id != activities_data[0].
         st.session_state.messages.append({"role": "model", "content": f"🚨 **Autonomous Post-Ride Debrief ({act_name}):**\n\n{auto_res}"})
     except: pass
 
-# --- SIDEBAR NAVIGATION & CONTROLS ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.markdown(f"👤 **{display_name}**")
-    
-    st.markdown("---")
-    st.subheader("🧭 Navigation Suite")
-    selected_nav = st.radio(
-        "Select View", 
-        [
-            "📊 Command Center", 
-            "🤖 AI Coach & Sparring", 
-            "📅 Training Calendar", 
-            "🔍 Activity Inspector", 
-            "💊 Recovery & Supplements", 
-            "🗺️ Route Strategist"
-        ],
-        label_visibility="collapsed"
-    )
             
-    st.markdown("---")
     st.subheader("⚙️ Athlete & Equipment Profile")
     with st.form("gear_profile_form"):
         custom_gear = st.text_area("Bike Build & Gear Notes", value=st.session_state.athlete_gear, height=100)
@@ -462,17 +440,22 @@ with st.sidebar:
         st.query_params.clear()
         st.rerun()
 
-# ================= VIEW 1: COMMAND CENTER =================
-if selected_nav == "📊 Command Center":
+# --- NAVIGATION SUITE (PINNED TO TOP) ---
+tab_dash, tab_coach, tab_calendar, tab_history, tab_recovery, tab_strat = st.tabs([
+    "📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "💊 Recovery & Supplements", "🗺️ Route Strategist"
+])
+
+# ================= TAB 1: COMMAND CENTER =================
+with tab_dash:
     st.markdown(f"### ☀️ Autonomous AI Performance Coach • Command Center")
     
     st.markdown(f"""
-    <div style="background-color: var(--secondary-background-color); border: 1px solid rgba(128,128,128,0.2); padding: 16px; border-radius: 14px; margin-bottom: 16px;">
-        <span style="font-size: 0.75rem; font-weight: bold; color: #d68910; background: rgba(214,137,16,0.1); padding: 2px 6px; border-radius: 4px;">📊 INTERVALS.ICU & GARMIN SYNC ACTIVE</span>
+    <div style="background-color: #fef9e7; border: 1px solid #f9e79f; padding: 16px; border-radius: 14px; margin-bottom: 16px;">
+        <span style="font-size: 0.75rem; font-weight: bold; color: #d68910; background: #fcf3cf; padding: 2px 6px; border-radius: 4px;">📊 INTERVALS.ICU & GARMIN SYNC ACTIVE</span>
         <div style="font-weight: bold; font-size: 1.1rem; margin-top: 4px;">Target Race: {st.session_state.goals['event_name']} ({days_left} days left)</div>
-        <div style="font-size: 0.85rem; margin-top: 4px; opacity: 0.8;">Objective: {st.session_state.goals['target_metric']}</div>
-        <hr style="margin: 10px 0; border-top: 1px solid rgba(128,128,128,0.2);">
-        <div style="font-size: 0.9rem; font-weight: 500;">
+        <div style="color: #666; font-size: 0.85rem; margin-top: 4px;">Objective: {st.session_state.goals['target_metric']}</div>
+        <hr style="margin: 10px 0; border-top: 1px solid #fce881;">
+        <div style="font-size: 0.9rem; font-weight: 500; color: #333;">
             {'🟢 <strong>Readiness High:</strong> Telemetry verified via Garmin/Intervals.icu. Form (TSB) is optimal for hard efforts.' if tsb >= -15 else '🟡 <strong>Fatigue Warning:</strong> Telemetry shows elevated stress. Prioritize sleep and recovery pacing.'}
         </div>
     </div>
@@ -521,11 +504,11 @@ if selected_nav == "📊 Command Center":
                 "role": "model", 
                 "content": "I've pulled up your 90-day trends. What specific part of your progression would you like to tweak?"
             })
-            st.success("Context loaded! Select **🤖 AI Coach & Sparring** from the sidebar.")
+            st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
             st.rerun()
             
-# ================= VIEW 2: AI COACH & SPARRING CHAT =================
-elif selected_nav == "🤖 AI Coach & Sparring":
+# ================= TAB 2: AI COACH & SPARRING CHAT =================
+with tab_coach:
     st.markdown("### 🤖 AI Coach & Collaborative Sparring Partner")
     st.caption(f"Active Persona: **{coach_persona}** | Proposes plans first, and only syncs to Intervals.icu when you explicitly agree!")
 
@@ -576,7 +559,7 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         "",
         "COACHING RULE - PLAN FIRST, ASK FOR AGREEMENT:",
         "1. When the athlete asks for a training plan or calendar adjustments, present the proposal clearly in chat first.",
-        "2. ONLY include <icu_workout> or <icu_reschedule> tags if the user has explicitly confirmed/agreed to the plan in this prompt or prior conversation (e.g., saying 'yes sync it', 'looks good go ahead'). If they are just asking for a proposal, do NOT output sync tags yet.",
+        "2. ONLY include <icu_workout> or <icu_reschedule> tags if the user has explicitly confirmed/agreed to the plan in this prompt or prior conversation (e.g., saying 'yes sync it', 'looks good go ahead', or clicking a plan button). If they are just asking for a proposal or brainstorming, do NOT output sync tags yet.",
         "",
         "CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside standard markdown xml block formatting.",
         "CRITICAL CALENDAR CREATION INSTRUCTION: If approved/agreed, output a JSON array wrapped EXACTLY in <icu_workout> ... </icu_workout> tags with fields: 'start_date_local' (YYYY-MM-DD), 'name', 'description', 'type' ('Ride'), 'indoor' (boolean).",
@@ -589,6 +572,7 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         try:
             resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
             
+            # --- 1. HANDLE NEW WORKOUTS PUSH (ONLY IF AGREED/TAGGED) ---
             icu_matches = re.findall(r'<icu_workout>\s*(.*?)\s*</icu_workout>', resp, re.DOTALL)
             parsed_workouts = 0
             
@@ -616,6 +600,7 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                     except Exception:
                         pass 
 
+            # --- 2. HANDLE RESCHEDULING (ONLY IF AGREED/TAGGED) ---
             resched_matches = re.findall(r'<icu_reschedule>\s*(.*?)\s*</icu_reschedule>', resp, re.DOTALL)
             resched_count = 0
             
@@ -658,8 +643,8 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         except Exception as e:
             st.error(f"AI Generation Failed: {str(e)}")
 
-# ================= VIEW 3: TRAINING CALENDAR =================
-elif selected_nav == "📅 Training Calendar":
+# ================= TAB 3: TRAINING CALENDAR =================
+with tab_calendar:
     st.markdown("### 📅 Training Calendar & 2-Week Block Planner")
     st.caption("Review your schedule, plan 2-week blocks, or ask the AI coach to move, shift, or reschedule workouts on the fly.")
 
@@ -728,13 +713,13 @@ elif selected_nav == "📅 Training Calendar":
             if upcoming:
                 for item in upcoming:
                     st.markdown(f"""
-                    <div style="background-color: var(--secondary-background-color); border-left: 4px solid #3498db; padding: 14px 18px; border-radius: 8px; margin-bottom: 12px; border: 1px solid rgba(128,128,128,0.2);">
+                    <div style="background-color: #ffffff; border-left: 4px solid #3498db; padding: 14px 18px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); margin-bottom: 12px; border: 1px solid #f0f2f6;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                             <span style="font-size: 0.85rem; font-weight: 700; color: #7f8c8d; text-transform: uppercase;">{item['formatted_date']}</span>
-                            <span style="font-size: 0.75rem; background: rgba(52,152,219,0.1); color: #3498db; padding: 3px 10px; border-radius: 12px; font-weight: 700;">Upcoming</span>
+                            <span style="font-size: 0.75rem; background: #eaf2f8; color: #2980b9; padding: 3px 10px; border-radius: 12px; font-weight: 700;">Upcoming</span>
                         </div>
-                        <div style="font-size: 1.1rem; font-weight: 700; margin-bottom: 6px;">{item['name']}</div>
-                        <div style="font-size: 0.9rem; opacity: 0.8; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4;">{item['desc']}</div>
+                        <div style="font-size: 1.1rem; font-weight: 700; color: #2c3e50; margin-bottom: 6px;">{item['name']}</div>
+                        <div style="font-size: 0.9rem; color: #555; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4;">{item['desc']}</div>
                     </div>
                     """, unsafe_allow_html=True)
             else:
@@ -744,13 +729,13 @@ elif selected_nav == "📅 Training Calendar":
             if past:
                 for item in past:
                     st.markdown(f"""
-                    <div style="background-color: var(--secondary-background-color); border-left: 4px solid #95a5a6; padding: 14px 18px; border-radius: 8px; margin-bottom: 12px; border: 1px solid rgba(128,128,128,0.2);">
+                    <div style="background-color: #fcfcfc; border-left: 4px solid #95a5a6; padding: 14px 18px; border-radius: 8px; margin-bottom: 12px; border: 1px solid #f0f2f6;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                             <span style="font-size: 0.85rem; font-weight: 700; color: #7f8c8d; text-transform: uppercase;">{item['formatted_date']}</span>
-                            <span style="font-size: 0.75rem; background: rgba(149,165,166,0.1); color: #95a5a6; padding: 3px 10px; border-radius: 12px; font-weight: 700;">Completed</span>
+                            <span style="font-size: 0.75rem; background: #eaeded; color: #7f8c8d; padding: 3px 10px; border-radius: 12px; font-weight: 700;">Completed</span>
                         </div>
-                        <div style="font-size: 1.1rem; font-weight: 700; margin-bottom: 6px;">{item['name']}</div>
-                        <div style="font-size: 0.9rem; opacity: 0.8;">{item['desc']}</div>
+                        <div style="font-size: 1.1rem; font-weight: 700; color: #34495e; margin-bottom: 6px;">{item['name']}</div>
+                        <div style="font-size: 0.9rem; color: #555;">{item['desc']}</div>
                     </div>
                     """, unsafe_allow_html=True)
             else:
@@ -777,7 +762,7 @@ elif selected_nav == "📅 Training Calendar":
                     "role": "model", 
                     "content": f"I'm drafting your 2-week block proposal focused on '{plan_focus}'. Review it in the chat and let me know if you want me to sync it!"
                 })
-                st.success("Proposal requested! Select **🤖 AI Coach & Sparring** from the sidebar.")
+                st.success("Proposal requested! Head to the **AI Coach & Sparring** tab.")
                 st.rerun()
                 
         with c_pbtn2:
@@ -790,7 +775,7 @@ elif selected_nav == "📅 Training Calendar":
                     "role": "model", 
                     "content": "Here is how shifting your schedule forward by 1 day looks..."
                 })
-                st.success("Proposal requested! Select **🤖 AI Coach & Sparring** from the sidebar.")
+                st.success("Proposal requested! Head to the **AI Coach & Sparring** tab.")
                 st.rerun()
 
     with c_cal2:
@@ -799,11 +784,11 @@ elif selected_nav == "📅 Training Calendar":
             "**How the review process works:**\n\n"
             "1. Ask your coach for a plan or adjustment.\n"
             "2. The coach will present the workouts in chat for your review.\n"
-            "3. Reply with **'Looks good, sync it'** to automatically push it to Intervals.icu!"
+            "3. Reply with **'Looks good, sync it'** or **'Approved'** to automatically push it to Intervals.icu!"
         )
 
-# ================= VIEW 4: ACTIVITY INSPECTOR =================
-elif selected_nav == "🔍 Activity Inspector":
+# ================= TAB 4: ACTIVITY INSPECTOR =================
+with tab_history:
     st.markdown("### 🔍 Past Activity Inspector & Deep Debrief")
     st.caption("Select any past activity from your 90-day history to run an AI-powered performance debrief with clear activity and date identification.")
 
@@ -825,10 +810,10 @@ elif selected_nav == "🔍 Activity Inspector":
         act_display_name = selected_act.get('name', 'Workout')
         act_display_date = selected_act.get('start_date_local', '')[:10]
         st.markdown(f"""
-        <div style="background-color: var(--secondary-background-color); border: 1px solid rgba(128,128,128,0.2); padding: 12px 16px; border-radius: 10px; margin-bottom: 16px;">
+        <div style="background-color: #eaf2f8; border: 1px solid #a9cce3; padding: 12px 16px; border-radius: 10px; margin-bottom: 16px;">
             <div style="font-size: 0.8rem; font-weight: bold; color: #2471a3; text-transform: uppercase;">Selected Activity Inspection</div>
-            <div style="font-size: 1.2rem; font-weight: bold; margin-top: 2px;">{act_display_name}</div>
-            <div style="font-size: 0.9rem; opacity: 0.8; margin-top: 2px;">📅 Date: {act_display_date}</div>
+            <div style="font-size: 1.2rem; font-weight: bold; color: #1b4f72; margin-top: 2px;">{act_display_name}</div>
+            <div style="font-size: 0.9rem; color: #515a5a; margin-top: 2px;">📅 Date: {act_display_date}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -881,13 +866,13 @@ elif selected_nav == "🔍 Activity Inspector":
                     "role": "model", 
                     "content": f"I have the details for '{act_display_name}' ({act_display_date}) right here. What specific section would you like to unpack?"
                 })
-                st.success("Context loaded! Select **🤖 AI Coach & Sparring** from the sidebar.")
+                st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
                 st.rerun()
     else:
         st.info("No activities found in your Intervals.icu sync history.")
 
-# ================= VIEW 5: RECOVERY & SUPPLEMENTS =================
-elif selected_nav == "💊 Recovery & Supplements":
+# ================= TAB 5: RECOVERY & SUPPLEMENTS =================
+with tab_recovery:
     st.markdown("### 💊 Dynamic Recovery & Supplement Protocol")
     st.caption("Manage your personal supplement stack. The AI coach dynamically tracks these to optimize your recovery and training adaptation.")
 
@@ -938,11 +923,11 @@ elif selected_nav == "💊 Recovery & Supplements":
             "role": "model", 
             "content": "I've loaded your updated supplement stack into our chat. Let's optimize your recovery!"
         })
-        st.success("Context loaded with your live stack! Select **🤖 AI Coach & Sparring** from the sidebar.")
+        st.success("Context loaded with your live stack! Head to the **AI Coach & Sparring** tab.")
         st.rerun()
 
-# ================= VIEW 6: ROUTE STRATEGIST =================
-elif selected_nav == "🗺️ Route Strategist":
+# ================= TAB 6: ROUTE STRATEGIST =================
+with tab_strat:
     st.markdown("### 🗺️ Route Pacing & Climbing Strategist")
     uploaded_gpx = st.file_uploader("Upload GPX Route File (.gpx)", type=["gpx"])
     
