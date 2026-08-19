@@ -113,9 +113,10 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
         except: continue
     raise Exception("All AI providers failed.")
 
+import streamlit as st
 from streamlit_local_storage import LocalStorage
 
-# --- BROWSER LOCAL STORAGE AUTHENTICATION (BYOK & REMEMBER ME) ---
+# --- BROWSER LOCAL STORAGE AUTHENTICATION (MASTER AUTO-FILL & REMEMBER ME) ---
 localS = LocalStorage()
 
 # Check if keys are already saved in the user's browser local storage
@@ -127,16 +128,33 @@ if "user_credentials" not in st.session_state:
     else:
         st.session_state.user_credentials = None
 
-# If no credentials found in browser storage, show the one-time Setup Screen with instructions
+# If no credentials found in browser storage, show setup screen
 if not st.session_state.user_credentials:
     st.markdown("### 🚴‍♂️ Welcome to the AI Performance Coach")
-    st.markdown("Enter your personal keys once. Your browser will securely remember them for future visits—no password required!")
+    st.markdown("Enter your personal keys once. Your browser will securely remember them for future visits!")
     
+    # MASTER CONFIG FOR YOU: Change these to your actual keys so you can click one button to log in!
+    MY_MASTER_NAME = "Owner"
+    MY_MASTER_ICU_KEY = "YOUR_ACTUAL_INTERVALS_API_KEY"
+    MY_MASTER_ICU_ID = "YOUR_ACTUAL_ATHLETE_ID"
+    MY_MASTER_GEMINI_KEY = "YOUR_ACTUAL_GEMINI_API_KEY"
+
+    if st.button("👑 One-Click Login (Owner Auto-Fill)", type="primary", use_container_width=True):
+        master_config = {
+            "name": MY_MASTER_NAME,
+            "icu_key": MY_MASTER_ICU_KEY,
+            "icu_id": MY_MASTER_ICU_ID,
+            "gemini_key": MY_MASTER_GEMINI_KEY
+        }
+        localS.setItem("athlete_profile_config", master_config)
+        st.session_state.user_credentials = master_config
+        st.success("Owner profile loaded!")
+        st.rerun()
+
+    st.markdown("---")
+    st.markdown("#### ⚙️ Or Register / Connect New Profile (For Friends)")
+
     with st.form("browser_setup_form"):
-        st.markdown("#### ⚙️ Quick Setup Instructions")
-        st.markdown("1. **Intervals.icu API Key:** Found in your Intervals.icu account under `Settings` -> `Developer`.\n2. **Athlete ID:** Your unique account identifier (e.g., `i608928`).\n3. **Gemini API Key:** Free to generate from [Google AI Studio](https://aistudio.google.com).")
-        st.markdown("---")
-        
         col_name = st.text_input("Your Name / Identifier")
         icu_key = st.text_input("Intervals.icu API Key", help="Found in Intervals.icu Settings -> Developer")
         icu_id = st.text_input("Intervals.icu Athlete ID", help="e.g., i608928")
@@ -150,7 +168,6 @@ if not st.session_state.user_credentials:
                     "icu_id": icu_id.strip(),
                     "gemini_key": gemini_key.strip()
                 }
-                # Save to browser local storage so it persists on next visit!
                 localS.setItem("athlete_profile_config", config_data)
                 st.session_state.user_credentials = config_data
                 st.success("Configuration saved! Launching dashboard...")
@@ -159,13 +176,12 @@ if not st.session_state.user_credentials:
                 st.warning("Please fill in all required keys.")
     st.stop()
 
-# Once loaded, extract the keys for the app to use:
+# Once loaded, extract keys:
 current_creds = st.session_state.user_credentials
 INTERVALS_API_KEY = current_creds["icu_key"]
 ATHLETE_ID = current_creds["icu_id"]
 GEMINI_KEY = current_creds["gemini_key"]
 
-# Re-initialize the Google AI client using their personal Gemini key
 google_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 USER_ID = current_creds["name"]
 
