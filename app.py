@@ -230,6 +230,60 @@ else:
 
 google_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
+# --- ONE-TIME INITIAL ONBOARDING CHECK ---
+# Determine if onboarding is complete based on Supabase (for you) or browser storage (for guests)
+if st.session_state.user:
+    is_onboarded = user_profile.get("onboarding_done", False)
+else:
+    is_onboarded = current_creds.get("onboarding_done", False)
+
+if not is_onboarded:
+    st.markdown("### 🚴‍♂️ Coach's Initial Intake & Onboarding")
+    st.markdown("Welcome! Before we dive into your Intervals.icu telemetry and training logs, let's have a quick introductory chat so your AI coach truly understands your background, constraints, and current goals.")
+    
+    # Set the welcoming intake message if chat is fresh
+    if len(st.session_state.messages) <= 1:
+        st.session_state.messages = [{
+            "role": "model", 
+            "content": f"Hey {display_name}! Welcome to your Elite Coaching Suite. I'm your autonomous performance coach. To kick things off, tell me a bit about your current riding routine, any specific physical limitations or past injuries I should keep in mind, and what your main focus is over the next few months."
+        }]
+    
+    # Render the intake chat interface
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            
+    if intake_reply := st.chat_input("Tell your coach about yourself..."):
+        st.session_state.messages.append({"role": "user", "content": intake_reply})
+        
+        intake_prompt = f"""
+        [Coach Onboarding Intake]
+        The athlete just shared their background and goals: '{intake_reply}'
+        Acknowledge their background professionally as an elite cycling coach, summarize what you noted, and welcome them into the Elite Coaching Suite.
+        """
+        with st.spinner("Coach is reviewing your intake..."):
+            try:
+                resp, _ = execute_multiprovider_generation(intake_prompt)
+                st.session_state.messages.append({"role": "model", "content": resp})
+                
+                # Mark onboarding as complete in database or browser storage
+                if st.session_state.user:
+                    supabase.table("profiles").update({"onboarding_done": True}).eq("id", USER_ID).execute()
+                else:
+                    current_creds["onboarding_done"] = True
+                    localS.setItem("athlete_profile_config", current_creds)
+                
+                st.rerun()
+            except Exception as e:
+                # Fallback completion if AI fails
+                if st.session_state.user:
+                    supabase.table("profiles").update({"onboarding_done": True}).eq("id", USER_ID).execute()
+                else:
+                    current_creds["onboarding_done"] = True
+                    localS.setItem("athlete_profile_config", current_creds)
+                st.rerun()
+    st.stop()  # Halts the rest of the app until they finish this one-time intro!
+    
 # --- INITIALIZE SESSION STATES ---
 if "user_supplements" not in st.session_state:
     st.session_state.user_supplements = [
