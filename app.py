@@ -80,7 +80,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- SPEED-OPTIMIZED MULTI-PROVIDER AI ROUTER (Exact Models Preserved) ---
+# --- SPEED-OPTIMIZED MULTI-PROVIDER AI ROUTER ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain"):
     def call_google():
         models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.7-pro-preview"]
@@ -142,7 +142,7 @@ stored_guest = localS.getItem("athlete_profile_config")
 if not st.session_state.user and stored_guest and not st.session_state.user_credentials:
     st.session_state.user_credentials = stored_guest
 
-# Show Dual-Pathway Login Portal if neither owner nor guest is logged in
+# Show Dual-Pathway Login Portal
 if not st.session_state.user and not st.session_state.user_credentials:
     st.markdown("### 🔐 Elite Athlete Portal • Authentication")
     
@@ -307,18 +307,20 @@ if "selected_activity_analysis" not in st.session_state:
 if "auto_debriefed_id" not in st.session_state:
     st.session_state.auto_debriefed_id = None
 
-# --- FETCH DATA (3-Week Window) ---
+# --- FETCH DATA (Extended History + 14-Day Lookahead) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data(aid, key):
     try:
         today = datetime.date.today()
         start_90 = (today - datetime.timedelta(days=90)).isoformat()
-        end_14 = (today + datetime.timedelta(days=14)).isoformat()
         start_7 = (today - datetime.timedelta(days=7)).isoformat()
+        end_14 = (today + datetime.timedelta(days=14)).isoformat()
         
-        w_res = requests.get(f"[https://intervals.icu/api/v1/athlete/](https://intervals.icu/api/v1/athlete/){aid}/wellness?oldest={start_90}&newest={end_14}", auth=("API_KEY", key), timeout=5)
-        a_res = requests.get(f"[https://intervals.icu/api/v1/athlete/](https://intervals.icu/api/v1/athlete/){aid}/activities?oldest={start_7}&newest={end_14}", auth=("API_KEY", key), timeout=5)
-        e_res = requests.get(f"[https://intervals.icu/api/v1/athlete/](https://intervals.icu/api/v1/athlete/){aid}/events?oldest={start_7}&newest={end_14}", auth=("API_KEY", key), timeout=5)
+        w_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/wellness?oldest={start_90}&newest={end_14}", auth=("API_KEY", key), timeout=5)
+        # 90 Days of Activities to ensure Inspector History never fails
+        a_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/activities?oldest={start_90}&newest={end_14}", auth=("API_KEY", key), timeout=5)
+        # Past 7 Days & Future 14 Days of Planned Events
+        e_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/events?oldest={start_7}&newest={end_14}", auth=("API_KEY", key), timeout=5)
         
         return (
             w_res.json() if w_res.status_code == 200 else [], 
@@ -359,7 +361,7 @@ if activities_data and st.session_state.auto_debriefed_id != activities_data[0].
         st.session_state.messages.append({"role": "model", "content": f"🚨 **Autonomous Post-Ride Debrief ({act_name}):**\n\n{auto_res}"})
     except: pass
 
-# --- SIDEBAR (Customizable Profile, Gear & Mobile Link Exporter) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.markdown(f"👤 **{display_name}**")
             
@@ -387,7 +389,6 @@ with st.sidebar:
                 localS.setItem("athlete_profile_config", current_creds)
                 st.success("Saved to browser memory!")
 
-    # --- MOBILE LINK EXPORTER FOR FRIENDS ---
     if not st.session_state.user:
         st.markdown("---")
         with st.expander("📱 Transfer to Mobile / New Device"):
@@ -460,7 +461,6 @@ with tab_dash:
 
     st.markdown("---")
     st.markdown("#### 📈 Deep 90-Day Training Load & Progression Trend Analysis")
-    st.caption("Click below to synthesize your 90-day performance trends on demand.")
 
     if "cached_trend_analysis" not in st.session_state:
         st.session_state.cached_trend_analysis = None
@@ -508,8 +508,10 @@ with tab_coach:
     with chat_container:
         for idx, msg in enumerate(st.session_state.messages):
             with st.chat_message(msg["role"]):
+                # Clean out internal AI formatting logic so the UI looks beautiful
                 clean_content = re.sub(r"```xml\s*<\?xml.*?>.*?</\s*workout_file\s*>\s*```", "", msg["content"], flags=re.DOTALL)
                 clean_content = re.sub(r"```\s*<workout_file>.*?</\s*workout_file>\s*```", "", clean_content, flags=re.DOTALL)
+                clean_content = re.sub(r"<icu_workout>.*?</icu_workout>", "", clean_content, flags=re.DOTALL)
                 st.markdown(clean_content.strip())
                 
                 if msg["role"] == "model":
@@ -549,14 +551,50 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         "",
         "Provide concise, lightning-fast, and rigorous coaching insights matching your assigned persona.",
         "CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside standard markdown xml block formatting.",
+        "CRITICAL CALENDAR INSTRUCTION: If you are recommending new workouts to schedule, you MUST output a JSON array wrapped EXACTLY in <icu_workout> ... </icu_workout> tags. The JSON array must contain objects with: 'start_date_local' (YYYY-MM-DD), 'name', 'description' (the workout details in Intervals.icu text syntax), 'type' (always 'Ride'), and 'indoor' (boolean).",
         "",
         last_user_prompt
     ])
     
-    with st.spinner("Coach is thinking..."):
+    with st.spinner("Coach is thinking and updating calendars..."):
         try:
             resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
+            
+            # --- NEW: INTERVALS.ICU API WORKOUT PUSHER ---
+            icu_matches = re.findall(r'<icu_workout>\s*(.*?)\s*</icu_workout>', resp, re.DOTALL)
+            parsed_workouts = 0
+            
+            if icu_matches and ATHLETE_ID and INTERVALS_API_KEY:
+                for match_str in icu_matches:
+                    try:
+                        clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
+                        workouts = json.loads(clean_json_str)
+                        if not isinstance(workouts, list):
+                            workouts = [workouts]
+                        
+                        for w in workouts:
+                            w['category'] = 'WORKOUT'
+                            if 'start_date_local' in w and len(w['start_date_local']) == 10:
+                                w['start_date_local'] += "T00:00:00"
+                            
+                            api_resp = requests.post(
+                                f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events", 
+                                json=w, 
+                                auth=("API_KEY", INTERVALS_API_KEY),
+                                timeout=10
+                            )
+                            if api_resp.status_code == 200:
+                                parsed_workouts += 1
+                    except Exception as e:
+                        pass 
+
             full_resp = f"{resp}\n\n*(Engine: {engine})*"
+            
+            # Notify the user on screen if we successfully wrote to the API
+            if parsed_workouts > 0:
+                full_resp += f"\n\n✅ **Success:** Automatically synced {parsed_workouts} scheduled workout(s) directly to your Intervals.icu calendar!"
+                fetch_intervals_data.clear() 
+
             st.session_state.messages.append({"role": "model", "content": full_resp})
             st.rerun()
         except Exception as e:
@@ -576,25 +614,28 @@ with tab_calendar:
             combined_timeline = []
             for ev in planned_events:
                 dt = ev.get('start_date_local', '')[:10]
-                combined_timeline.append({
-                    "date": dt,
-                    "name": ev.get('name', 'Planned Workout'),
-                    "type": ev.get('type', 'Ride'),
-                    "desc": ev.get('description', ''),
-                    "status": "📅 Planned" if dt >= today_str else "✅ Completed / Past"
-                })
+                # Filter down events to just the past 7 and future 14 days
+                if dt >= (datetime.date.today() - datetime.timedelta(days=7)).isoformat():
+                    combined_timeline.append({
+                        "date": dt,
+                        "name": ev.get('name', 'Planned Workout'),
+                        "type": ev.get('type', 'Ride'),
+                        "desc": ev.get('description', ''),
+                        "status": "📅 Planned" if dt >= today_str else "✅ Completed / Past"
+                    })
             
             for act in activities_data:
                 dt = act.get('start_date_local', '')[:10]
-                dist_km = round((act.get('distance') or 0) / 1000, 1)
-                dur_min = int((act.get('moving_time') or 0) / 60)
-                combined_timeline.append({
-                    "date": dt,
-                    "name": act.get('name', 'Recorded Activity'),
-                    "type": act.get('type', 'Ride'),
-                    "desc": f"Distance: {dist_km} km | Time: {dur_min} mins | Avg Power: {act.get('average_watts', 'N/A')}W",
-                    "status": "🏆 Recorded Activity"
-                })
+                if dt >= (datetime.date.today() - datetime.timedelta(days=7)).isoformat():
+                    dist_km = round((act.get('distance') or 0) / 1000, 1)
+                    dur_min = int((act.get('moving_time') or 0) / 60)
+                    combined_timeline.append({
+                        "date": dt,
+                        "name": act.get('name', 'Recorded Activity'),
+                        "type": act.get('type', 'Ride'),
+                        "desc": f"Distance: {dist_km} km | Time: {dur_min} mins | Avg Power: {act.get('average_watts', 'N/A')}W",
+                        "status": "🏆 Recorded Activity"
+                    })
             
             seen = set()
             unique_timeline = []
@@ -604,7 +645,7 @@ with tab_calendar:
                     seen.add(identifier)
                     unique_timeline.append(item)
 
-            for item in unique_timeline[:15]:
+            for item in unique_timeline[:20]:
                 card_style = "calendarCard" if "Planned" in item['status'] else "calendarCardPast"
                 st.markdown(f"""
                 <div class="{card_style}">
@@ -612,7 +653,7 @@ with tab_calendar:
                         <span>{item['date']} — {item['name']}</span>
                         <span style="font-size: 0.8rem; color: #555;">{item['status']}</span>
                     </div>
-                    <div style="font-size: 0.85rem; color: #444; margin-top: 4px;">{item['desc']}</div>
+                    <div style="font-size: 0.85rem; color: #444; margin-top: 4px;">{item['desc'][:120]}...</div>
                 </div>
                 """, unsafe_allow_html=True)
         else:
@@ -631,13 +672,13 @@ with tab_calendar:
         if st.button("🤖 Generate 2-Week Training Plan & Push to Coach", type="primary"):
             st.session_state.messages.append({
                 "role": "user", 
-                "content": f"Please design and plan my training schedule for the next 2 weeks with a focus on '{plan_focus}'. Give me specific workout names, durations, and power targets so I can add them to my Intervals.icu calendar."
+                "content": f"Please design and plan my training schedule for the next 2 weeks with a focus on '{plan_focus}'. Schedule specific workouts and explicitly push them to my Intervals.icu calendar."
             })
             st.session_state.messages.append({
                 "role": "model", 
-                "content": f"I've generated your 2-week training block focused on '{plan_focus}'. Let's review the schedule!"
+                "content": f"I'm generating your 2-week training block focused on '{plan_focus}' and securely pushing it to your Intervals.icu calendar..."
             })
-            st.success("Plan generated! Head to the **AI Coach & Sparring** tab.")
+            st.success("Plan requested! Head to the **AI Coach & Sparring** tab to see it build out.")
             st.rerun()
 
     with c_cal2:
@@ -663,7 +704,7 @@ with tab_calendar:
 # ================= TAB 4: ACTIVITY INSPECTOR =================
 with tab_history:
     st.markdown("### 🔍 Past Activity Inspector & Deep Debrief")
-    st.caption("Select any past activity from your history to run an AI-powered performance debrief with clear activity and date identification.")
+    st.caption("Select any past activity from your 90-day history to run an AI-powered performance debrief with clear activity and date identification.")
 
     if activities_data:
         act_options = {}
