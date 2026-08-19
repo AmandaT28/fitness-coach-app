@@ -114,76 +114,92 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
     raise Exception("All AI providers failed.")
 
 import streamlit as st
+from supabase import create_client, Client
 from streamlit_local_storage import LocalStorage
 
-# --- BROWSER LOCAL STORAGE AUTHENTICATION (MASTER AUTO-FILL & REMEMBER ME) ---
+# Initialize Supabase (from secrets)
+SUPABASE_URL = st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
+
 localS = LocalStorage()
 
-# Check if keys are already saved in the user's browser local storage
-stored_user = localS.getItem("athlete_profile_config")
-
+# Session state initialization for credentials
 if "user_credentials" not in st.session_state:
-    if stored_user:
-        st.session_state.user_credentials = stored_user
-    else:
-        st.session_state.user_credentials = None
+    st.session_state.user_credentials = None
 
-# If no credentials found in browser storage, show setup screen
-if not st.session_state.user_credentials:
-    st.markdown("### 🚴‍♂️ Welcome to the AI Performance Coach")
-    st.markdown("Enter your personal keys once. Your browser will securely remember them for future visits!")
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+# 1. Check if Supabase session is active or if browser local storage has guest credentials
+stored_guest = localS.getItem("athlete_profile_config")
+if not st.session_state.user and stored_guest and not st.session_state.user_credentials:
+    st.session_state.user_credentials = stored_guest
+
+# If neither you nor a guest is logged in, show the dual-pathway login portal
+if not st.session_state.user and not st.session_state.user_credentials:
+    st.markdown("### 🔐 Elite Athlete Portal • Authentication")
     
-    # MASTER CONFIG FOR YOU: Change these to your actual keys so you can click one button to log in!
-    MY_MASTER_NAME = "Owner"
-    MY_MASTER_ICU_KEY = "YOUR_ACTUAL_INTERVALS_API_KEY"
-    MY_MASTER_ICU_ID = "YOUR_ACTUAL_ATHLETE_ID"
-    MY_MASTER_GEMINI_KEY = "YOUR_ACTUAL_GEMINI_API_KEY"
-
-    if st.button("👑 One-Click Login (Owner Auto-Fill)", type="primary", use_container_width=True):
-        master_config = {
-            "name": MY_MASTER_NAME,
-            "icu_key": MY_MASTER_ICU_KEY,
-            "icu_id": MY_MASTER_ICU_ID,
-            "gemini_key": MY_MASTER_GEMINI_KEY
-        }
-        localS.setItem("athlete_profile_config", master_config)
-        st.session_state.user_credentials = master_config
-        st.success("Owner profile loaded!")
-        st.rerun()
-
-    st.markdown("---")
-    st.markdown("#### ⚙️ Or Register / Connect New Profile (For Friends)")
-
-    with st.form("browser_setup_form"):
-        col_name = st.text_input("Your Name / Identifier")
-        icu_key = st.text_input("Intervals.icu API Key", help="Found in Intervals.icu Settings -> Developer")
-        icu_id = st.text_input("Intervals.icu Athlete ID", help="e.g., i608928")
-        gemini_key = st.text_input("Google AI Studio (Gemini) API Key", type="password", help="Free from aistudio.google.com")
-        
-        if st.form_submit_button("Save & Launch Dashboard", use_container_width=True):
-            if icu_key and icu_id and gemini_key:
-                config_data = {
-                    "name": col_name.strip() if col_name else "Athlete",
-                    "icu_key": icu_key.strip(),
-                    "icu_id": icu_id.strip(),
-                    "gemini_key": gemini_key.strip()
-                }
-                localS.setItem("athlete_profile_config", config_data)
-                st.session_state.user_credentials = config_data
-                st.success("Configuration saved! Launching dashboard...")
-                st.rerun()
-            else:
-                st.warning("Please fill in all required keys.")
+    owner_tab, guest_tab = st.tabs(["👑 Owner Login (Supabase)", "⚙️ Friend / Guest Setup (BYOK)"])
+    
+    with owner_tab:
+        st.markdown("Log in using your registered Supabase account credentials.")
+        with st.form("supabase_login_form"):
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            if st.form_submit_button("Log In with Supabase", use_container_width=True):
+                try:
+                    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                    st.session_state.user = res.user
+                    st.success("Supabase login successful!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Login failed: {e}")
+                    
+    with guest_tab:
+        st.markdown("Friends can connect using their own Intervals.icu and Google AI Studio keys.")
+        with st.form("guest_setup_form"):
+            col_name = st.text_input("Your Name / Identifier")
+            icu_key = st.text_input("Intervals.icu API Key", help="Found in Intervals.icu Settings -> Developer")
+            icu_id = st.text_input("Intervals.icu Athlete ID", help="e.g., i608928")
+            gemini_key = st.text_input("Google AI Studio (Gemini) API Key", type="password", help="Free from aistudio.google.com")
+            
+            if st.form_submit_button("Save & Launch Guest Session", use_container_width=True):
+                if icu_key and icu_id and gemini_key:
+                    config_data = {
+                        "name": col_name.strip() if col_name else "Guest Athlete",
+                        "icu_key": icu_key.strip(),
+                        "icu_id": icu_id.strip(),
+                        "gemini_key": gemini_key.strip()
+                    }
+                    localS.setItem("athlete_profile_config", config_data)
+                    st.session_state.user_credentials = config_data
+                    st.success("Configuration saved! Launching dashboard...")
+                    st.rerun()
+                else:
+                    st.warning("Please fill in all required fields.")
     st.stop()
 
-# Once loaded, extract keys:
-current_creds = st.session_state.user_credentials
-INTERVALS_API_KEY = current_creds["icu_key"]
-ATHLETE_ID = current_creds["icu_id"]
-GEMINI_KEY = current_creds["gemini_key"]
+# --- RESOLVE ACTIVE VARIABLES BASED ON WHO LOGGED IN ---
+if st.session_state.user:
+    # YOU (Owner via Supabase)
+    USER_ID = st.session_state.user.id
+    profile_res = supabase.table("profiles").select("*").eq("id", USER_ID).execute()
+    user_profile = profile_res.data[0] if profile_res.data else {}
+    
+    INTERVALS_API_KEY = user_profile.get("intervals_api_key")
+    ATHLETE_ID = user_profile.get("intervals_athlete_id")
+    GEMINI_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+    display_name = st.session_state.user.email
+else:
+    # FRIEND / GUEST (Via Browser Storage Keys)
+    current_creds = st.session_state.user_credentials
+    INTERVALS_API_KEY = current_creds["icu_key"]
+    ATHLETE_ID = current_creds["icu_id"]
+    GEMINI_KEY = current_creds["gemini_key"]
+    display_name = current_creds["name"]
 
 google_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
-USER_ID = current_creds["name"]
 
 # --- INITIALIZE GEAR & LIMITATIONS IN SESSION STATE ---
 if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict):
