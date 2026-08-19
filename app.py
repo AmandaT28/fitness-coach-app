@@ -47,6 +47,43 @@ st.markdown("""
         visibility: hidden !important;
         display: none !important;
     }
+
+    # --- TOP STICKY NAVIGATION BAR ---
+st.markdown("""
+<style>
+    /* Fixes the top navigation container so it stays visible */
+    .top-nav-container {
+        position: sticky;
+        top: 0;
+        z-index: 99999;
+        background-color: var(--background-color);
+        padding-top: 0.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+        margin-bottom: 1rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Create a sticky header wrapper for navigation
+with st.container():
+    st.markdown('<div class="top-nav-container">', unsafe_allow_html=True)
+    
+    # Use clean, prominent selectbox or radio pills for top navigation
+    selected_nav = st.radio(
+        "Navigation Suite",
+        [
+            "📊 Command Center", 
+            "🤖 AI Coach & Sparring", 
+            "📅 Training Calendar", 
+            "🔍 Activity Inspector", 
+            "💊 Recovery & Supplements", 
+            "🗺️ Route Strategist"
+        ],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
     
     /* --- ENLARGE & HIGHLIGHT SIDEBAR NAVIGATION --- */
     /* Target the text labels inside the navigation radio buttons */
