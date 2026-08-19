@@ -122,6 +122,17 @@ if "goals" not in st.session_state or not isinstance(st.session_state.goals, dic
 st.session_state.goals["event_name"] = user_profile.get("event_name") or "Bintan Round Island"
 st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Survive steep climbs on group rides & improve threshold power"
 
+if "user_supplements" not in st.session_state:
+    st.session_state.user_supplements = [
+        {"name": "Creatine", "timing": "Post-Workout", "notes": "Cellular ATP replenishment & sprint power"},
+        {"name": "Protein", "timing": "Post-Workout (<45m)", "notes": "Muscle repair & glycogen resynthesis"},
+        {"name": "Turmeric", "timing": "Morning with Fats", "notes": "Systemic inflammation control"},
+        {"name": "Fish Oil", "timing": "Morning & Evening", "notes": "Cardiovascular & nocturnal recovery"},
+        {"name": "NMN", "timing": "Morning (Fasted)", "notes": "Cellular NAD+ & mitochondrial support"},
+        {"name": "Collagen", "timing": "30m pre-loading", "notes": "Tendon/ligament fortification with Vitamin C"},
+        {"name": "Magnesium", "timing": "30m before bed", "notes": "Nervous system relaxation & slow-wave sleep"}
+    ]
+    
 # --- FETCH DATA ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data(aid, key):
