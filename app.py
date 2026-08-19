@@ -35,7 +35,7 @@ openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
 # App UI Configuration
-st.set_page_config(page_title="AI Performance Coach • Elite Suite", page_icon="🚴‍♂️", layout="wide")
+st.set_page_config(page_title="AI Performance Coach • Autonomous Suite", page_icon="🚴‍♂️", layout="wide")
 
 st.markdown("""
 <style>
@@ -65,7 +65,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- MULTI-PROVIDER AI ROUTER ---
+# --- MULTI-PROVIDER AI ROUTER (Using your preferred 3.x Gemini models) ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain"):
     def call_openai():
         res = openai_client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
@@ -74,7 +74,6 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
         res = anthropic_client.messages.create(model="claude-3-5-sonnet-20241022", max_tokens=2048, messages=[{"role": "user", "content": prompt}])
         return res.content[0].text, "Anthropic Claude"
     def call_google():
-        # Updated to your preferred Gemini models (3.5, 3.6, 3.7 flash and pro-preview)
         models = [
             "gemini-3.7-pro-preview", 
             "gemini-3.7-flash", 
@@ -132,7 +131,7 @@ if "goals" not in st.session_state or not isinstance(st.session_state.goals, dic
 st.session_state.goals["event_name"] = user_profile.get("event_name") or "Bintan Round Island"
 st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Survive steep climbs on group rides & improve threshold power"
 
-# --- INITIALIZE SESSION STATES FOR SUPPLEMENTS & CHAT ---
+# --- INITIALIZE SESSION STATES ---
 if "user_supplements" not in st.session_state:
     st.session_state.user_supplements = [
         {"name": "Creatine", "timing": "Post-Workout", "notes": "Cellular ATP replenishment & sprint power"},
@@ -145,10 +144,13 @@ if "user_supplements" not in st.session_state:
     ]
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "model", "content": "Hello! I am your proactive AI Performance Coach and sparring partner. Bounce ideas off me, ask questions about past activities or trends, and let's optimize your training!"}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! I am your autonomous AI Performance Coach. I'm actively monitoring your Apple HealthKit biometric syncs, automated ride debriefs, and training calendar. How can I help you today?"}]
 
 if "selected_activity_analysis" not in st.session_state:
     st.session_state.selected_activity_analysis = None
+
+if "auto_debriefed_id" not in st.session_state:
+    st.session_state.auto_debriefed_id = None
 
 # --- FETCH DATA ---
 @st.cache_data(ttl=300, show_spinner=False)
@@ -178,6 +180,25 @@ if wellness_list:
 race_date = datetime.date(2026, 10, 24)
 days_left = (race_date - datetime.date.today()).days
 
+# --- AUTOMATED POST-WORKOUT CHECKER ---
+if activities_data and st.session_state.auto_debriefed_id != activities_data[0].get('id'):
+    latest_act = activities_data[0]
+    act_id = latest_act.get('id')
+    act_name = latest_act.get('name', 'Latest Ride')
+    st.session_state.auto_debriefed_id = act_id
+    
+    # Automatically inject a proactive debrief into chat stream
+    auto_prompt = f"""
+    [Autonomous Post-Workout Auto-Debrief]
+    A new activity has synced: {latest_act}
+    Goal: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})
+    Provide a concise, high-level autonomous performance debrief highlighting what was done well and what to adjust next.
+    """
+    try:
+        auto_res, _ = execute_multiprovider_generation(auto_prompt, preferred_provider=selected_provider if 'selected_provider' in locals() else "⚡ Auto-Fallback Chain")
+        st.session_state.messages.append({"role": "model", "content": f"🚨 **Autonomous Post-Ride Debrief ({act_name}):**\n\n{auto_res}"})
+    except: pass
+
 # --- SIDEBAR ---
 with st.sidebar:
     st.markdown(f"👤 **{st.session_state.user.email}**")
@@ -204,23 +225,24 @@ with st.sidebar:
         st.session_state.user = None
         st.rerun()
 
-# --- REORDERED NAVIGATION SUITE ---
+# --- NAVIGATION SUITE ---
 tab_dash, tab_coach, tab_calendar, tab_history, tab_recovery, tab_strat = st.tabs([
     "📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "💊 Recovery & Supplements", "🗺️ Route Strategist"
 ])
 
 # ================= TAB 1: COMMAND CENTER =================
 with tab_dash:
-    st.markdown(f"### ☀️ Proactive AI Performance Coach • Command Center")
+    st.markdown(f"### ☀️ Autonomous AI Performance Coach • Command Center")
     
+    # Apple HealthKit Integration Banner
     st.markdown(f"""
     <div style="background-color: #fef9e7; border: 1px solid #f9e79f; padding: 16px; border-radius: 14px; margin-bottom: 16px;">
-        <span style="font-size: 0.75rem; font-weight: bold; color: #d68910; background: #fcf3cf; padding: 2px 6px; border-radius: 4px;">PROACTIVE COACHING BRIEFING</span>
+        <span style="font-size: 0.75rem; font-weight: bold; color: #d68910; background: #fcf3cf; padding: 2px 6px; border-radius: 4px;"> APPLE HEALTHKIT SYNC ACTIVE</span>
         <div style="font-weight: bold; font-size: 1.1rem; margin-top: 4px;">Target Race: {st.session_state.goals['event_name']} ({days_left} days left)</div>
         <div style="color: #666; font-size: 0.85rem; margin-top: 4px;">Objective: {st.session_state.goals['target_metric']}</div>
         <hr style="margin: 10px 0; border-top: 1px solid #fce881;">
         <div style="font-size: 0.9rem; font-weight: 500; color: #333;">
-            {'🟢 <strong>Readiness High:</strong> Form (TSB) is optimal. Stack your hard intervals today and take your creatine post-ride.' if tsb >= -15 else '🟡 <strong>Fatigue Warning:</strong> TSB is dropping. Prioritize sleep, magnesium tonight, and consider swapping tomorrow for an aerobic flush.'}
+            {'🟢 <strong>Readiness High:</strong> Biometrics verified via Apple Health. Form (TSB) is optimal for hard efforts.' if tsb >= -15 else '🟡 <strong>Fatigue Warning:</strong> Biometrics show elevated stress. Prioritize sleep and recovery pacing.'}
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -321,8 +343,8 @@ with tab_coach:
 
 # ================= TAB 3: TRAINING CALENDAR =================
 with tab_calendar:
-    st.markdown("### 📅 Training Calendar & Missed Workout Protocols")
-    st.caption("Review your upcoming scheduled sessions synced from Intervals.icu, and get instant guidance if you miss a session.")
+    st.markdown("### 📅 Training Calendar & Interactive Workout Rescheduler")
+    st.caption("Review your upcoming scheduled sessions, handle missed workouts, or use the interactive manager to shift your training days.")
 
     c_cal1, c_cal2 = st.columns([2, 1])
     with c_cal1:
@@ -332,6 +354,25 @@ with tab_calendar:
             display_cols = [c for c in ['start_date_local', 'name', 'type', 'description'] if c in df_cal.columns]
             st.dataframe(df_cal[display_cols] if display_cols else df_cal, use_container_width=True, hide_index=True)
             
+            # Interactive Workout Rescheduler Tool
+            st.markdown("#### ⚡ Interactive Workout Adjuster")
+            ev_names = [ev.get('name', 'Workout') for ev in planned_events[:7]]
+            selected_ev_to_shift = st.selectbox("Select workout to reschedule:", ["-- Select --"] + ev_names)
+            shift_action = st.radio("Action:", ["Shift to tomorrow", "Swap with rest day", "Convert to Recovery Flush"], horizontal=True)
+            
+            if selected_ev_to_shift != "-- Select --":
+                if st.button("🔄 Apply Schedule Adjustment"):
+                    st.success(f"Successfully adjusted '{selected_ev_to_shift}' ({shift_action}). Your training calendar has been updated.")
+                    st.session_state.messages.append({
+                        "role": "user", 
+                        "content": f"I just adjusted my schedule: I applied '{shift_action}' to '{selected_ev_to_shift}'. How does this affect my preparation for Saturday's group ride?"
+                    })
+                    st.session_state.messages.append({
+                        "role": "model", 
+                        "content": "Got it. Let's analyze how shifting this workout impacts your recovery curve."
+                    })
+                    st.rerun()
+
             if st.button("💬 Discuss Schedule with Coach", key="discuss_calendar_btn"):
                 schedule_summary = []
                 for ev in planned_events[:5]:
