@@ -40,6 +40,24 @@ st.set_page_config(page_title="AI Performance Coach • Elite Suite", page_icon=
 
 st.markdown("""
 <style>
+    /* Force hide Streamlit Community Cloud's bottom-right floating badge */
+    [data-testid="stStatusWidget"],
+    .viewerBadge_container__1QSob,
+    div[class*="viewerBadge"] {
+        visibility: hidden !important;
+        display: none !important;
+    }
+    
+    /* STICKY NAVIGATION TABS PINNED TO TOP */
+    div[data-testid="stVerticalBlock"] div:has(> div.stTabs) {
+        position: sticky;
+        top: 2.85rem;
+        z-index: 999;
+        background-color: white;
+        padding-top: 10px;
+        padding-bottom: 5px;
+    }
+
     .stCard {
         background-color: #ffffff;
         border: 1px solid rgba(128, 128, 128, 0.15);
@@ -66,18 +84,18 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- DUAL GOOGLE API KEYS INITIALIZATION ---
+PRIMARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("primary_key") or st.secrets.get("GEMINI_API_KEY") or os.getenv("PRIMARY_KEY") or os.getenv("GEMINI_API_KEY")
+SECONDARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("secondary_key") or st.secrets.get("SECONDARY_GEMINI_KEY") or os.getenv("SECONDARY_KEY")
+
+primary_google_client = genai.Client(api_key=PRIMARY_GEMINI_KEY) if PRIMARY_GEMINI_KEY else None
+secondary_google_client = genai.Client(api_key=SECONDARY_GEMINI_KEY) if SECONDARY_GEMINI_KEY else None
+
 # --- SPEED-OPTIMIZED MULTI-PROVIDER AI ROUTER WITH DUAL GOOGLE KEYS ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain"):
-    PRIMARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("primary_key") or st.secrets.get("GEMINI_API_KEY") or os.getenv("PRIMARY_KEY") or os.getenv("GEMINI_API_KEY")
-    SECONDARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("secondary_key") or st.secrets.get("SECONDARY_GEMINI_KEY") or os.getenv("SECONDARY_KEY")
-
-    primary_google_client = genai.Client(api_key=PRIMARY_GEMINI_KEY) if PRIMARY_GEMINI_KEY else None
-    secondary_google_client = genai.Client(api_key=SECONDARY_GEMINI_KEY) if SECONDARY_GEMINI_KEY else None
-
     def call_google():
         models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.7-pro-preview"]
         
-        # 1. Try Primary Google Key
         if primary_google_client:
             for m in models:
                 try:
@@ -85,7 +103,6 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
                 except Exception: 
                     continue
                     
-        # 2. Failover to Secondary Key if primary hits quota limit / fails
         if secondary_google_client:
             for m in models:
                 try:
@@ -141,7 +158,6 @@ if "user_credentials" not in st.session_state:
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# Check browser local storage for guest credentials
 stored_guest = localS.getItem("athlete_profile_config")
 if not st.session_state.user and stored_guest and not st.session_state.user_credentials:
     st.session_state.user_credentials = stored_guest
@@ -201,9 +217,6 @@ if st.session_state.user:
     
     INTERVALS_API_KEY = user_profile.get("intervals_api_key")
     ATHLETE_ID = user_profile.get("intervals_athlete_id")
-    GEMINI_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
-    
-    # Updated owner display name
     display_name = "Amanda"
 
     if "athlete_gear" not in st.session_state:
@@ -220,7 +233,6 @@ else:
     current_creds = st.session_state.user_credentials
     INTERVALS_API_KEY = current_creds["icu_key"]
     ATHLETE_ID = current_creds["icu_id"]
-    GEMINI_KEY = current_creds["gemini_key"]
     display_name = current_creds["name"]
 
     if "athlete_gear" not in st.session_state:
@@ -234,8 +246,6 @@ else:
         st.session_state.goals["event_name"] = "Bintan Round Island"
     if "target_metric" not in st.session_state.goals:
         st.session_state.goals["target_metric"] = "Survive steep climbs on group rides & improve threshold power"
-
-google_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
 # --- INITIALIZE MESSAGES STATE EARLY ---
 if "messages" not in st.session_state:
@@ -272,12 +282,9 @@ if not is_onboarded:
 
         with st.spinner("Coach is reviewing your intake..."):
             try:
-                if not google_client and GEMINI_KEY:
-                    google_client = genai.Client(api_key=GEMINI_KEY)
-                
                 resp, _ = execute_multiprovider_generation(intake_prompt)
                 st.session_state.messages.append({"role": "model", "content": resp})
-            except Exception as e:
+            except Exception:
                 st.session_state.messages.append({
                     "role": "model", 
                     "content": "Welcome aboard! I've noted down your details and we're ready to start training."
@@ -393,14 +400,11 @@ with st.sidebar:
                 localS.setItem("athlete_profile_config", current_creds)
                 st.success("Saved to browser memory!")
 
-    if not st.session_state.user:
+    if st.session_state.user:
         st.markdown("---")
-        with st.expander("📱 Transfer to Mobile / New Device"):
-            st.caption("Copy this private link and open it on your phone to log in instantly without re-typing your keys:")
-            token_str = base64.urlsafe_b64encode(json.dumps(current_creds).encode("utf-8")).decode("utf-8")
-            base_url = st.context.headers.get("Host", "your-app.streamlit.app")
-            mobile_link = f"https://{base_url}/?token={token_str}"
-            st.code(mobile_link, language="text")
+        with st.expander("🛠️ Manage App & Owner Controls"):
+            st.caption("Owner management tools and links:")
+            st.write(f"Logged in as Owner ID: {st.session_state.user.id[:8]}...")
 
     st.markdown("---")
     st.subheader("🎭 Coaching Persona")
@@ -436,7 +440,7 @@ with st.sidebar:
         st.query_params.clear()
         st.rerun()
 
-# --- NAVIGATION SUITE ---
+# --- NAVIGATION SUITE (PINNED TO TOP) ---
 tab_dash, tab_coach, tab_calendar, tab_history, tab_recovery, tab_strat = st.tabs([
     "📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "💊 Recovery & Supplements", "🗺️ Route Strategist"
 ])
@@ -506,7 +510,7 @@ with tab_dash:
 # ================= TAB 2: AI COACH & SPARRING CHAT =================
 with tab_coach:
     st.markdown("### 🤖 AI Coach & Collaborative Sparring Partner")
-    st.caption(f"Active Persona: **{coach_persona}** | Plan your next 2 weeks, add workouts, or request MyWhoosh workouts.")
+    st.caption(f"Active Persona: **{coach_persona}** | Proposes plans first, and only syncs to Intervals.icu when you explicitly agree!")
 
     chat_container = st.container()
     with chat_container:
@@ -537,7 +541,7 @@ with tab_coach:
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.rerun()
 
-# --- BACKGROUND AI PROCESSOR WITH RESCHEDULING ENGINE ---
+# --- BACKGROUND AI PROCESSOR WITH CONDITIONAL SYNC ---
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     last_user_prompt = st.session_state.messages[-1]["content"]
     
@@ -553,19 +557,22 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         f"ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}",
         f"CURRENT UPCOMING SCHEDULE (NEXT 14 DAYS): {planned_events[:20] if planned_events else 'None'}",
         "",
-        "Provide concise, lightning-fast, and rigorous coaching insights matching your assigned persona.",
+        "COACHING RULE - PLAN FIRST, ASK FOR AGREEMENT:",
+        "1. When the athlete asks for a training plan or calendar adjustments, present the proposal clearly in chat first.",
+        "2. ONLY include <icu_workout> or <icu_reschedule> tags if the user has explicitly confirmed/agreed to the plan in this prompt or prior conversation (e.g., saying 'yes sync it', 'looks good go ahead', or clicking a plan button). If they are just asking for a proposal or brainstorming, do NOT output sync tags yet.",
+        "",
         "CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside standard markdown xml block formatting.",
-        "CRITICAL CALENDAR CREATION INSTRUCTION: If you are recommending new workouts to schedule, you MUST output a JSON array wrapped EXACTLY in <icu_workout> ... </icu_workout> tags with fields: 'start_date_local' (YYYY-MM-DD), 'name', 'description', 'type' ('Ride'), 'indoor' (boolean).",
-        "CRITICAL CALENDAR RESCHEDULING/MOVING INSTRUCTION: If the athlete wants to move, shift, reschedule, or delete existing workouts, you MUST output a JSON object wrapped EXACTLY in <icu_reschedule> ... </icu_reschedule> tags containing: 'delete_event_ids' (list of event IDs to remove, if any) and 'new_events' (list of new/moved events with 'start_date_local', 'name', 'description', 'type', 'indoor').",
+        "CRITICAL CALENDAR CREATION INSTRUCTION: If approved/agreed, output a JSON array wrapped EXACTLY in <icu_workout> ... </icu_workout> tags with fields: 'start_date_local' (YYYY-MM-DD), 'name', 'description', 'type' ('Ride'), 'indoor' (boolean).",
+        "CRITICAL CALENDAR RESCHEDULING INSTRUCTION: If approved/agreed, output a JSON object wrapped EXACTLY in <icu_reschedule> ... </icu_reschedule> tags containing: 'delete_event_ids' and 'new_events'.",
         "",
         last_user_prompt
     ])
     
-    with st.spinner("Coach is analyzing calendar and syncing updates..."):
+    with st.spinner("Coach is analyzing and drafting response..."):
         try:
             resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
             
-            # --- 1. HANDLE NEW WORKOUTS PUSH ---
+            # --- 1. HANDLE NEW WORKOUTS PUSH (ONLY IF AGREED/TAGGED) ---
             icu_matches = re.findall(r'<icu_workout>\s*(.*?)\s*</icu_workout>', resp, re.DOTALL)
             parsed_workouts = 0
             
@@ -590,10 +597,10 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                             )
                             if api_resp.status_code == 200:
                                 parsed_workouts += 1
-                    except Exception as e:
+                    except Exception:
                         pass 
 
-            # --- 2. HANDLE RESCHEDULING / MOVING WORKOUTS ---
+            # --- 2. HANDLE RESCHEDULING (ONLY IF AGREED/TAGGED) ---
             resched_matches = re.findall(r'<icu_reschedule>\s*(.*?)\s*</icu_reschedule>', resp, re.DOTALL)
             resched_count = 0
             
@@ -603,7 +610,6 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                         clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
                         data = json.loads(clean_json_str)
                         
-                        # Delete requested event IDs
                         for ev_id in data.get("delete_event_ids", []):
                             requests.delete(
                                 f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events/{ev_id}",
@@ -612,7 +618,6 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                             )
                             resched_count += 1
                         
-                        # Add new/moved events
                         for w in data.get("new_events", []):
                             w['category'] = 'WORKOUT'
                             if 'start_date_local' in w and len(w['start_date_local']) == 10:
@@ -624,13 +629,13 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                                 auth=("API_KEY", INTERVALS_API_KEY),
                                 timeout=10
                             )
-                    except Exception as e:
+                    except Exception:
                         pass
 
             full_resp = f"{resp}\n\n*(Engine: {engine})*"
             
             if parsed_workouts > 0 or resched_count > 0:
-                full_resp += f"\n\n✅ **Success:** Calendar synchronized automatically with Intervals.icu!"
+                full_resp += f"\n\n✅ **Success:** Plan approved and synchronized automatically with Intervals.icu!"
                 fetch_intervals_data.clear() 
 
             st.session_state.messages.append({"role": "model", "content": full_resp})
@@ -748,40 +753,38 @@ with tab_calendar:
         
         c_pbtn1, c_pbtn2 = st.columns(2)
         with c_pbtn1:
-            if st.button("🚀 Build & Push 2-Week Block", type="primary", use_container_width=True):
+            if st.button("🚀 Propose 2-Week Block Plan", type="primary", use_container_width=True):
                 st.session_state.messages.append({
                     "role": "user", 
-                    "content": f"Please design a complete 2-week training block focused on '{plan_focus}' and push all workouts directly to my Intervals.icu calendar."
+                    "content": f"Please propose a complete 2-week training block focused on '{plan_focus}' for me to review first before syncing."
                 })
                 st.session_state.messages.append({
                     "role": "model", 
-                    "content": f"I'm drafting your 2-week block focused on '{plan_focus}' and syncing it to your calendar..."
+                    "content": f"I'm drafting your 2-week block proposal focused on '{plan_focus}'. Review it in the chat and let me know if you want me to sync it!"
                 })
-                st.success("Plan requested! Head to the **AI Coach & Sparring** tab.")
+                st.success("Proposal requested! Head to the **AI Coach & Sparring** tab.")
                 st.rerun()
                 
         with c_pbtn2:
-            if st.button("🔄 Shift Upcoming Week Forward 1 Day", use_container_width=True):
+            if st.button("🔄 Propose Shift Forward 1 Day", use_container_width=True):
                 st.session_state.messages.append({
                     "role": "user", 
-                    "content": "I need to shift all my workouts for the upcoming week forward by 1 day due to an unexpected scheduling conflict. Please reschedule them accordingly on my Intervals calendar."
+                    "content": "Please propose shifting all my upcoming workouts forward by 1 day so I can review the changes before syncing."
                 })
                 st.session_state.messages.append({
                     "role": "model", 
-                    "content": "Shifting your upcoming workouts forward by 1 day..."
+                    "content": "Here is how shifting your schedule forward by 1 day looks..."
                 })
-                st.success("Reschedule requested! Head to the **AI Coach & Sparring** tab.")
+                st.success("Proposal requested! Head to the **AI Coach & Sparring** tab.")
                 st.rerun()
 
     with c_cal2:
         st.markdown("#### 💬 Custom Rescheduling via Chat")
         st.info(
-            "**How to move things around:**\n\n"
-            "You can talk directly to your coach in the **AI Coach & Sparring** tab to make custom adjustments anytime.\n\n"
-            "**Examples of what you can ask:**\n"
-            "• *'Move Thursday's threshold ride to Saturday morning.'*\n"
-            "• *'Swap my Tuesday and Wednesday workouts.'*\n"
-            "• *'Delete Friday's planned ride so I can take a rest day.'*"
+            "**How the review process works:**\n\n"
+            "1. Ask your coach for a plan or adjustment.\n"
+            "2. The coach will present the workouts in chat for your review.\n"
+            "3. Reply with **'Looks good, sync it'** or **'Approved'** to automatically push it to Intervals.icu!"
         )
 
 # ================= TAB 4: ACTIVITY INSPECTOR =================
