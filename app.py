@@ -40,6 +40,19 @@ st.set_page_config(page_title="AI Performance Coach • Elite Suite", page_icon=
 
 st.markdown("""
 <style>
+    /* Forcefully hide Streamlit Community Cloud's bottom-right floating badge / manage app button */
+    [data-testid="stStatusWidget"],
+    .viewerBadge_container__1QSob,
+    div[class*="viewerBadge"],
+    footer {
+        visibility: hidden !important;
+        display: none !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
     .stCard {
         background-color: #ffffff;
         border: 1px solid rgba(128, 128, 128, 0.15);
