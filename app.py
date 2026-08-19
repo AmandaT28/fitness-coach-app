@@ -35,7 +35,7 @@ openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
 # App UI Configuration
-st.set_page_config(page_title="AI Performance Coach • Elite Cycling Suite", page_icon="🚴‍♂️", layout="wide")
+st.set_page_config(page_title="AI Performance Coach • Proactive Suite", page_icon="🚴‍♂️", layout="wide")
 
 st.markdown("""
 <style>
@@ -122,18 +122,23 @@ if "goals" not in st.session_state or not isinstance(st.session_state.goals, dic
 st.session_state.goals["event_name"] = user_profile.get("event_name") or "Bintan Round Island"
 st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Survive steep climbs on group rides & improve threshold power"
 
-# --- FETCH DATA (90-Day Range) ---
+# --- FETCH DATA (90-Day Range + Planned Calendar) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data(aid, key):
     try:
-        end_date = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+        end_date = (datetime.date.today() + datetime.timedelta(days=14)).isoformat()
         start_date = (datetime.date.today() - datetime.timedelta(days=90)).isoformat()
         w_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/wellness?oldest={start_date}&newest={end_date}", auth=("API_KEY", key), timeout=5)
         a_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/activities?oldest={start_date}&newest={end_date}", auth=("API_KEY", key), timeout=5)
-        return w_res.json() if w_res.status_code == 200 else [], a_res.json() if a_res.status_code == 200 else []
-    except: return [], []
+        e_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/events?oldest={start_date}&newest={end_date}", auth=("API_KEY", key), timeout=5)
+        return (
+            w_res.json() if w_res.status_code == 200 else [], 
+            a_res.json() if a_res.status_code == 200 else [],
+            e_res.json() if e_res.status_code == 200 else []
+        )
+    except: return [], [], []
 
-wellness_list, activities_data = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
+wellness_list, activities_data, planned_events = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
 
 ctl, atl, tsb, sleep_score = 0, 0, 0, 0
 if wellness_list:
@@ -146,7 +151,7 @@ race_date = datetime.date(2026, 10, 24)
 days_left = (race_date - datetime.date.today()).days
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "model", "content": "Hello! Your elite performance science coach is active. Ask me to analyze your 90-day trends, review past rides, or build a MyWhoosh workout."}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! I am your proactive AI Performance Coach. I am actively monitoring your training calendar, recovery metrics, and supplement stack. How can I help you prepare today?"}]
 
 if "selected_activity_analysis" not in st.session_state:
     st.session_state.selected_activity_analysis = None
@@ -172,23 +177,22 @@ with st.sidebar:
         st.rerun()
 
 # --- NAVIGATION SUITE ---
-tab_dash, tab_coach, tab_history, tab_strat = st.tabs([
-    "📊 Command Center", "🤖 AI Coach & Chat", "🔍 Activity Inspector", "🗺️ Route Strategist"
+tab_dash, tab_coach, tab_calendar, tab_recovery, tab_history, tab_strat = st.tabs([
+    "📊 Command Center", "🤖 AI Coach & Chat", "📅 Training Calendar", "💊 Recovery & Supplements", "🔍 Activity Inspector", "🗺️ Route Strategist"
 ])
 
 # ================= TAB 1: COMMAND CENTER =================
 with tab_dash:
-    st.markdown(f"### ☀️ AI Performance Coach • Command Center")
+    st.markdown(f"### ☀️ Proactive AI Performance Coach • Command Center")
     
     st.markdown(f"""
     <div style="background-color: #fef9e7; border: 1px solid #f9e79f; padding: 16px; border-radius: 14px; margin-bottom: 16px;">
-        <span style="font-size: 0.75rem; font-weight: bold; color: #d68910; background: #fcf3cf; padding: 2px 6px; border-radius: 4px;">BUILD • WEEK 3/9</span>
-        <div style="font-weight: bold; font-size: 1.1rem; margin-top: 4px;">Target Race: {st.session_state.goals['event_name']}</div>
-        <div style="color: #666; font-size: 0.85rem;">October 24, 2026 • Objective: {st.session_state.goals['target_metric']}</div>
+        <span style="font-size: 0.75rem; font-weight: bold; color: #d68910; background: #fcf3cf; padding: 2px 6px; border-radius: 4px;">PROACTIVE COACHING BRIEFING</span>
+        <div style="font-weight: bold; font-size: 1.1rem; margin-top: 4px;">Target Race: {st.session_state.goals['event_name']} ({days_left} days left)</div>
+        <div style="color: #666; font-size: 0.85rem; margin-top: 4px;">Objective: {st.session_state.goals['target_metric']}</div>
         <hr style="margin: 10px 0; border-top: 1px solid #fce881;">
-        <div style="display: flex; justify-content: space-between; font-size: 0.9rem; font-weight: 500;">
-            <span>⏳ {days_left} days left</span>
-            <span>📈 Fitness (CTL): {round(ctl, 1)} | Form (TSB): {round(tsb, 1)}</span>
+        <div style="font-size: 0.9rem; font-weight: 500; color: #333;">
+            {'🟢 <strong>Readiness High:</strong> Form (TSB) is optimal. Stack your hard intervals today and take your creatine post-ride.' if tsb >= -15 else '🟡 <strong>Fatigue Warning:</strong> TSB is dropping. Prioritize sleep, magnesium tonight, and consider swapping tomorrow for an aerobic flush.'}
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -202,7 +206,6 @@ with tab_dash:
     st.markdown("---")
     st.markdown("#### 📈 Deep 90-Day Training Load & Progression Trend Analysis")
     
-    # Automated Deep Trend Breakdown calculation
     with st.spinner("Synthesizing 90-day performance trends..."):
         trend_payload = f"""
         Perform a rigorous, detailed 90-day sports science trend analysis based on my wellness and training data:
@@ -212,10 +215,10 @@ with tab_dash:
         Objective: {st.session_state.goals['target_metric']}
         
         Provide a structured analysis covering:
-        1. **Fitness Trajectory & Ramp Rate:** Are we building fitness too fast, too slow, or perfectly on track for October 24?
-        2. **Consistency & Intensity Distribution:** Evaluate the balance between indoor structural work and weekend group rides over the past 90 days.
-        3. **Climbing Readiness Indicator:** Based on recent power outputs and load, are we successfully closing the gap to prevent getting dropped on climbs?
-        4. **Verdict / Next Steps:** Give a clear, actionable instruction for the coming week.
+        1. **Fitness Trajectory & Ramp Rate:** Are we building fitness on track for October 24?
+        2. **Consistency & Intensity Distribution:** Indoor structured work vs weekend group rides.
+        3. **Climbing Readiness Indicator:** Are we successfully closing the gap to prevent getting dropped on climbs?
+        4. **Proactive Verdict / Next Steps:** Actionable instruction for the coming week.
         """
         try:
             trend_analysis_text, _ = execute_multiprovider_generation(trend_payload, preferred_provider=selected_provider)
@@ -226,18 +229,16 @@ with tab_dash:
 # ================= TAB 2: AI COACH & CHAT =================
 with tab_coach:
     st.markdown("### 🤖 Elite Sports Science AI Coach")
-    st.caption("Ask for deep 90-day trend analysis, recovery advice, or request MyWhoosh workouts with instant .zwo file downloads.")
+    st.caption("Ask for deep trend analysis, missed workout advice, recovery protocols, or request MyWhoosh workouts with instant .zwo file downloads.")
 
     chat_container = st.container()
     with chat_container:
         for idx, msg in enumerate(st.session_state.messages):
             with st.chat_message(msg["role"]):
-                # Cleanly strip out raw xml blocks from text display so the user doesn't see code
                 clean_content = re.sub(r"```xml\s*<\?xml.*?>.*?</\s*workout_file\s*>\s*```", "", msg["content"], flags=re.DOTALL)
                 clean_content = re.sub(r"```\s*<workout_file>.*?</\s*workout_file>\s*```", "", clean_content, flags=re.DOTALL)
                 st.markdown(clean_content.strip())
                 
-                # Auto-detect XML workout blocks and provide clean download button
                 if msg["role"] == "model":
                     match = re.search(r"```xml\s*(<\?xml.*?>.*?<\s*/\s*workout_file\s*>|<workout_file>.*?</\s*workout_file>)\s*```", msg["content"], re.DOTALL)
                     if not match:
@@ -253,22 +254,22 @@ with tab_coach:
                             key=f"download_zwo_{idx}"
                         )
 
-    # Chat Input Box with instant UI feedback loop
-    if prompt := st.chat_input("Ask your coach anything about your training trends or workouts..."):
-        # Append and render user message immediately
+    if prompt := st.chat_input("Ask your coach anything (e.g., 'I missed yesterday's workout, what should I do?')"):
         st.session_state.messages.append({"role": "user", "content": prompt})
         
         payload = f"""
-        You are an elite cycling sports science coach. Analyze the athlete's 90-day training trends and data.
+        You are an elite, proactive cycling sports science coach replacing a human coach. You guide the athlete on training, missed workouts, nutrition, and recovery.
+        ATHLETE SUPPLEMENT STACK AVAILABLE: Creatine, Protein, Turmeric, Fish Oil, NMN, Collagen, Magnesium.
         GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})
         METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.
         ACTIVITIES HISTORY: {activities_data[:20] if activities_data else 'None'}
+        UPCOMING SCHEDULE: {planned_events[:10] if planned_events else 'None'}
         
-        Provide rigorous, analytical coaching insights. If analyzing trends, look at power progression, consistency, and load management.
+        Provide rigorous, proactive coaching insights. If a workout is missed, give explicit, decisive rules (e.g., whether to make it up, discard it, or replace it based on current fatigue/TSB).
         CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside a ```xml ... ``` code block.
         """ + prompt
         
-        with st.spinner("Coach is analyzing your performance metrics..."):
+        with st.spinner("Coach is analyzing your request..."):
             try:
                 resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
                 full_resp = f"{resp}\n\n*(Engine: {engine})*"
@@ -277,7 +278,68 @@ with tab_coach:
             except Exception as e:
                 st.error(f"AI Generation Failed: {str(e)}")
 
-# ================= TAB 3: ACTIVITY INSPECTOR (Click-to-Analyze) =================
+# ================= TAB 3: TRAINING CALENDAR & MISSED WORKOUT PROTOCOL =================
+with tab_calendar:
+    st.markdown("### 📅 Training Calendar & Missed Workout Protocols")
+    st.caption("Review your upcoming scheduled sessions synced from Intervals.icu, and get instant guidance if you miss a session.")
+
+    c_cal1, c_cal2 = st.columns([2, 1])
+    with c_cal1:
+        st.markdown("#### Upcoming Scheduled Training")
+        if planned_data := planned_events:
+            df_cal = pd.DataFrame(planned_events)
+            display_cols = [c for c in ['start_date_local', 'name', 'type', 'description'] if c in df_cal.columns]
+            st.dataframe(df_cal[display_cols] if display_cols else df_cal, use_container_width=True, hide_index=True)
+        else:
+            st.info("No upcoming calendar events found in Intervals.icu.")
+
+    with c_cal2:
+        st.markdown("#### 🚨 Missed Workout Protocol")
+        st.info(
+            "**Human Coach Rulebook for Missed Sessions:**\n\n"
+            "1. **Never double up** high-intensity days to 'make up' for lost time.\n"
+            "2. If you missed an **easy/recovery ride**, drop it and move on.\n"
+            "3. If you missed a **key interval/climbing session**, evaluate your Form (TSB). If TSB > -10, shift it to today. If TSB < -20, skip it entirely to prevent overtraining."
+        )
+        if st.button("🤖 Ask Coach How to Handle a Missed Workout", use_container_width=True):
+            st.session_state.messages.append({"role": "user", "content": "I missed my scheduled workout yesterday. Given my current TSB and upcoming weekend group ride, what should I do?"})
+            st.rerun()
+
+# ================= TAB 4: RECOVERY & SUPPLEMENT PROTOCOL =================
+with tab_recovery:
+    st.markdown("### 💊 Proactive Recovery & Supplement Protocol")
+    st.caption("Optimized timing and protocols based on your personal supplement stack to maximize adaptation and minimize inflammation.")
+
+    st.markdown("""
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div class="stCard">
+            <h4 style="color: #d68910; margin-top:0;">🌅 Morning / Pre-Ride Routine</h4>
+            <ul>
+                <li><strong>NMN:</strong> Take upon waking on an empty stomach to support cellular NAD+ and mitochondrial function.</li>
+                <li><strong>Turmeric:</strong> Take with breakfast containing healthy fats and black pepper to manage baseline systemic inflammation from heavy training blocks.</li>
+                <li><strong>Fish Oil:</strong> Take with your first meal to support cardiovascular health and joint lubrication.</li>
+            </ul>
+        </div>
+        <div class="stCard">
+            <h4 style="color: #2e86c1; margin-top:0;">⚡ Post-Ride / Immediate Recovery</h4>
+            <ul>
+                <li><strong>Protein:</strong> Consume 25–40g within 45 minutes post-ride combined with carbohydrates to jumpstart muscle glycogen resynthesis and repair.</li>
+                <li><strong>Creatine:</strong> Take post-workout (ideally with your protein/carbs shake) to maximize cellular uptake for ATP replenishment and sprint/climbing power.</li>
+                <li><strong>Collagen:</strong> Take 15g of collagen peptides combined with Vitamin C approx. 30–60 minutes before strength training or heavy loading to fortify tendons and ligaments.</li>
+            </ul>
+        </div>
+    </div>
+    
+    <div class="stCard" style="margin-top: 16px;">
+        <h4 style="color: #27ae60; margin-top:0;">🌙 Evening / Before Bed</h4>
+        <ul>
+            <li><strong>Magnesium:</strong> Take 300–400mg (Glycinate form recommended) 30 minutes before sleep. This enhances nervous system recovery, promotes deep slow-wave sleep, and prevents cramping.</li>
+            <li><strong>Fish Oil (Optional split dose):</strong> Evening dose assists with nocturnal inflammatory regulation.</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ================= TAB 5: ACTIVITY INSPECTOR =================
 with tab_history:
     st.markdown("### 🔍 Past Activity Inspector & Deep Debrief")
     st.caption("Select any past activity from your 90-day history to run an AI-powered performance debrief.")
@@ -287,13 +349,10 @@ with tab_history:
         for act in activities_data:
             name = act.get("name", "Unnamed Activity")
             date = act.get("start_date_local", "")[:10]
-            
             raw_dist = act.get("distance")
             dist = round(((raw_dist if raw_dist is not None else 0) / 1000), 1)
-            
             raw_time = act.get("moving_time")
             dur_min = int((raw_time if raw_time is not None else 0) / 60)
-            
             label = f"{date} — {name} ({dist} km, {dur_min} mins)"
             act_options[label] = act
 
@@ -301,7 +360,6 @@ with tab_history:
         selected_act = act_options[selected_label]
 
         col_info1, col_info2, col_info3 = st.columns(3)
-        
         sel_dist = selected_act.get("distance")
         safe_dist = round(((sel_dist if sel_dist is not None else 0) / 1000), 2)
         col_info1.metric("Distance", f"{safe_dist} km")
@@ -335,7 +393,7 @@ with tab_history:
     else:
         st.info("No activities found in your Intervals.icu sync history.")
 
-# ================= TAB 4: ROUTE STRATEGIST =================
+# ================= TAB 6: ROUTE STRATEGIST =================
 with tab_strat:
     st.markdown("### 🗺️ Route Pacing & Climbing Strategist")
     uploaded_gpx = st.file_uploader("Upload GPX Route File (.gpx)", type=["gpx"])
