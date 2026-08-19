@@ -167,7 +167,7 @@ if not st.session_state.user and not st.session_state.user_credentials:
         with st.form("guest_setup_form"):
             col_name = st.text_input("Your Name / Identifier")
             icu_key = st.text_input("Intervals.icu API Key", help="Found in Intervals.icu Settings -> Developer")
-            icu_id = st.text_input("Intervals.icu Athlete ID", help="e.g., i608928")
+            icu_id = st.text_input("Intervals.icu Athlete ID", help="e.g., i123456")
             gemini_key = st.text_input("Google AI Studio (Gemini) API Key", type="password", help="Free from aistudio.google.com")
             
             if st.form_submit_button("Save & Launch Guest Session", use_container_width=True):
