@@ -265,10 +265,13 @@ with tab_history:
         act_options = {}
         for act in activities_data:
             name = act.get("name", "Unnamed Activity")
+            for act in activities_data:
+            name = act.get("name", "Unnamed Activity")
             date = act.get("start_date_local", "")[:10]
-            dist = round(act.get("distance", 0) / 1000, 1)
-            dur_min = int(act.get("moving_time", 0) / 60)
-            label = f"{date} — {name} ({dist} km, {dur_min} mins)"
+            raw_dist = act.get("distance")
+            dist = round((raw_dist if raw_dist is not None else 0) / 1000, 1)
+            raw_time = act.get("moving_time")
+            dur_min = int((raw_time if raw_time is not None else 0) / 60)
             act_options[label] = act
 
         selected_label = st.selectbox("Choose a past activity to analyze:", list(act_options.keys()))
