@@ -258,11 +258,12 @@ if not is_onboarded:
     if intake_reply := st.chat_input("Tell your coach about yourself..."):
         st.session_state.messages.append({"role": "user", "content": intake_reply})
         
-        intake_prompt = (
-            "[Coach Onboarding Intake]\n"
-            f"The athlete just shared their background and goals: '{intake_reply}'\n"
+        intake_prompt = "\n".join([
+            "[Coach Onboarding Intake]",
+            f"The athlete just shared their background and goals: '{intake_reply}'",
             "Acknowledge their background professionally as an elite cycling coach, summarize what you noted, and welcome them into the Elite Coaching Suite."
-        )
+        ])
+
         with st.spinner("Coach is reviewing your intake..."):
             try:
                 if not google_client and GEMINI_KEY:
@@ -315,9 +316,9 @@ def fetch_intervals_data(aid, key):
         end_14 = (today + datetime.timedelta(days=14)).isoformat()
         start_7 = (today - datetime.timedelta(days=7)).isoformat()
         
-        w_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/wellness?oldest={start_90}&newest={end_14}", auth=("API_KEY", key), timeout=5)
-        a_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/activities?oldest={start_7}&newest={end_14}", auth=("API_KEY", key), timeout=5)
-        e_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/events?oldest={start_7}&newest={end_14}", auth=("API_KEY", key), timeout=5)
+        w_res = requests.get(f"[https://intervals.icu/api/v1/athlete/](https://intervals.icu/api/v1/athlete/){aid}/wellness?oldest={start_90}&newest={end_14}", auth=("API_KEY", key), timeout=5)
+        a_res = requests.get(f"[https://intervals.icu/api/v1/athlete/](https://intervals.icu/api/v1/athlete/){aid}/activities?oldest={start_7}&newest={end_14}", auth=("API_KEY", key), timeout=5)
+        e_res = requests.get(f"[https://intervals.icu/api/v1/athlete/](https://intervals.icu/api/v1/athlete/){aid}/events?oldest={start_7}&newest={end_14}", auth=("API_KEY", key), timeout=5)
         
         return (
             w_res.json() if w_res.status_code == 200 else [], 
@@ -345,13 +346,14 @@ if activities_data and st.session_state.auto_debriefed_id != activities_data[0].
     act_name = latest_act.get('name', 'Latest Ride')
     st.session_state.auto_debriefed_id = act_id
     
-    auto_prompt = (
-        "[Autonomous Post-Workout Auto-Debrief]\n"
-        f"A new activity has synced via Garmin / Intervals.icu: {latest_act}\n"
-        f"Athlete Gear/Setup: {st.session_state.athlete_gear}\n"
-        f"Goal: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})\n"
+    auto_prompt = "\n".join([
+        "[Autonomous Post-Workout Auto-Debrief]",
+        f"A new activity has synced via Garmin / Intervals.icu: {latest_act}",
+        f"Athlete Gear/Setup: {st.session_state.athlete_gear}",
+        f"Goal: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
         "Provide a concise, high-level autonomous performance debrief."
-    )
+    ])
+
     try:
         auto_res, _ = execute_multiprovider_generation(auto_prompt)
         st.session_state.messages.append({"role": "model", "content": f"🚨 **Autonomous Post-Ride Debrief ({act_name}):**\n\n{auto_res}"})
@@ -464,16 +466,18 @@ with tab_dash:
         st.session_state.cached_trend_analysis = None
 
     if st.button("🚀 Run 90-Day Trend Synthesis", type="primary"):
-        trend_payload = (
-            "Perform a rigorous, detailed 90-day sports science trend analysis based on my wellness and training data:\n"
-            f"CTL (Fitness): {ctl}, ATL (Fatigue): {atl}, TSB (Form): {tsb}\n"
-            f"Athlete Gear/Setup: {st.session_state.athlete_gear}\n"
-            f"Physical Notes: {st.session_state.athlete_limitations}\n"
-            f"Recent Activities Summary: {activities_data[:25] if activities_data else 'None'}\n"
-            f"Target Event: {st.session_state.goals['event_name']} in {days_left} days.\n"
-            f"Objective: {st.session_state.goals['target_metric']}\n\n"
+        trend_payload = "\n".join([
+            "Perform a rigorous, detailed 90-day sports science trend analysis based on my wellness and training data:",
+            f"CTL (Fitness): {ctl}, ATL (Fatigue): {atl}, TSB (Form): {tsb}",
+            f"Athlete Gear/Setup: {st.session_state.athlete_gear}",
+            f"Physical Notes: {st.session_state.athlete_limitations}",
+            f"Recent Activities Summary: {activities_data[:25] if activities_data else 'None'}",
+            f"Target Event: {st.session_state.goals['event_name']} in {days_left} days.",
+            f"Objective: {st.session_state.goals['target_metric']}",
+            "",
             "Provide a structured analysis covering fitness trajectory, consistency, climbing readiness, and next steps."
-        )
+        ])
+
         with st.spinner("Synthesizing 90-day performance trends..."):
             try:
                 trend_res, _ = execute_multiprovider_generation(trend_payload, preferred_provider=selected_provider)
@@ -532,14 +536,319 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
     last_user_prompt = st.session_state.messages[-1]["content"]
     
     stack_summary = ", ".join([f"{s['name']} ({s['timing']})" for s in st.session_state.user_supplements])
-    payload = (
-        f"You are an elite cycling sports science coach acting with the persona: '{coach_persona}'.\n"
-        f"ATHLETE GEAR & SETUP: {st.session_state.athlete_gear}\n"
-        f"PHYSICAL LIMITATIONS / NOTES: {st.session_state.athlete_limitations}\n"
-        f"ACTIVE SUPPLEMENT STACK: {stack_summary}\n"
-        f"GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})\n"
-        f"METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.\n"
-        f"ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}\n"
-        f"UPCOMING SCHEDULE: {planned_events[:15] if planned_events else 'None'}\n\n"
-        "Provide concise, lightning-fast, and rigorous coaching insights matching your assigned persona.\n"
-        "CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside a ```xml ...
+    
+    payload = "\n".join([
+        f"You are an elite cycling sports science coach acting with the persona: '{coach_persona}'.",
+        f"ATHLETE GEAR & SETUP: {st.session_state.athlete_gear}",
+        f"PHYSICAL LIMITATIONS / NOTES: {st.session_state.athlete_limitations}",
+        f"ACTIVE SUPPLEMENT STACK: {stack_summary}",
+        f"GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
+        f"METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.",
+        f"ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}",
+        f"UPCOMING SCHEDULE: {planned_events[:15] if planned_events else 'None'}",
+        "",
+        "Provide concise, lightning-fast, and rigorous coaching insights matching your assigned persona.",
+        "CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside standard markdown xml block formatting.",
+        "",
+        last_user_prompt
+    ])
+    
+    with st.spinner("Coach is thinking..."):
+        try:
+            resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
+            full_resp = f"{resp}\n\n*(Engine: {engine})*"
+            st.session_state.messages.append({"role": "model", "content": full_resp})
+            st.rerun()
+        except Exception as e:
+            st.error(f"AI Generation Failed: {str(e)}")
+
+# ================= TAB 3: TRAINING CALENDAR =================
+with tab_calendar:
+    st.markdown("### 📅 3-Week Training Calendar & 2-Week Planner")
+    st.caption("Review completed past activities and scheduled upcoming workouts. Use the AI Planner to schedule new sessions for the next 2 weeks.")
+
+    c_cal1, c_cal2 = st.columns([2, 1])
+    with c_cal1:
+        st.markdown("#### 🗓️ Your 21-Day Training Timeline")
+        today_str = datetime.date.today().isoformat()
+        
+        if planned_events or activities_data:
+            combined_timeline = []
+            for ev in planned_events:
+                dt = ev.get('start_date_local', '')[:10]
+                combined_timeline.append({
+                    "date": dt,
+                    "name": ev.get('name', 'Planned Workout'),
+                    "type": ev.get('type', 'Ride'),
+                    "desc": ev.get('description', ''),
+                    "status": "📅 Planned" if dt >= today_str else "✅ Completed / Past"
+                })
+            
+            for act in activities_data:
+                dt = act.get('start_date_local', '')[:10]
+                dist_km = round((act.get('distance') or 0) / 1000, 1)
+                dur_min = int((act.get('moving_time') or 0) / 60)
+                combined_timeline.append({
+                    "date": dt,
+                    "name": act.get('name', 'Recorded Activity'),
+                    "type": act.get('type', 'Ride'),
+                    "desc": f"Distance: {dist_km} km | Time: {dur_min} mins | Avg Power: {act.get('average_watts', 'N/A')}W",
+                    "status": "🏆 Recorded Activity"
+                })
+            
+            seen = set()
+            unique_timeline = []
+            for item in sorted(combined_timeline, key=lambda x: x['date'], reverse=True):
+                identifier = (item['date'], item['name'])
+                if identifier not in seen:
+                    seen.add(identifier)
+                    unique_timeline.append(item)
+
+            for item in unique_timeline[:15]:
+                card_style = "calendarCard" if "Planned" in item['status'] else "calendarCardPast"
+                st.markdown(f"""
+                <div class="{card_style}">
+                    <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 0.95rem;">
+                        <span>{item['date']} — {item['name']}</span>
+                        <span style="font-size: 0.8rem; color: #555;">{item['status']}</span>
+                    </div>
+                    <div style="font-size: 0.85rem; color: #444; margin-top: 4px;">{item['desc']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No timeline events found.")
+
+        st.markdown("---")
+        st.markdown("#### 🤖 AI 2-Week Planner & Calendar Integrator")
+        
+        plan_focus = st.selectbox("Planning Focus for Next 2 Weeks:", [
+            "Threshold Power & Sweet Spot Progression", 
+            "Climbing Endurance & Resistance Blocks", 
+            "Recovery & Taper Structure", 
+            "Custom Indoor/Outdoor Balance"
+        ])
+        
+        if st.button("🤖 Generate 2-Week Training Plan & Push to Coach", type="primary"):
+            st.session_state.messages.append({
+                "role": "user", 
+                "content": f"Please design and plan my training schedule for the next 2 weeks with a focus on '{plan_focus}'. Give me specific workout names, durations, and power targets so I can add them to my Intervals.icu calendar."
+            })
+            st.session_state.messages.append({
+                "role": "model", 
+                "content": f"I've generated your 2-week training block focused on '{plan_focus}'. Let's review the schedule!"
+            })
+            st.success("Plan generated! Head to the **AI Coach & Sparring** tab.")
+            st.rerun()
+
+    with c_cal2:
+        st.markdown("#### 🚨 Missed Workout Protocol")
+        st.info(
+            "**Human Coach Rulebook for Missed Sessions:**\n\n"
+            "1. **Never double up** high-intensity days to 'make up' for lost time.\n"
+            "2. If you missed an **easy/recovery ride**, drop it and move on.\n"
+            "3. If you missed a **key interval/climbing session**, evaluate your Form (TSB). If TSB > -10, shift it to today. If TSB < -20, skip it entirely to prevent overtraining."
+        )
+        if st.button("🤖 Ask Coach About a Missed Workout", use_container_width=True):
+            st.session_state.messages.append({
+                "role": "user", 
+                "content": "I missed my scheduled workout yesterday. Given my current TSB and upcoming weekend group ride, what should I do?"
+            })
+            st.session_state.messages.append({
+                "role": "model", 
+                "content": "Let's figure out the best move for your missed session. Check your current TSB—is it holding steady or deeply negative?"
+            })
+            st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
+            st.rerun()
+
+# ================= TAB 4: ACTIVITY INSPECTOR =================
+with tab_history:
+    st.markdown("### 🔍 Past Activity Inspector & Deep Debrief")
+    st.caption("Select any past activity from your history to run an AI-powered performance debrief with clear activity and date identification.")
+
+    if activities_data:
+        act_options = {}
+        for act in activities_data:
+            name = act.get("name", "Unnamed Activity")
+            date = act.get("start_date_local", "")[:10]
+            raw_dist = act.get("distance")
+            dist = round(((raw_dist if raw_dist is not None else 0) / 1000), 1)
+            raw_time = act.get("moving_time")
+            dur_min = int((raw_time if raw_time is not None else 0) / 60)
+            label = f"{date} — {name} ({dist} km, {dur_min} mins)"
+            act_options[label] = act
+
+        selected_label = st.selectbox("Choose a past activity to analyze:", list(act_options.keys()))
+        selected_act = act_options[selected_label]
+
+        act_display_name = selected_act.get('name', 'Workout')
+        act_display_date = selected_act.get('start_date_local', '')[:10]
+        st.markdown(f"""
+        <div style="background-color: #eaf2f8; border: 1px solid #a9cce3; padding: 12px 16px; border-radius: 10px; margin-bottom: 16px;">
+            <div style="font-size: 0.8rem; font-weight: bold; color: #2471a3; text-transform: uppercase;">Selected Activity Inspection</div>
+            <div style="font-size: 1.2rem; font-weight: bold; color: #1b4f72; margin-top: 2px;">{act_display_name}</div>
+            <div style="font-size: 0.9rem; color: #515a5a; margin-top: 2px;">📅 Date: {act_display_date}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_info1, col_info2, col_info3 = st.columns(3)
+        sel_dist = selected_act.get("distance")
+        safe_dist = round(((sel_dist if sel_dist is not None else 0) / 1000), 2)
+        col_info1.metric("Distance", f"{safe_dist} km")
+        
+        sel_time = selected_act.get("moving_time")
+        safe_time = int((sel_time if sel_time is not None else 0) / 60)
+        col_info2.metric("Moving Time", f"{safe_time} mins")
+        
+        avg_watts = selected_act.get("average_watts")
+        safe_watts = f"{avg_watts} W" if avg_watts is not None else "N/A"
+        col_info3.metric("Average Power", safe_watts)
+
+        if st.button("🤖 Run Deep AI Activity Debrief", type="primary", use_container_width=True):
+            with st.spinner("Analyzing activity metrics, power output, and pacing..."):
+                debrief_prompt = "\n".join([
+                    "You are an elite cycling coach. Perform a deep performance debrief for this specific activity:",
+                    f"Activity Name: {act_display_name}",
+                    f"Activity Date: {act_display_date}",
+                    f"Activity Details: {selected_act}",
+                    f"Athlete Gear/Setup: {st.session_state.athlete_gear}",
+                    f"Target Event Goal: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
+                    "",
+                    "Evaluate: 1) Intensity distribution, 2) Pacing efficiency, 3) Strengths, and 4) Areas for improvement."
+                ])
+
+                try:
+                    debrief_res, debrief_engine = execute_multiprovider_generation(debrief_prompt, preferred_provider=selected_provider)
+                    st.session_state.selected_activity_analysis = f"### 🚴‍♂️ Performance Debrief: {act_display_name}\n📅 **Date:** {act_display_date}\n\n{debrief_res}\n\n*(Engine: {debrief_engine})*"
+                except Exception as e:
+                    st.error(f"Analysis failed: {e}")
+
+        if st.session_state.selected_activity_analysis:
+            st.markdown("---")
+            st.markdown(st.session_state.selected_activity_analysis)
+            
+            if st.button("💬 Clarify This Debrief with Coach", key="discuss_debrief_btn"):
+                act_dist = round((selected_act.get('distance') or 0) / 1000, 2)
+                act_time = int((selected_act.get('moving_time') or 0) / 60)
+                act_watts = selected_act.get('average_watts', 'N/A')
+                
+                st.session_state.messages.append({
+                    "role": "user", 
+                    "content": f"I want clarifications regarding my activity '{act_display_name}' on {act_display_date} ({act_dist} km, {act_time} mins, {act_watts}W avg power)."
+                })
+                st.session_state.messages.append({
+                    "role": "model", 
+                    "content": f"I have the details for '{act_display_name}' ({act_display_date}) right here. What specific section would you like to unpack?"
+                })
+                st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
+                st.rerun()
+    else:
+        st.info("No activities found in your Intervals.icu sync history.")
+
+# ================= TAB 5: RECOVERY & SUPPLEMENTS =================
+with tab_recovery:
+    st.markdown("### 💊 Dynamic Recovery & Supplement Protocol")
+    st.caption("Manage your personal supplement stack. The AI coach dynamically tracks these to optimize your recovery and training adaptation.")
+
+    with st.form("add_supplement_form", clear_on_submit=True):
+        st.markdown("#### Add New Supplement")
+        col_s1, col_s2, col_s3 = st.columns([1, 1, 2])
+        new_name = col_s1.text_input("Supplement Name")
+        new_timing = col_s2.text_input("Target Timing (e.g., Pre-bed)")
+        new_notes = col_s3.text_input("Purpose / Notes")
+        
+        if st.form_submit_button("➕ Add to Stack", use_container_width=True):
+            if new_name:
+                st.session_state.user_supplements.append({
+                    "name": new_name.strip(), 
+                    "timing": new_timing.strip() if new_timing else "As needed", 
+                    "notes": new_notes.strip() if new_notes else "Custom supplement"
+                })
+                st.success(f"Added {new_name} to your stack!")
+                st.rerun()
+            else:
+                st.warning("Please enter a supplement name.")
+
+    st.markdown("---")
+    st.markdown("#### 📋 Current Active Supplement Stack")
+
+    if st.session_state.user_supplements:
+        df_supps = pd.DataFrame(st.session_state.user_supplements)
+        st.dataframe(df_supps, use_container_width=True, hide_index=True)
+
+        supp_names = [s["name"] for s in st.session_state.user_supplements]
+        to_remove = st.selectbox("Select a supplement to remove (optional):", ["-- Select --"] + supp_names)
+        if to_remove != "-- Select --":
+            if st.button("🗑️ Remove Selected Supplement"):
+                st.session_state.user_supplements = [s for s in st.session_state.user_supplements if s["name"] != to_remove]
+                st.success(f"Removed {to_remove} from your stack.")
+                st.rerun()
+    else:
+        st.info("Your supplement stack is currently empty. Add one above!")
+
+    st.markdown("---")
+    if st.button("💬 Discuss Updated Supplement Stack With Coach", key="discuss_supplements_btn"):
+        stack_desc = ", ".join([f"{s['name']} ({s['timing']})" for s in st.session_state.user_supplements])
+        st.session_state.messages.append({
+            "role": "user", 
+            "content": f"Let's review my active supplement stack: {stack_desc}. How should I coordinate these around my training schedule?"
+        })
+        st.session_state.messages.append({
+            "role": "model", 
+            "content": "I've loaded your updated supplement stack into our chat. Let's optimize your recovery!"
+        })
+        st.success("Context loaded with your live stack! Head to the **AI Coach & Sparring** tab.")
+        st.rerun()
+
+# ================= TAB 6: ROUTE STRATEGIST =================
+with tab_strat:
+    st.markdown("### 🗺️ Route Pacing & Climbing Strategist")
+    uploaded_gpx = st.file_uploader("Upload GPX Route File (.gpx)", type=["gpx"])
+    
+    def parse_gpx(file_bytes):
+        try:
+            xml_content = file_bytes.decode('utf-8', errors='ignore')
+            root = ET.fromstring(xml_content)
+            latlons, elevation_list = [], []
+            for elem in root.iter():
+                tag = elem.tag.split('}')[-1].lower()
+                if tag in ['trkpt', 'rtept']:
+                    lat_str = elem.attrib.get('lat') or elem.attrib.get('latitude')
+                    lon_str = elem.attrib.get('lon') or elem.attrib.get('longitude')
+                    if lat_str and lon_str:
+                        latlons.append((float(lat_str), float(lon_str)))
+                        ele_val = elevation_list[-1] if elevation_list else 0.0
+                        for child in elem:
+                            if child.tag.split('}')[-1].lower() in ['ele', 'elevation', 'alt']:
+                                try: ele_val = float(child.text)
+                                except: pass
+                                break
+                        elevation_list.append(ele_val)
+            if not latlons: return None
+            total_ele_gain = sum(max(0, elevation_list[i] - elevation_list[i-1]) for i in range(1, len(elevation_list)))
+            total_dist_km = sum(6371.0 * (2 * math.asin(math.sqrt(math.sin(math.radians(latlons[i][0]-latlons[i-1][0])/2)**2 + math.cos(math.radians(latlons[i-1][0])) * math.cos(math.radians(latlons[i][0])) * math.sin(math.radians(latlons[i][1]-latlons[i-1][1])/2)**2))) for i in range(1, len(latlons)))
+            return {"distance_km": round(max(total_dist_km, 0.1), 2), "elevation_gain_m": round(total_ele_gain, 1), "max_elevation": round(max(elevation_list), 1) if elevation_list else 0}
+        except Exception: return None
+
+    if uploaded_gpx:
+        route_metrics = parse_gpx(uploaded_gpx.read())
+        if route_metrics:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Distance", f"{route_metrics['distance_km']} km")
+            c2.metric("Elevation Gain", f"{route_metrics['elevation_gain_m']} m")
+            c3.metric("Max Elevation", f"{route_metrics['max_elevation']} m")
+            
+            if st.button("🤖 Generate Climbing Strategy", type="primary"):
+                with st.spinner("Analyzing route profile..."):
+                    strat_prompt = "\n".join([
+                        f"Analyze this route profile: Distance {route_metrics['distance_km']} km, Elevation Gain {route_metrics['elevation_gain_m']} m.",
+                        f"Athlete Gear/Setup: {st.session_state.athlete_gear}",
+                        f"Objective: {st.session_state.goals['target_metric']}",
+                        "Provide precise power pacing targets and climbing strategies."
+                    ])
+                    try:
+                        strat_res, strat_model = execute_multiprovider_generation(strat_prompt, preferred_provider=selected_provider)
+                        st.markdown("---")
+                        st.markdown(strat_res)
+                        st.caption(f"Generated via: {strat_model}")
+                    except Exception as e:
+                        st.error(f"Strategy generation failed: {e}")
