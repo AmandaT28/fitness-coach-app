@@ -230,6 +230,10 @@ else:
 
 google_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
+# --- INITIALIZE MESSAGES STATE EARLY ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+    
 # --- ONE-TIME INITIAL ONBOARDING CHECK ---
 # Determine if onboarding is complete based on Supabase (for you) or browser storage (for guests)
 if st.session_state.user:
