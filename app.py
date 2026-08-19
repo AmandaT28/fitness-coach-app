@@ -346,13 +346,13 @@ if activities_data and st.session_state.auto_debriefed_id != activities_data[0].
     act_name = latest_act.get('name', 'Latest Ride')
     st.session_state.auto_debriefed_id = act_id
     
-    auto_prompt = f"""
-    [Autonomous Post-Workout Auto-Debrief]
-    A new activity has synced via Garmin / Intervals.icu: {latest_act}
-    Athlete Gear/Setup: {st.session_state.athlete_gear}
-    Goal: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})
-    Provide a concise, high-level autonomous performance debrief.
-    """
+    auto_prompt = (
+        "[Autonomous Post-Workout Auto-Debrief]\n"
+        f"A new activity has synced via Garmin / Intervals.icu: {latest_act}\n"
+        f"Athlete Gear/Setup: {st.session_state.athlete_gear}\n"
+        f"Goal: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})\n"
+        "Provide a concise, high-level autonomous performance debrief."
+    )
     try:
         auto_res, _ = execute_multiprovider_generation(auto_prompt)
         st.session_state.messages.append({"role": "model", "content": f"🚨 **Autonomous Post-Ride Debrief ({act_name}):**\n\n{auto_res}"})
@@ -465,17 +465,16 @@ with tab_dash:
         st.session_state.cached_trend_analysis = None
 
     if st.button("🚀 Run 90-Day Trend Synthesis", type="primary"):
-        trend_payload = f"""
-        Perform a rigorous, detailed 90-day sports science trend analysis based on my wellness and training data:
-        CTL (Fitness): {ctl}, ATL (Fatigue): {atl}, TSB (Form): {tsb}
-        Athlete Gear/Setup: {st.session_state.athlete_gear}
-        Physical Notes: {st.session_state.athlete_limitations}
-        Recent Activities Summary: {activities_data[:25] if activities_data else 'None'}
-        Target Event: {st.session_state.goals['event_name']} in {days_left} days.
-        Objective: {st.session_state.goals['target_metric']}
-        
-        Provide a structured analysis covering fitness trajectory, consistency, climbing readiness, and next steps.
-        """
+        trend_payload = (
+            "Perform a rigorous, detailed 90-day sports science trend analysis based on my wellness and training data:\n"
+            f"CTL (Fitness): {ctl}, ATL (Fatigue): {atl}, TSB (Form): {tsb}\n"
+            f"Athlete Gear/Setup: {st.session_state.athlete_gear}\n"
+            f"Physical Notes: {st.session_state.athlete_limitations}\n"
+            f"Recent Activities Summary: {activities_data[:25] if activities_data else 'None'}\n"
+            f"Target Event: {st.session_state.goals['event_name']} in {days_left} days.\n"
+            f"Objective: {st.session_state.goals['target_metric']}\n\n"
+            "Provide a structured analysis covering fitness trajectory, consistency, climbing readiness, and next steps."
+        )
         with st.spinner("Synthesizing 90-day performance trends..."):
             try:
                 trend_res, _ = execute_multiprovider_generation(trend_payload, preferred_provider=selected_provider)
@@ -534,15 +533,14 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
     last_user_prompt = st.session_state.messages[-1]["content"]
     
     stack_summary = ", ".join([f"{s['name']} ({s['timing']})" for s in st.session_state.user_supplements])
-    payload = f"""
-    You are an elite cycling sports science coach acting with the persona: '{coach_persona}'.
-    ATHLETE GEAR & SETUP: {st.session_state.athlete_gear}
-    PHYSICAL LIMITATIONS / NOTES: {st.session_state.athlete_limitations}
-    ACTIVE SUPPLEMENT STACK: {stack_summary}
-    GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})
-    METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.
-    ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}
-    UPCOMING SCHEDULE: {planned_events[:15] if planned_events else 'None'}
-    
-    Provide concise, lightning-fast, and rigorous coaching insights matching your assigned persona.
-    CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside a ```xml ...
+    payload = (
+        f"You are an elite cycling sports science coach acting with the persona: '{coach_persona}'.\n"
+        f"ATHLETE GEAR & SETUP: {st.session_state.athlete_gear}\n"
+        f"PHYSICAL LIMITATIONS / NOTES: {st.session_state.athlete_limitations}\n"
+        f"ACTIVE SUPPLEMENT STACK: {stack_summary}\n"
+        f"GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})\n"
+        f"METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.\n"
+        f"ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}\n"
+        f"UPCOMING SCHEDULE: {planned_events[:15] if planned_events else 'None'}\n\n"
+        "Provide concise, lightning-fast, and rigorous coaching insights matching your assigned persona.\n"
+        "CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside a ```xml ...
