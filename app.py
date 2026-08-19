@@ -35,7 +35,7 @@ openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
 # App UI Configuration
-st.set_page_config(page_title="ICU Coach • Elite Performance Suite", page_icon="🚴‍♂️", layout="wide")
+st.set_page_config(page_title="AI Performance Coach • Elite Cycling Suite", page_icon="🚴‍♂️", layout="wide")
 
 st.markdown("""
 <style>
@@ -65,7 +65,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- MULTI-PROVIDER AI ROUTer ---
+# --- MULTI-PROVIDER AI ROUTER ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain"):
     def call_openai():
         res = openai_client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
@@ -93,7 +93,7 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
 # --- AUTHENTICATION ---
 if "user" not in st.session_state: st.session_state.user = None
 if not st.session_state.user:
-    st.markdown("### 🔐 ICU Coach Secure Login")
+    st.markdown("### 🔐 Secure Athlete Portal Login")
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
     if st.button("Log In", use_container_width=True):
@@ -178,9 +178,8 @@ tab_dash, tab_coach, tab_history, tab_strat = st.tabs([
 
 # ================= TAB 1: COMMAND CENTER =================
 with tab_dash:
-    st.markdown(f"### ☀️ ICU Coach • Performance Command Center")
+    st.markdown(f"### ☀️ AI Performance Coach • Command Center")
     
-    # Target Race Banner matching ICU style
     st.markdown(f"""
     <div style="background-color: #fef9e7; border: 1px solid #f9e79f; padding: 16px; border-radius: 14px; margin-bottom: 16px;">
         <span style="font-size: 0.75rem; font-weight: bold; color: #d68910; background: #fcf3cf; padding: 2px 6px; border-radius: 4px;">BUILD • WEEK 3/9</span>
@@ -201,11 +200,28 @@ with tab_dash:
     with c_met4: st.metric("Sleep Score", f"{sleep_score}/100" if sleep_score > 0 else "N/A")
 
     st.markdown("---")
-    st.markdown("#### 📊 90-Day Training Load & Trend Summary")
-    st.info(
-        f"**Coach Intelligence:** Your training load is tracking well toward your target race. "
-        f"{'🟢 Your form (TSB) is balanced for high-intensity intervals and climbing development.' if tsb >= -15 else '🟡 Fatigue is high; prioritize recovery pacing before weekend group rides.'}"
-    )
+    st.markdown("#### 📈 Deep 90-Day Training Load & Progression Trend Analysis")
+    
+    # Automated Deep Trend Breakdown calculation
+    with st.spinner("Synthesizing 90-day performance trends..."):
+        trend_payload = f"""
+        Perform a rigorous, detailed 90-day sports science trend analysis based on my wellness and training data:
+        CTL (Fitness): {ctl}, ATL (Fatigue): {atl}, TSB (Form): {tsb}
+        Recent Activities Summary: {activities_data[:25] if activities_data else 'None'}
+        Target Event: {st.session_state.goals['event_name']} in {days_left} days.
+        Objective: {st.session_state.goals['target_metric']}
+        
+        Provide a structured analysis covering:
+        1. **Fitness Trajectory & Ramp Rate:** Are we building fitness too fast, too slow, or perfectly on track for October 24?
+        2. **Consistency & Intensity Distribution:** Evaluate the balance between indoor structural work and weekend group rides over the past 90 days.
+        3. **Climbing Readiness Indicator:** Based on recent power outputs and load, are we successfully closing the gap to prevent getting dropped on climbs?
+        4. **Verdict / Next Steps:** Give a clear, actionable instruction for the coming week.
+        """
+        try:
+            trend_analysis_text, _ = execute_multiprovider_generation(trend_payload, preferred_provider=selected_provider)
+            st.markdown(trend_analysis_text)
+        except Exception as e:
+            st.error(f"Could not generate deep trend analysis: {e}")
 
 # ================= TAB 2: AI COACH & CHAT =================
 with tab_coach:
@@ -216,9 +232,12 @@ with tab_coach:
     with chat_container:
         for idx, msg in enumerate(st.session_state.messages):
             with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
+                # Cleanly strip out raw xml blocks from text display so the user doesn't see code
+                clean_content = re.sub(r"```xml\s*<\?xml.*?>.*?</\s*workout_file\s*>\s*```", "", msg["content"], flags=re.DOTALL)
+                clean_content = re.sub(r"```\s*<workout_file>.*?</\s*workout_file>\s*```", "", clean_content, flags=re.DOTALL)
+                st.markdown(clean_content.strip())
                 
-                # Auto-detect XML workout blocks and provide download button
+                # Auto-detect XML workout blocks and provide clean download button
                 if msg["role"] == "model":
                     match = re.search(r"```xml\s*(<\?xml.*?>.*?<\s*/\s*workout_file\s*>|<workout_file>.*?</\s*workout_file>)\s*```", msg["content"], re.DOTALL)
                     if not match:
@@ -229,12 +248,14 @@ with tab_coach:
                         st.download_button(
                             label="📥 Download MyWhoosh Workout File (.zwo)",
                             data=zwo_data,
-                            file_name=f"ICU_Coach_Workout_{idx}.zwo",
+                            file_name=f"AI_Coach_Workout_{idx}.zwo",
                             mime="application/xml",
                             key=f"download_zwo_{idx}"
                         )
 
+    # Chat Input Box with instant UI feedback loop
     if prompt := st.chat_input("Ask your coach anything about your training trends or workouts..."):
+        # Append and render user message immediately
         st.session_state.messages.append({"role": "user", "content": prompt})
         
         payload = f"""
@@ -247,13 +268,14 @@ with tab_coach:
         CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside a ```xml ... ``` code block.
         """ + prompt
         
-        try:
-            resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
-            full_resp = f"{resp}\n\n*(Engine: {engine})*"
-            st.session_state.messages.append({"role": "model", "content": full_resp})
-            st.rerun()
-        except Exception as e:
-            st.error(f"AI Generation Failed: {str(e)}")
+        with st.spinner("Coach is analyzing your performance metrics..."):
+            try:
+                resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
+                full_resp = f"{resp}\n\n*(Engine: {engine})*"
+                st.session_state.messages.append({"role": "model", "content": full_resp})
+                st.rerun()
+            except Exception as e:
+                st.error(f"AI Generation Failed: {str(e)}")
 
 # ================= TAB 3: ACTIVITY INSPECTOR (Click-to-Analyze) =================
 with tab_history:
@@ -261,7 +283,6 @@ with tab_history:
     st.caption("Select any past activity from your 90-day history to run an AI-powered performance debrief.")
 
     if activities_data:
-        # Create a clean display dataframe of past activities with safe checks
         act_options = {}
         for act in activities_data:
             name = act.get("name", "Unnamed Activity")
@@ -292,19 +313,9 @@ with tab_history:
         avg_watts = selected_act.get("average_watts")
         safe_watts = f"{avg_watts} W" if avg_watts is not None else "N/A"
         col_info3.metric("Average Power", safe_watts)
-        
-        sel_time = selected_act.get("moving_time")
-        safe_time = int((sel_time if sel_time is not None else 0) / 60)
-        col_info2.metric("Moving Time", f"{safe_time} mins")
-        
-        avg_watts = selected_act.get("average_watts")
-        safe_watts = f"{avg_watts} W" if avg_watts is not None else "N/A"
-        col_info3.metric("Average Power", safe_watts)
-        col_info2.metric("Moving Time", f"{int(selected_act.get('moving_time', 0)/60)} mins")
-        col_info3.metric("Average Power", f"{selected_act.get('average_watts', 'N/A')} W")
 
         if st.button("🤖 Run Deep AI Activity Debrief", type="primary", use_container_width=True):
-            with st.spinner("Analyzing activity metrics, power output, and pacing...?"):
+            with st.spinner("Analyzing activity metrics, power output, and pacing..."):
                 debrief_prompt = f"""
                 You are an elite cycling coach. Perform a deep, rigorous performance debrief for this specific activity:
                 Activity Details: {selected_act}
