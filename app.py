@@ -66,16 +66,34 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- SPEED-OPTIMIZED MULTI-PROVIDER AI ROUTER ---
+# --- SPEED-OPTIMIZED MULTI-PROVIDER AI ROUTER WITH DUAL GOOGLE KEYS ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain"):
+    PRIMARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("primary_key") or st.secrets.get("GEMINI_API_KEY") or os.getenv("PRIMARY_KEY") or os.getenv("GEMINI_API_KEY")
+    SECONDARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("secondary_key") or st.secrets.get("SECONDARY_GEMINI_KEY") or os.getenv("SECONDARY_KEY")
+
+    primary_google_client = genai.Client(api_key=PRIMARY_GEMINI_KEY) if PRIMARY_GEMINI_KEY else None
+    secondary_google_client = genai.Client(api_key=SECONDARY_GEMINI_KEY) if SECONDARY_GEMINI_KEY else None
+
     def call_google():
         models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.7-pro-preview"]
-        for m in models:
-            try:
-                return google_client.models.generate_content(model=m, contents=prompt).text, f"Google {m}"
-            except: 
-                continue
-        raise Exception("Google failed")
+        
+        # 1. Try Primary Google Key
+        if primary_google_client:
+            for m in models:
+                try:
+                    return primary_google_client.models.generate_content(model=m, contents=prompt).text, f"Google {m} (Primary Key)"
+                except Exception: 
+                    continue
+                    
+        # 2. Failover to Secondary Key if primary hits quota limit / fails
+        if secondary_google_client:
+            for m in models:
+                try:
+                    return secondary_google_client.models.generate_content(model=m, contents=prompt).text, f"Google {m} (Secondary Key Failover)"
+                except Exception:
+                    continue
+                    
+        raise Exception("All Google keys and models failed.")
         
     def call_openai():
         res = openai_client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
