@@ -113,44 +113,61 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
         except: continue
     raise Exception("All AI providers failed.")
 
-# --- AUTHENTICATION ---
-if "user" not in st.session_state: st.session_state.user = None
-if not st.session_state.user:
-    st.markdown("### 🔐 Secure Athlete Portal Login")
-    email = st.text_input("Email")
-    password = st.text_input("Password", type="password")
-    if st.button("Log In", use_container_width=True):
-        try:
-            res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-            st.session_state.user = res.user
-            st.rerun()
-        except Exception as e: st.error(f"Login failed: {e}")
+from streamlit_local_storage import LocalStorage
+
+# --- BROWSER LOCAL STORAGE AUTHENTICATION (BYOK & REMEMBER ME) ---
+localS = LocalStorage()
+
+# Check if keys are already saved in the user's browser local storage
+stored_user = localS.getItem("athlete_profile_config")
+
+if "user_credentials" not in st.session_state:
+    if stored_user:
+        st.session_state.user_credentials = stored_user
+    else:
+        st.session_state.user_credentials = None
+
+# If no credentials found in browser storage, show the one-time Setup Screen with instructions
+if not st.session_state.user_credentials:
+    st.markdown("### 🚴‍♂️ Welcome to the AI Performance Coach")
+    st.markdown("Enter your personal keys once. Your browser will securely remember them for future visits—no password required!")
+    
+    with st.form("browser_setup_form"):
+        st.markdown("#### ⚙️ Quick Setup Instructions")
+        st.markdown("1. **Intervals.icu API Key:** Found in your Intervals.icu account under `Settings` -> `Developer`.\n2. **Athlete ID:** Your unique account identifier (e.g., `i608928`).\n3. **Gemini API Key:** Free to generate from [Google AI Studio](https://aistudio.google.com).")
+        st.markdown("---")
+        
+        col_name = st.text_input("Your Name / Identifier")
+        icu_key = st.text_input("Intervals.icu API Key", help="Found in Intervals.icu Settings -> Developer")
+        icu_id = st.text_input("Intervals.icu Athlete ID", help="e.g., i608928")
+        gemini_key = st.text_input("Google AI Studio (Gemini) API Key", type="password", help="Free from aistudio.google.com")
+        
+        if st.form_submit_button("Save & Launch Dashboard", use_container_width=True):
+            if icu_key and icu_id and gemini_key:
+                config_data = {
+                    "name": col_name.strip() if col_name else "Athlete",
+                    "icu_key": icu_key.strip(),
+                    "icu_id": icu_id.strip(),
+                    "gemini_key": gemini_key.strip()
+                }
+                # Save to browser local storage so it persists on next visit!
+                localS.setItem("athlete_profile_config", config_data)
+                st.session_state.user_credentials = config_data
+                st.success("Configuration saved! Launching dashboard...")
+                st.rerun()
+            else:
+                st.warning("Please fill in all required keys.")
     st.stop()
 
-USER_ID = st.session_state.user.id
+# Once loaded, extract the keys for the app to use:
+current_creds = st.session_state.user_credentials
+INTERVALS_API_KEY = current_creds["icu_key"]
+ATHLETE_ID = current_creds["icu_id"]
+GEMINI_KEY = current_creds["gemini_key"]
 
-profile_res = supabase.table("profiles").select("*").eq("id", USER_ID).execute()
-user_profile = profile_res.data[0] if profile_res.data else {}
-
-if not user_profile.get("intervals_api_key"):
-    st.error("Please configure your Intervals.icu API key in Supabase profiles.")
-    st.stop()
-
-INTERVALS_API_KEY = user_profile["intervals_api_key"]
-ATHLETE_ID = user_profile["intervals_athlete_id"]
-
-if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict):
-    st.session_state.goals = {}
-
-st.session_state.goals["event_name"] = user_profile.get("event_name") or "Bintan Round Island"
-st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Survive steep climbs on group rides & improve threshold power"
-
-# --- DYNAMIC GEAR & PHYSICAL PROFILE (Non-Hardcoded) ---
-if "athlete_gear" not in st.session_state:
-    st.session_state.athlete_gear = user_profile.get("gear_notes") or "Cervélo Soloist (48), 160mm crankset, dual power meter, Wahoo Speedplay titanium pedals, GP5000 28mm tires."
-
-if "athlete_limitations" not in st.session_state:
-    st.session_state.athlete_limitations = user_profile.get("limitations_notes") or "None reported. Focus on climbing efficiency and cadence consistency."
+# Re-initialize the Google AI client using their personal Gemini key
+google_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
+USER_ID = current_creds["name"]
 
 # --- INITIALIZE SESSION STATES ---
 if "user_supplements" not in st.session_state:
