@@ -47,42 +47,6 @@ st.markdown("""
         visibility: hidden !important;
         display: none !important;
     }
-
-  # --- CLEAN NATIVE TOP NAVIGATION ---
-selected_nav = st.radio(
-    "Navigation Suite",
-    [
-        "📊 Command Center", 
-        "🤖 AI Coach & Sparring", 
-        "📅 Training Calendar", 
-        "🔍 Activity Inspector", 
-        "💊 Recovery & Supplements", 
-        "🗺️ Route Strategist"
-    ],
-    horizontal=True,
-    label_visibility="collapsed"
-)
-
-st.markdown("---")
-
-# Create a sticky header wrapper for navigation
-with st.container():
-    st.markdown('<div class="top-nav-container">', unsafe_allow_html=True)
-    
-    selected_nav = st.radio(
-        "Navigation Suite",
-        [
-            "📊 Command Center", 
-            "🤖 AI Coach & Sparring", 
-            "📅 Training Calendar", 
-            "🔍 Activity Inspector", 
-            "💊 Recovery & Supplements", 
-            "🗺️ Route Strategist"
-        ],
-        horizontal=True,
-        label_visibility="collapsed"
-    )
-    st.markdown('</div>', unsafe_allow_html=True)
     
     /* --- ENLARGE & HIGHLIGHT SIDEBAR NAVIGATION --- */
     /* Target the text labels inside the navigation radio buttons */
