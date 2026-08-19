@@ -259,7 +259,7 @@ if activities_data and st.session_state.auto_debriefed_id != activities_data[0].
 
 # --- SIDEBAR (Customizable Profile & Gear Settings) ---
 with st.sidebar:
-    st.markdown(f"👤 **{st.session_state.user.email}**")
+    st.markdown(f"👤 **{USER_ID}**")
     
     st.subheader("⚙️ Athlete & Equipment Profile")
     with st.form("gear_profile_form"):
