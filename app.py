@@ -48,24 +48,24 @@ st.markdown("""
         display: none !important;
     }
     
-    /* --- STICKY PINNED NAVIGATION TABS --- */
+    /* --- THEME-AWARE STICKY PINNED NAVIGATION TABS --- */
     header[data-testid="stHeader"] {
         background-color: transparent;
     }
     
-    /* Locks the main tab container to the top header area */
+    /* Uses Streamlit's dynamic theme variables to blend seamlessly in Dark or Light mode */
     div[data-testid="stVerticalBlock"] > div:has(div.stTabs) {
         position: sticky;
         top: 0rem;
         z-index: 99999;
-        background-color: #ffffff;
+        background-color: var(--background-color);
         padding-top: 1rem;
         padding-bottom: 0.5rem;
         margin-top: -1rem;
     }
 
     .stCard {
-        background-color: #ffffff;
+        background-color: var(--secondary-background-color);
         border: 1px solid rgba(128, 128, 128, 0.15);
         border-radius: 12px;
         padding: 20px;
@@ -73,7 +73,7 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(0,0,0,0.03);
     }
     div[data-testid="stMetric"] {
-        background-color: rgba(128, 128, 128, 0.02);
+        background-color: var(--secondary-background-color);
         border: 1px solid rgba(128, 128, 128, 0.08);
         padding: 12px 16px;
         border-radius: 10px;
@@ -81,7 +81,6 @@ st.markdown("""
     div[data-testid="stMetric"] label {
         font-size: 0.85rem !important;
         font-weight: 500;
-        color: #555555;
     }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
         font-size: 1.3rem !important;
