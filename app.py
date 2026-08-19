@@ -35,7 +35,7 @@ openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
 # App UI Configuration
-st.set_page_config(page_title="AI Performance Coach • Autonomous Suite", page_icon="🚴‍♂️", layout="wide")
+st.set_page_config(page_title="AI Performance Coach • Elite Suite", page_icon="🚴‍♂️", layout="wide")
 
 st.markdown("""
 <style>
@@ -65,7 +65,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- MULTI-PROVIDER AI ROUTER (Using your preferred 3.x Gemini models) ---
+# --- MULTI-PROVIDER AI ROUTER ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain"):
     def call_openai():
         res = openai_client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
@@ -144,7 +144,7 @@ if "user_supplements" not in st.session_state:
     ]
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "model", "content": "Hello! I am your autonomous AI Performance Coach. I'm actively monitoring your Apple HealthKit biometric syncs, automated ride debriefs, and training calendar. How can I help you today?"}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! I am your autonomous AI Performance Coach. I'm actively monitoring your Intervals.icu & Garmin sync pipeline, automated ride debriefs, and training calendar. How can I help you today?"}]
 
 if "selected_activity_analysis" not in st.session_state:
     st.session_state.selected_activity_analysis = None
@@ -152,7 +152,7 @@ if "selected_activity_analysis" not in st.session_state:
 if "auto_debriefed_id" not in st.session_state:
     st.session_state.auto_debriefed_id = None
 
-# --- FETCH DATA ---
+# --- FETCH DATA (Expanded 3-Week Calendar Window: 7 days past, 14 days future) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data(aid, key):
     try:
@@ -160,7 +160,12 @@ def fetch_intervals_data(aid, key):
         start_date = (datetime.date.today() - datetime.timedelta(days=90)).isoformat()
         w_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/wellness?oldest={start_date}&newest={end_date}", auth=("API_KEY", key), timeout=5)
         a_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/activities?oldest={start_date}&newest={end_date}", auth=("API_KEY", key), timeout=5)
-        e_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/events?oldest={start_date}&newest={end_date}", auth=("API_KEY", key), timeout=5)
+        
+        # 3-week calendar fetch (7 days past to 14 days future)
+        cal_start = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
+        cal_end = (datetime.date.today() + datetime.timedelta(days=14)).isoformat()
+        e_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/events?oldest={cal_start}&newest={cal_end}", auth=("API_KEY", key), timeout=5)
+        
         return (
             w_res.json() if w_res.status_code == 200 else [], 
             a_res.json() if a_res.status_code == 200 else [],
@@ -187,10 +192,9 @@ if activities_data and st.session_state.auto_debriefed_id != activities_data[0].
     act_name = latest_act.get('name', 'Latest Ride')
     st.session_state.auto_debriefed_id = act_id
     
-    # Automatically inject a proactive debrief into chat stream
     auto_prompt = f"""
     [Autonomous Post-Workout Auto-Debrief]
-    A new activity has synced: {latest_act}
+    A new activity has synced via Garmin / Intervals.icu: {latest_act}
     Goal: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})
     Provide a concise, high-level autonomous performance debrief highlighting what was done well and what to adjust next.
     """
@@ -234,15 +238,15 @@ tab_dash, tab_coach, tab_calendar, tab_history, tab_recovery, tab_strat = st.tab
 with tab_dash:
     st.markdown(f"### ☀️ Autonomous AI Performance Coach • Command Center")
     
-    # Apple HealthKit Integration Banner
+    # Updated Intervals.icu & Garmin Ecosystem Banner
     st.markdown(f"""
     <div style="background-color: #fef9e7; border: 1px solid #f9e79f; padding: 16px; border-radius: 14px; margin-bottom: 16px;">
-        <span style="font-size: 0.75rem; font-weight: bold; color: #d68910; background: #fcf3cf; padding: 2px 6px; border-radius: 4px;"> APPLE HEALTHKIT SYNC ACTIVE</span>
+        <span style="font-size: 0.75rem; font-weight: bold; color: #d68910; background: #fcf3cf; padding: 2px 6px; border-radius: 4px;">📊 INTERVALS.ICU & GARMIN SYNC ACTIVE</span>
         <div style="font-weight: bold; font-size: 1.1rem; margin-top: 4px;">Target Race: {st.session_state.goals['event_name']} ({days_left} days left)</div>
         <div style="color: #666; font-size: 0.85rem; margin-top: 4px;">Objective: {st.session_state.goals['target_metric']}</div>
         <hr style="margin: 10px 0; border-top: 1px solid #fce881;">
         <div style="font-size: 0.9rem; font-weight: 500; color: #333;">
-            {'🟢 <strong>Readiness High:</strong> Biometrics verified via Apple Health. Form (TSB) is optimal for hard efforts.' if tsb >= -15 else '🟡 <strong>Fatigue Warning:</strong> Biometrics show elevated stress. Prioritize sleep and recovery pacing.'}
+            {'🟢 <strong>Readiness High:</strong> Telemetry verified via Garmin/Intervals.icu. Form (TSB) is optimal for hard efforts.' if tsb >= -15 else '🟡 <strong>Fatigue Warning:</strong> Telemetry shows elevated stress. Prioritize sleep and recovery pacing.'}
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -341,60 +345,61 @@ with tab_coach:
             except Exception as e:
                 st.error(f"AI Generation Failed: {str(e)}")
 
-# ================= TAB 3: TRAINING CALENDAR =================
+# ================= TAB 3: TRAINING CALENDAR (2-Week View) =================
 with tab_calendar:
-    st.markdown("### 📅 Training Calendar & Interactive Workout Rescheduler")
-    st.caption("Review your upcoming scheduled sessions, handle missed workouts, or use the interactive manager to shift your training days.")
+    st.markdown("### 📅 2-Week Training Calendar & Prescription Adjuster")
+    st.caption("Review your 14-day training block (past week & upcoming week) synced from Intervals.icu, and use the prescription adjuster to plan updates.")
 
     c_cal1, c_cal2 = st.columns([2, 1])
     with c_cal1:
-        st.markdown("#### Upcoming Scheduled Training")
+        st.markdown("#### 14-Day Schedule View")
         if planned_events:
             df_cal = pd.DataFrame(planned_events)
             display_cols = [c for c in ['start_date_local', 'name', 'type', 'description'] if c in df_cal.columns]
             st.dataframe(df_cal[display_cols] if display_cols else df_cal, use_container_width=True, hide_index=True)
             
-            # Interactive Workout Rescheduler Tool
-            st.markdown("#### ⚡ Interactive Workout Adjuster")
-            ev_names = [ev.get('name', 'Workout') for ev in planned_events[:7]]
-            selected_ev_to_shift = st.selectbox("Select workout to reschedule:", ["-- Select --"] + ev_names)
-            shift_action = st.radio("Action:", ["Shift to tomorrow", "Swap with rest day", "Convert to Recovery Flush"], horizontal=True)
+            # Refined Workout Adjuster (Prescription & Recommendation Tool)
+            st.markdown("#### ⚙️ Workout Prescription Adjuster")
+            st.caption("Select a session below to get precise coaching prescriptions. (Apply changes directly in your Intervals.icu calendar dashboard).")
+            
+            ev_names = [ev.get('name', 'Workout') for ev in planned_events]
+            selected_ev_to_shift = st.selectbox("Select workout to adjust:", ["-- Select --"] + ev_names)
+            shift_action = st.radio("Requested Modification:", ["Shift to following day", "Swap with rest day", "Convert to Recovery Flush / Z1", "Reduce Volume by 20%"], horizontal=True)
             
             if selected_ev_to_shift != "-- Select --":
-                if st.button("🔄 Apply Schedule Adjustment"):
-                    st.success(f"Successfully adjusted '{selected_ev_to_shift}' ({shift_action}). Your training calendar has been updated.")
+                if st.button("🤖 Generate Adjustment Strategy"):
+                    st.success(f"Generated prescription strategy for '{selected_ev_to_shift}' ({shift_action}).")
                     st.session_state.messages.append({
                         "role": "user", 
-                        "content": f"I just adjusted my schedule: I applied '{shift_action}' to '{selected_ev_to_shift}'. How does this affect my preparation for Saturday's group ride?"
+                        "content": f"I want to adjust my training calendar: I need to apply '{shift_action}' to '{selected_ev_to_shift}'. Based on my current form (TSB: {round(tsb,1)}), how should I update my Intervals.icu calendar and what are the physiological pros and cons?"
                     })
                     st.session_state.messages.append({
                         "role": "model", 
-                        "content": "Got it. Let's analyze how shifting this workout impacts your recovery curve."
+                        "content": f"Let's review the implications of applying '{shift_action}' to '{selected_ev_to_shift}'. Here is your adjustment prescription:"
                     })
                     st.rerun()
 
-            if st.button("💬 Discuss Schedule with Coach", key="discuss_calendar_btn"):
+            if st.button("💬 Discuss 2-Week Schedule with Coach", key="discuss_calendar_btn"):
                 schedule_summary = []
-                for ev in planned_events[:5]:
+                for ev in planned_events:
                     ev_date = ev.get('start_date_local', '')[:10]
                     ev_name = ev.get('name', 'Workout')
-                    ev_desc = ev.get('description', 'No description')
-                    schedule_summary.append(f"- **{ev_date}**: {ev_name} ({ev_desc})")
+                    schedule_summary.append(f"- **{ev_date}**: {ev_name}")
                 
-                clean_schedule_text = "\n".join(schedule_summary) if schedule_summary else "No upcoming workouts found."
+                clean_schedule_text = "\n".join(schedule_summary) if schedule_summary else "No workouts found."
                 
                 st.session_state.messages.append({
                     "role": "user", 
-                    "content": f"Let's review my upcoming training schedule:\n{clean_schedule_text}\n\nAre there any adjustments we should make to help me on climbs?"
+                    "content": f"Let's review my full 14-day training block:\n{clean_schedule_text}\n\nAre there any pacing or recovery bottlenecks we should address?"
                 })
                 st.session_state.messages.append({
                     "role": "model", 
-                    "content": "I've loaded your schedule into our chat. Looking at these upcoming days, what specific adjustments are you thinking about?"
+                    "content": "I've loaded your 14-day schedule into our chat. Let's optimize this training block together!"
                 })
                 st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
                 st.rerun()
         else:
-            st.info("No upcoming calendar events found in Intervals.icu.")
+            st.info("No calendar events found in your 2-week window.")
 
     with c_cal2:
         st.markdown("#### 🚨 Missed Workout Protocol")
