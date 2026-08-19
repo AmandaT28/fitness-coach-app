@@ -35,7 +35,7 @@ openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
 # App UI Configuration
-st.set_page_config(page_title="AI Performance Coach • Proactive Suite", page_icon="🚴‍♂️", layout="wide")
+st.set_page_config(page_title="AI Performance Coach • Elite Suite", page_icon="🚴‍♂️", layout="wide")
 
 st.markdown("""
 <style>
@@ -122,7 +122,7 @@ if "goals" not in st.session_state or not isinstance(st.session_state.goals, dic
 st.session_state.goals["event_name"] = user_profile.get("event_name") or "Bintan Round Island"
 st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Survive steep climbs on group rides & improve threshold power"
 
-# --- FETCH DATA (90-Day Range + Planned Calendar) ---
+# --- FETCH DATA ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data(aid, key):
     try:
@@ -151,7 +151,7 @@ race_date = datetime.date(2026, 10, 24)
 days_left = (race_date - datetime.date.today()).days
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "model", "content": "Hello! I am your proactive AI Performance Coach. I am actively monitoring your training calendar, recovery metrics, and supplement stack. How can I help you prepare today?"}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! I am your proactive AI Performance Coach and sparring partner. Whether you want to bounce around race tactics, debate a training adjustment, or review a ride, let's talk!"}]
 
 if "selected_activity_analysis" not in st.session_state:
     st.session_state.selected_activity_analysis = None
@@ -171,6 +171,13 @@ with st.sidebar:
 
     st.markdown("---")
     selected_provider = st.selectbox("⚡ AI Engine Model", ["⚡ Auto-Fallback Chain", "OpenAI GPT", "Anthropic Claude", "Google Gemini"])
+
+    st.markdown("---")
+    # Restored Clear Chat Button
+    if st.button("🗑️ Clear Chat History", use_container_width=True):
+        st.session_state.messages = [{"role": "model", "content": "Chat history cleared. What idea would you like to brainstorm next?"}]
+        st.rerun()
+
     if st.button("Log Out", use_container_width=True):
         supabase.auth.sign_out()
         st.session_state.user = None
@@ -178,7 +185,7 @@ with st.sidebar:
 
 # --- NAVIGATION SUITE ---
 tab_dash, tab_coach, tab_calendar, tab_recovery, tab_history, tab_strat = st.tabs([
-    "📊 Command Center", "🤖 AI Coach & Chat", "📅 Training Calendar", "💊 Recovery & Supplements", "🔍 Activity Inspector", "🗺️ Route Strategist"
+    "📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "💊 Recovery & Supplements", "🔍 Activity Inspector", "🗺️ Route Strategist"
 ])
 
 # ================= TAB 1: COMMAND CENTER =================
@@ -226,10 +233,10 @@ with tab_dash:
         except Exception as e:
             st.error(f"Could not generate deep trend analysis: {e}")
 
-# ================= TAB 2: AI COACH & CHAT =================
+# ================= TAB 2: AI COACH & SPARRING CHAT =================
 with tab_coach:
-    st.markdown("### 🤖 Elite Sports Science AI Coach")
-    st.caption("Ask for deep trend analysis, missed workout advice, recovery protocols, or request MyWhoosh workouts with instant .zwo file downloads.")
+    st.markdown("### 🤖 AI Coach & Collaborative Sparring Partner")
+    st.caption("Bounce training ideas off your coach, debate workout structures, check missed session protocols, or request MyWhoosh workouts.")
 
     chat_container = st.container()
     with chat_container:
@@ -254,22 +261,22 @@ with tab_coach:
                             key=f"download_zwo_{idx}"
                         )
 
-    if prompt := st.chat_input("Ask your coach anything (e.g., 'I missed yesterday's workout, what should I do?')"):
+    if prompt := st.chat_input("Bounce an idea or ask your coach a question (e.g., 'What do you think about adding a VO2 max block next week?')"):
         st.session_state.messages.append({"role": "user", "content": prompt})
         
         payload = f"""
-        You are an elite, proactive cycling sports science coach replacing a human coach. You guide the athlete on training, missed workouts, nutrition, and recovery.
+        You are an elite, proactive cycling sports science coach and collaborative sparring partner. Your job is not just to dictate, but to actively brainstorm with the athlete, weigh pros and cons of training ideas, discuss race tactics, and offer science-backed alternatives when they bounce ideas off you.
         ATHLETE SUPPLEMENT STACK AVAILABLE: Creatine, Protein, Turmeric, Fish Oil, NMN, Collagen, Magnesium.
         GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})
         METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.
         ACTIVITIES HISTORY: {activities_data[:20] if activities_data else 'None'}
         UPCOMING SCHEDULE: {planned_events[:10] if planned_events else 'None'}
         
-        Provide rigorous, proactive coaching insights. If a workout is missed, give explicit, decisive rules (e.g., whether to make it up, discard it, or replace it based on current fatigue/TSB).
+        Provide rigorous, proactive, and conversational coaching insights. Engage in a true back-and-forth dialogue.
         CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside a ```xml ... ``` code block.
         """ + prompt
         
-        with st.spinner("Coach is analyzing your request..."):
+        with st.spinner("Coach is thinking through your idea..."):
             try:
                 resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
                 full_resp = f"{resp}\n\n*(Engine: {engine})*"
@@ -278,7 +285,7 @@ with tab_coach:
             except Exception as e:
                 st.error(f"AI Generation Failed: {str(e)}")
 
-# ================= TAB 3: TRAINING CALENDAR & MISSED WORKOUT PROTOCOL =================
+# ================= TAB 3: TRAINING CALENDAR =================
 with tab_calendar:
     st.markdown("### 📅 Training Calendar & Missed Workout Protocols")
     st.caption("Review your upcoming scheduled sessions synced from Intervals.icu, and get instant guidance if you miss a session.")
@@ -286,7 +293,7 @@ with tab_calendar:
     c_cal1, c_cal2 = st.columns([2, 1])
     with c_cal1:
         st.markdown("#### Upcoming Scheduled Training")
-        if planned_data := planned_events:
+        if planned_events:
             df_cal = pd.DataFrame(planned_events)
             display_cols = [c for c in ['start_date_local', 'name', 'type', 'description'] if c in df_cal.columns]
             st.dataframe(df_cal[display_cols] if display_cols else df_cal, use_container_width=True, hide_index=True)
@@ -305,7 +312,7 @@ with tab_calendar:
             st.session_state.messages.append({"role": "user", "content": "I missed my scheduled workout yesterday. Given my current TSB and upcoming weekend group ride, what should I do?"})
             st.rerun()
 
-# ================= TAB 4: RECOVERY & SUPPLEMENT PROTOCOL =================
+# ================= TAB 4: RECOVERY & SUPPLEMENTS =================
 with tab_recovery:
     st.markdown("### 💊 Proactive Recovery & Supplement Protocol")
     st.caption("Optimized timing and protocols based on your personal supplement stack to maximize adaptation and minimize inflammation.")
