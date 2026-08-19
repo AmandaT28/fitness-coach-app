@@ -48,6 +48,23 @@ st.markdown("""
         display: none !important;
     }
     
+    /* --- ENLARGE & HIGHLIGHT SIDEBAR NAVIGATION --- */
+    /* Target the text labels inside the navigation radio buttons */
+    div[data-testid="stSidebar"] div[role="radiogroup"] label p {
+        font-size: 1.1rem !important;
+        font-weight: 600 !important;
+        padding-top: 4px;
+        padding-bottom: 4px;
+    }
+    
+    /* Add a clean card-like background wrapper around the sidebar radio group */
+    div[data-testid="stSidebar"] div[role="radiogroup"] {
+        background-color: var(--secondary-background-color);
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(128, 128, 128, 0.2);
+    }
+
     .stCard {
         background-color: var(--secondary-background-color);
         border: 1px solid rgba(128, 128, 128, 0.15);
