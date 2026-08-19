@@ -3,6 +3,7 @@ import os
 import concurrent.futures
 import xml.etree.ElementTree as ET
 import math
+import re
 from dotenv import load_dotenv
 from google import genai
 from openai import OpenAI
@@ -42,26 +43,33 @@ st.set_page_config(page_title="AI Cycling Performance Coach", page_icon="🚴‍
 
 st.markdown("""
 <style>
+    /* Neater Metric Adjustments & Font Sizing */
+    div[data-testid="stMetric"] {
+        background-color: rgba(128, 128, 128, 0.02);
+        border: 1px solid rgba(128, 128, 128, 0.08);
+        padding: 10px 14px;
+        border-radius: 8px;
+        box-shadow: none;
+    }
+    div[data-testid="stMetric"] label {
+        font-size: 0.85rem !important;
+        font-weight: 500;
+        color: #666666;
+    }
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        font-size: 1.35rem !important;
+        font-weight: 600;
+    }
+
+    /* Clean Container Polish */
     .stCard {
         background-color: var(--background-secondary-color, #ffffff);
-        border: 1px solid rgba(128, 128, 128, 0.15);
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 16px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
-    }
-    div[data-testid="stMetric"] {
-        background-color: rgba(128, 128, 128, 0.03);
-        border: 1px solid rgba(128, 128, 128, 0.1);
-        padding: 14px 18px;
+        border: 1px solid rgba(128, 128, 128, 0.12);
         border-radius: 10px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.01);
+        padding: 16px;
+        margin-bottom: 12px;
     }
-    .stButton > button {
-        border-radius: 8px;
-        font-weight: 600;
-        transition: all 0.2s ease-in-out;
-    }
+
     @media (max-width: 768px) {
         .main .block-container {
             padding: 1rem 0.75rem;
@@ -205,19 +213,6 @@ if "goals" not in st.session_state or not isinstance(st.session_state.goals, dic
 
 st.session_state.goals["primary_sport"] = user_profile.get("primary_sport") or "Cycling (Road & Climbing)"
 st.session_state.goals["event_name"] = user_profile.get("event_name") or "Weekend Group Rides (No More Getting Dropped)"
-
-db_date = user_profile.get("event_date")
-if db_date:
-    try:
-        if isinstance(db_date, str):
-            st.session_state.goals["event_date"] = datetime.date.fromisoformat(db_date)
-        else:
-            st.session_state.goals["event_date"] = db_date
-    except Exception:
-        st.session_state.goals["event_date"] = datetime.date.today() + datetime.timedelta(days=60)
-else:
-    st.session_state.goals["event_date"] = datetime.date.today() + datetime.timedelta(days=60)
-
 st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Survive steep climbs on Saturday club rides and improve threshold power"
 
 # --- DATA FETCHING ---
@@ -265,17 +260,13 @@ def fetch_rain_intelligence():
 
 def parse_gpx(file_bytes):
     try:
-        try:
-            xml_content = file_bytes.decode('utf-8')
+        try: xml_content = file_bytes.decode('utf-8')
         except UnicodeDecodeError:
-            try:
-                xml_content = file_bytes.decode('latin-1')
-            except:
-                xml_content = file_bytes.decode('utf-16', errors='ignore')
+            try: xml_content = file_bytes.decode('latin-1')
+            except: xml_content = file_bytes.decode('utf-16', errors='ignore')
                 
         root = ET.fromstring(xml_content)
-        latlons = []
-        elevation_list = []
+        latlons, elevation_list = [], []
         
         for elem in root.iter():
             tag = elem.tag.split('}')[-1].lower()
@@ -296,7 +287,6 @@ def parse_gpx(file_bytes):
                     except ValueError: pass
                         
         if not latlons: return None
-
         total_ele_gain = sum(max(0, elevation_list[i] - elevation_list[i-1]) for i in range(1, len(elevation_list)))
         total_dist_km = 0
         for i in range(1, len(latlons)):
@@ -337,12 +327,11 @@ if wellness_list:
         if hrv == 0 and r.get("hrv"): hrv = r.get("hrv")
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "model", "content": "Hello! Your custom AI cycling coach is active. Ask me to design a workout or analyze your metrics, and I will generate MyWhoosh .zwo files directly in our chat!"}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! Your custom AI cycling coach is active. Ask me to design a workout, and I will generate a downloadable MyWhoosh `.zwo` file directly in our chat!"}]
 
 if "debrief_logs" not in st.session_state: st.session_state.debrief_logs = []
 if "group_ride_logs" not in st.session_state: st.session_state.group_ride_logs = []
 
-# Custom Equipment Profile Context for AI Payload
 equipment_context = """
 Athlete Bike Build & Equipment Context:
 - Bike: Cervélo Soloist (Size 48), ~6.9kg
@@ -395,32 +384,51 @@ tab_cmd, tab_coach, tab_strat, tab_strength = st.tabs([
 # ================= TAB 1: COMMAND CENTER =================
 with tab_cmd:
     st.markdown(f"### ☀️ Daily Coaching Briefing")
-    with st.container():
-        brief_col1, brief_col2 = st.columns([3, 1])
-        with brief_col1:
-            weather_advisory = (
-                "🌧️ **Rain Alert:** Outdoor conditions wet. Switch your session to an indoor MyWhoosh workout."
-                if is_raining else
-                "☀️ **Weather Clear:** Great conditions for outdoor riding or club workouts."
-            )
-            st.info(
-                f"**Current Focus:** *{st.session_state.goals['event_name']}*.\n\n"
-                f"{weather_advisory}\n\n"
-                f"**Readiness:** Form TSB is `{tsb:.1f}`. Sleep score: `{sleep_score}/100`. "
-                f"{'🟢 Ready for high-intensity work.' if tsb >= -15 else '🟡 Fatigue is high; prioritize recovery pacing.'}"
-            )
-        with brief_col2:
+    
+    # Neater Command Center layout
+    c_brief, c_metrics = st.columns([2, 1])
+    with c_brief:
+        weather_advisory = (
+            "🌧️ **Rain Alert:** Outdoor conditions wet. Switch your session to an indoor MyWhoosh workout."
+            if is_raining else
+            "☀️ **Weather Clear:** Great conditions for outdoor riding or club workouts."
+        )
+        st.info(
+            f"**Current Focus:** *{st.session_state.goals['event_name']}*.\n\n"
+            f"{weather_advisory}\n\n"
+            f"**Readiness Check:** Form TSB is `{tsb:.1f}`. Sleep score: `{sleep_score}/100`. "
+            f"{'🟢 Ready for high-intensity work.' if tsb >= -15 else '🟡 Fatigue is high; prioritize recovery pacing.'}"
+        )
+    with c_metrics:
+        m1, m2 = st.columns(2)
+        with m1:
+            st.metric("Fitness (CTL)", round(ctl, 1))
+            st.metric("Fatigue (ATL)", round(atl, 1))
+        with m2:
             st.metric("Form (TSB)", round(tsb, 1))
+            st.metric("Sleep", f"{sleep_score}" if sleep_score > 0 else "N/A")
 
     st.markdown("---")
-    col_met, col_cal = st.columns([1, 2])
-    with col_met:
-        st.markdown("#### Training Load")
-        st.metric("Fitness (CTL)", round(ctl, 1))
-        st.metric("Fatigue (ATL)", round(atl, 1))
-        st.metric("Sleep Score", f"{sleep_score}/100" if sleep_score > 0 else "N/A")
+    
+    col_act, col_cal = st.columns(2)
+    with col_act:
+        st.markdown("#### 🚴 Recent Activities (Intervals.icu)")
+        if activities_data:
+            df_act = pd.DataFrame(activities_data)
+            # Filter columns neatly if available
+            cols_to_show = [c for c in ['start_date_local', 'name', 'distance', 'moving_time'] if c in df_act.columns]
+            if cols_to_show:
+                df_display = df_act[cols_to_show].head(5).copy()
+                if 'distance' in df_display.columns:
+                    df_display['distance'] = (df_display['distance'] / 1000).round(2).astype(str) + " km"
+                st.dataframe(df_display, use_container_width=True, hide_index=True)
+            else:
+                st.dataframe(df_act.head(5), use_container_width=True, hide_index=True)
+        else:
+            st.info("No recent activities found from Intervals.icu sync.")
+            
     with col_cal:
-        st.markdown("#### 📅 Upcoming Calendar (Intervals.icu)")
+        st.markdown("#### 📅 Upcoming Calendar")
         if planned_data:
             df_cal = pd.DataFrame(planned_data)
             display_cols = [c for c in ['start_date_local', 'name', 'type'] if c in df_cal.columns]
@@ -428,84 +436,57 @@ with tab_cmd:
         else:
             st.info("No upcoming calendar events synced.")
 
-    st.markdown("---")
-    st.markdown("### 🏆 Recent Weekend Group Ride Performance History")
-    if st.session_state.group_ride_logs:
-        for gr in reversed(st.session_state.group_ride_logs):
-            with st.container():
-                st.markdown(f"**Date:** {gr['date']} | **Outcome:** {gr['outcome']} | **Climb RPE:** {gr['rpe']}/10")
-                st.markdown(f"> *Notes:* {gr['notes']}")
-                st.divider()
-    else:
-        st.caption("No weekend group rides logged yet. Log them in the Coach tab after your Saturday club rides.")
-
-# ================= TAB 2: AI COACH & CHAT =================
+# ================= TAB 2: AI COACH & CHAT (PINNED BOTTOM INPUT) =================
 with tab_coach:
-    coach_col1, coach_col2 = st.columns([2, 1])
+    st.markdown("### 🤖 Cycling AI Coach & Chat")
     
-    with coach_col1:
-        st.markdown("### 🤖 Cycling AI Coach (Chat & Auto-.ZWO Generator)")
-        for msg in st.session_state.messages:
-            with st.chat_message(msg["role"]): st.markdown(msg["content"])
+    # Render Chat History container with fixed height / scrolling feel
+    chat_container = st.container()
+    with chat_container:
+        for idx, msg in enumerate(st.session_state.messages):
+            with st.chat_message(msg["role"]): 
+                st.markdown(msg["content"])
                 
-        if prompt := st.chat_input("Ask for a climbing workout (e.g., 'Give me a MyWhoosh sweet-spot workout to build climbing endurance') or review a ride..."):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"): st.markdown(prompt)
-            
-            with st.chat_message("model"):
-                with st.spinner("Analyzing metrics and generating coaching response & workout file..."):
-                    payload = f"""
-                    You are an elite cycling performance coach helping an active cyclist avoid getting dropped on group ride climbs.
-                    GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})
-                    METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.
-                    WEATHER: {'Raining (Indoor MyWhoosh required)' if is_raining else 'Clear'}
-                    DEBRIEFS: {st.session_state.debrief_logs}
-                    GROUP RIDE HISTORY: {st.session_state.group_ride_logs}
-                    {equipment_context}
+                # Render download button if workout XML is present
+                if msg["role"] == "model":
+                    match = re.search(r"```xml\s*(<\?xml.*?>.*?<\s*/\s*workout_file\s*>|<workout_file>.*?</\s*workout_file>)\s*```", msg["content"], re.DOTAsall)
+                    if not match:
+                        match = re.search(r"```\s*(<workout_file>.*?</\s*workout_file>)\s*```", msg["content"], re.DOTAsall)
                     
-                    Provide precise, actionable cycling coaching feedback. Include exact power zones (% of FTP) and cadence recommendations suited to a 160mm crank setup.
-                    
-                    CRITICAL INSTRUCTION FOR WORKOUTS: If the user requests an indoor workout or training session to run on MyWhoosh, you MUST include a complete valid MyWhoosh workout block in valid XML format (.zwo) enclosed inside a ```xml ... ``` code block (starting with <workout_file> and ending with </workout_file>) so they can easily save and load it into MyWhoosh.
-                    """ + prompt
-                    try:
-                        resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
-                        full_resp = f"{resp}\n\n*(Engine: {engine})*"
-                        st.markdown(full_resp)
-                        st.session_state.messages.append({"role": "model", "content": full_resp})
-                    except Exception as e:
-                        st.error(f"AI Generation Failed: {str(e)}")
-                        
-    with coach_col2:
-        st.markdown("### 🚴‍♂️ Weekend Group Ride Debrief")
-        with st.form("group_ride_debrief_form"):
-            gr_date = st.date_input("Ride Date (Saturday)")
-            gr_outcome = st.selectbox("Group Ride Outcome", [
-                "Stuck with lead group on all climbs (Success!)",
-                "Got dropped on the steepest climb section",
-                "Suffered on punchy hills but hung on",
-                "Recovered well / Easy social recovery ride"
-            ])
-            gr_rpe = st.slider("Climb Intensity RPE", 1, 10, 8)
-            gr_notes = st.text_area("Group Ride Notes (Which climb hurt? Where did the gap open?)")
-            
-            if st.form_submit_button("Log Group Ride Result", use_container_width=True):
-                st.session_state.group_ride_logs.append({
-                    "date": str(gr_date),
-                    "outcome": gr_outcome,
-                    "rpe": gr_rpe,
-                    "notes": gr_notes
-                })
-                st.success("Group ride result logged to AI performance memory!")
+                    if match:
+                        zwo_data = match.group(1).strip()
+                        st.download_button(
+                            label="📥 Download MyWhoosh Workout File (.zwo)",
+                            data=zwo_data,
+                            file_name=f"MyWhoosh_Workout_{idx}.zwo",
+                            mime="application/xml",
+                            key=f"download_zwo_{idx}"
+                        )
 
-        st.markdown("---")
-        st.markdown("### 📝 Quick Workout Debrief")
-        with st.form("debrief"):
-            d_date = st.date_input("Date")
-            d_rpe = st.slider("RPE (1-10)", 1, 10, 6)
-            d_notes = st.text_area("Session Notes & Climb Feel")
-            if st.form_submit_button("Save Debrief", use_container_width=True):
-                st.session_state.debrief_logs.append({"date": str(d_date), "rpe": d_rpe, "notes": d_notes})
-                st.success("Debrief saved to coach memory!")
+    # Pinned Bottom Input via standard chat_input
+    if prompt := st.chat_input("Ask for a climbing workout or ride review..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        payload = f"""
+        You are an elite cycling performance coach helping an active cyclist avoid getting dropped on group ride climbs.
+        GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})
+        METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.
+        WEATHER: {'Raining (Indoor MyWhoosh required)' if is_raining else 'Clear'}
+        RECENT ACTIVITIES SYNCED: {activities_data[:3] if activities_data else 'None'}
+        {equipment_context}
+        
+        Provide precise, actionable cycling coaching feedback. Include exact power zones (% of FTP) and cadence recommendations suited to a 160mm crank setup.
+        
+        CRITICAL INSTRUCTION FOR WORKOUTS: If the user requests an indoor workout or training session to run on MyWhoosh, you MUST include a complete valid MyWhoosh workout block in valid XML format (.zwo) enclosed inside a ```xml ... ``` code block (starting with <workout_file> and ending with </workout_file>) so they can easily download and load it into MyWhoosh.
+        """ + prompt
+        
+        try:
+            resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
+            full_resp = f"{resp}\n\n*(Engine: {engine})*"
+            st.session_state.messages.append({"role": "model", "content": full_resp})
+            st.rerun()
+        except Exception as e:
+            st.error(f"AI Generation Failed: {str(e)}")
 
 # ================= TAB 3: ROUTE STRATEGIST =================
 with tab_strat:
