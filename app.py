@@ -277,8 +277,19 @@ with tab_history:
         selected_label = st.selectbox("Choose a past activity to analyze:", list(act_options.keys()))
         selected_act = act_options[selected_label]
 
-        col_info1, col_info2, col_info3 = st.columns(3)
-        col_info1.metric("Distance", f"{round(selected_act.get('distance', 0)/1000, 2)} km")
+      col_info1, col_info2, col_info3 = st.columns(3)
+        
+        sel_dist = selected_act.get("distance")
+        safe_dist = round(((sel_dist if sel_dist is not None else 0) / 1000), 2)
+        col_info1.metric("Distance", f"{safe_dist} km")
+        
+        sel_time = selected_act.get("moving_time")
+        safe_time = int((sel_time if sel_time is not None else 0) / 60)
+        col_info2.metric("Moving Time", f"{safe_time} mins")
+        
+        avg_watts = selected_act.get("average_watts")
+        safe_watts = f"{avg_watts} W" if avg_watts is not None else "N/A"
+        col_info3.metric("Average Power", safe_watts)
         col_info2.metric("Moving Time", f"{int(selected_act.get('moving_time', 0)/60)} mins")
         col_info3.metric("Average Power", f"{selected_act.get('average_watts', 'N/A')} W")
 
