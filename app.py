@@ -337,7 +337,7 @@ if wellness_list:
         if hrv == 0 and r.get("hrv"): hrv = r.get("hrv")
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "model", "content": "Hello! Your custom AI cycling coach is active. Ready to help you crush weekend group rides and conquer climbs without paying S$350/mo!"}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! Your custom AI cycling coach is active. Ask me to design a workout or analyze your metrics, and I will generate MyWhoosh .zwo files directly in our chat!"}]
 
 if "debrief_logs" not in st.session_state: st.session_state.debrief_logs = []
 if "group_ride_logs" not in st.session_state: st.session_state.group_ride_logs = []
@@ -389,7 +389,7 @@ with st.sidebar:
 
 # --- NAVIGATION SUITE ---
 tab_cmd, tab_coach, tab_strat, tab_strength = st.tabs([
-    "📊 Command Center", "🤖 AI Coach & MyWhoosh ZWO", "🗺️ Route Strategist", "🏋️‍♂️ Cross-Training"
+    "📊 Command Center", "🤖 AI Coach & Chat", "🗺️ Route Strategist", "🏋️‍♂️ Cross-Training"
 ])
 
 # ================= TAB 1: COMMAND CENTER =================
@@ -433,27 +433,27 @@ with tab_cmd:
     if st.session_state.group_ride_logs:
         for gr in reversed(st.session_state.group_ride_logs):
             with st.container():
-                st.markdown(f"**Date:** {gr['date']} | **Outcome:** {gr['outcome']} | **Max Climb HR/Power RPE:** {gr['rpe']}/10")
+                st.markdown(f"**Date:** {gr['date']} | **Outcome:** {gr['outcome']} | **Climb RPE:** {gr['rpe']}/10")
                 st.markdown(f"> *Notes:* {gr['notes']}")
                 st.divider()
     else:
-        st.caption("No weekend group rides logged yet. Use the tracker below or in the Coach tab after your Saturday club rides.")
+        st.caption("No weekend group rides logged yet. Log them in the Coach tab after your Saturday club rides.")
 
-# ================= TAB 2: AI COACH & MYWHOOSH ZWO BUILDER =================
+# ================= TAB 2: AI COACH & CHAT =================
 with tab_coach:
     coach_col1, coach_col2 = st.columns([2, 1])
     
     with coach_col1:
-        st.markdown("### 🤖 Cycling AI Coach")
+        st.markdown("### 🤖 Cycling AI Coach (Chat & Auto-.ZWO Generator)")
         for msg in st.session_state.messages:
             with st.chat_message(msg["role"]): st.markdown(msg["content"])
                 
-        if prompt := st.chat_input("Ask for a climbing workout, review your last ride, or plan your week..."):
+        if prompt := st.chat_input("Ask for a climbing workout (e.g., 'Give me a MyWhoosh sweet-spot workout to build climbing endurance') or review a ride..."):
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"): st.markdown(prompt)
             
             with st.chat_message("model"):
-                with st.spinner("Analyzing performance metrics..."):
+                with st.spinner("Analyzing metrics and generating coaching response & workout file..."):
                     payload = f"""
                     You are an elite cycling performance coach helping an active cyclist avoid getting dropped on group ride climbs.
                     GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})
@@ -464,6 +464,8 @@ with tab_coach:
                     {equipment_context}
                     
                     Provide precise, actionable cycling coaching feedback. Include exact power zones (% of FTP) and cadence recommendations suited to a 160mm crank setup.
+                    
+                    CRITICAL INSTRUCTION FOR WORKOUTS: If the user requests an indoor workout or training session to run on MyWhoosh, you MUST include a complete valid MyWhoosh workout block in valid XML format (.zwo) enclosed inside a ```xml ... ``` code block (starting with <workout_file> and ending with </workout_file>) so they can easily save and load it into MyWhoosh.
                     """ + prompt
                     try:
                         resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
@@ -474,55 +476,6 @@ with tab_coach:
                         st.error(f"AI Generation Failed: {str(e)}")
                         
     with coach_col2:
-        st.markdown("### 🛠️ MyWhoosh `.zwo` Generator")
-        st.caption("Select custom interval block templates to build MyWhoosh workout files.")
-        
-        with st.form("zwo_form"):
-            z_name = st.text_input("Workout Name", value="Climbing Threshold Builder")
-            z_type = st.selectbox("Interval Block Template", [
-                "Sweet Spot Pyramid (3x10min @ 88-93% FTP)",
-                "Threshold Over-Unders (Surge simulation for hills)",
-                "VO2 Max Punchy Hills (40s/20s micro-bursts)",
-                "Long Sustained Climbing Simulation (Sweet Spot + Surges)"
-            ])
-            ftp_val = st.number_input("Your FTP (Watts)", 100, 450, 240)
-            
-            if st.form_submit_button("Generate .zwo File", use_container_width=True):
-                with st.spinner("Building custom workout XML template..."):
-                    zwo_prompt = f"""
-                    Generate a structured MyWhoosh workout in valid XML format (.zwo) based on this interval block template:
-                    Workout Name: {z_name}
-                    Selected Template Structure: {z_type}
-                    Athlete FTP: {ftp_val}W
-                    {equipment_context}
-                    
-                    Return ONLY the XML structure wrapped inside a ```xml ... ``` code block, starting with <workout_file> and ending with </workout_file>. Include a proper warm-up, the requested intervals block sequence matching the template chosen, and a cool-down.
-                    """
-                    try:
-                        z_resp, _ = execute_multiprovider_generation(zwo_prompt, preferred_provider=selected_provider)
-                        if "```xml" in z_resp:
-                            zwo_code = z_resp.split("```xml")[1].split("```")[0].strip()
-                        elif "```" in z_resp:
-                            zwo_code = z_resp.split("```")[1].split("```")[0].strip()
-                        else:
-                            zwo_code = z_resp
-                            
-                        st.session_state.latest_zwo = zwo_code
-                        st.session_state.latest_zwo_name = z_name.replace(" ", "_")
-                        st.success("Workout generated successfully!")
-                    except Exception as e:
-                        st.error(f"Failed to generate workout file: {e}")
-                        
-        if "latest_zwo" in st.session_state:
-            st.download_button(
-                label="📥 Download MyWhoosh Workout (.zwo)",
-                data=st.session_state.latest_zwo,
-                file_name=f"{st.session_state.latest_zwo_name}.zwo",
-                mime="application/xml",
-                use_container_width=True
-            )
-
-        st.markdown("---")
         st.markdown("### 🚴‍♂️ Weekend Group Ride Debrief")
         with st.form("group_ride_debrief_form"):
             gr_date = st.date_input("Ride Date (Saturday)")
@@ -543,6 +496,16 @@ with tab_coach:
                     "notes": gr_notes
                 })
                 st.success("Group ride result logged to AI performance memory!")
+
+        st.markdown("---")
+        st.markdown("### 📝 Quick Workout Debrief")
+        with st.form("debrief"):
+            d_date = st.date_input("Date")
+            d_rpe = st.slider("RPE (1-10)", 1, 10, 6)
+            d_notes = st.text_area("Session Notes & Climb Feel")
+            if st.form_submit_button("Save Debrief", use_container_width=True):
+                st.session_state.debrief_logs.append({"date": str(d_date), "rpe": d_rpe, "notes": d_notes})
+                st.success("Debrief saved to coach memory!")
 
 # ================= TAB 3: ROUTE STRATEGIST =================
 with tab_strat:
