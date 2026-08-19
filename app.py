@@ -292,7 +292,7 @@ with tab_dash:
     with c_met3: st.metric("Form (TSB)", round(tsb, 1))
     with c_met4: st.metric("Sleep Score", f"{sleep_score}/100" if sleep_score > 0 else "N/A")
 
-st.markdown("---")
+    st.markdown("---")
     st.markdown("#### 📈 Deep 90-Day Training Load & Progression Trend Analysis")
     st.caption("Click below to synthesize your 90-day performance trends on demand.")
 
@@ -331,7 +331,7 @@ st.markdown("---")
             })
             st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
             st.rerun()
-
+            
 # ================= TAB 2: AI COACH & SPARRING CHAT =================
 with tab_coach:
     st.markdown("### 🤖 AI Coach & Collaborative Sparring Partner")
