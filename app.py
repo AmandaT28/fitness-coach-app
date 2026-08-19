@@ -151,7 +151,7 @@ race_date = datetime.date(2026, 10, 24)
 days_left = (race_date - datetime.date.today()).days
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "model", "content": "Hello! I am your proactive AI Performance Coach and sparring partner. Whether you want to bounce around race tactics, debate a training adjustment, or review a ride, let's talk!"}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! I am your proactive AI Performance Coach and sparring partner. Bounce ideas off me, ask questions about past activities or trends, and let's optimize your training!"}]
 
 if "selected_activity_analysis" not in st.session_state:
     st.session_state.selected_activity_analysis = None
@@ -173,9 +173,8 @@ with st.sidebar:
     selected_provider = st.selectbox("⚡ AI Engine Model", ["⚡ Auto-Fallback Chain", "OpenAI GPT", "Anthropic Claude", "Google Gemini"])
 
     st.markdown("---")
-    # Restored Clear Chat Button
     if st.button("🗑️ Clear Chat History", use_container_width=True):
-        st.session_state.messages = [{"role": "model", "content": "Chat history cleared. What idea would you like to brainstorm next?"}]
+        st.session_state.messages = [{"role": "model", "content": "Chat history cleared. What topic or idea would you like to discuss next?"}]
         st.rerun()
 
     if st.button("Log Out", use_container_width=True):
@@ -230,6 +229,11 @@ with tab_dash:
         try:
             trend_analysis_text, _ = execute_multiprovider_generation(trend_payload, preferred_provider=selected_provider)
             st.markdown(trend_analysis_text)
+            
+            # Contextual Action: Jump to chat with this trend analysis context
+            if st.button("💬 Discuss These Trends With Coach", key="discuss_trends_btn"):
+                st.session_state.messages.append({"role": "user", "content": "I'd like to discuss the 90-day trend analysis you just provided. Let's talk about my progression and ramp rate."})
+                st.info("Switched context! Go to the **AI Coach & Sparring** tab to continue your conversation.")
         except Exception as e:
             st.error(f"Could not generate deep trend analysis: {e}")
 
@@ -261,7 +265,7 @@ with tab_coach:
                             key=f"download_zwo_{idx}"
                         )
 
-    if prompt := st.chat_input("Bounce an idea or ask your coach a question (e.g., 'What do you think about adding a VO2 max block next week?')"):
+    if prompt := st.chat_input("Bounce an idea or ask your coach a question..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         
         payload = f"""
@@ -297,6 +301,10 @@ with tab_calendar:
             df_cal = pd.DataFrame(planned_events)
             display_cols = [c for c in ['start_date_local', 'name', 'type', 'description'] if c in df_cal.columns]
             st.dataframe(df_cal[display_cols] if display_cols else df_cal, use_container_width=True, hide_index=True)
+            
+            if st.button("💬 Discuss Schedule with Coach", key="discuss_calendar_btn"):
+                st.session_state.messages.append({"role": "user", "content": f"Let's review my upcoming training schedule: {planned_events[:5]}. Are there any adjustments we should make?"})
+                st.info("Switched context! Go to the **AI Coach & Sparring** tab to talk about your schedule.")
         else:
             st.info("No upcoming calendar events found in Intervals.icu.")
 
@@ -308,9 +316,9 @@ with tab_calendar:
             "2. If you missed an **easy/recovery ride**, drop it and move on.\n"
             "3. If you missed a **key interval/climbing session**, evaluate your Form (TSB). If TSB > -10, shift it to today. If TSB < -20, skip it entirely to prevent overtraining."
         )
-        if st.button("🤖 Ask Coach How to Handle a Missed Workout", use_container_width=True):
+        if st.button("🤖 Ask Coach About a Missed Workout", use_container_width=True):
             st.session_state.messages.append({"role": "user", "content": "I missed my scheduled workout yesterday. Given my current TSB and upcoming weekend group ride, what should I do?"})
-            st.rerun()
+            st.info("Switched context! Go to the **AI Coach & Sparring** tab to discuss your missed session.")
 
 # ================= TAB 4: RECOVERY & SUPPLEMENTS =================
 with tab_recovery:
@@ -345,6 +353,10 @@ with tab_recovery:
         </ul>
     </div>
     """, unsafe_allow_html=True)
+    
+    if st.button("💬 Discuss Supplement Timing with Coach", key="discuss_supplements_btn"):
+        st.session_state.messages.append({"role": "user", "content": "I want to review my supplement timing (creatine, protein, turmeric, fish oil, NMN, collagen, magnesium) relative to my upcoming high-intensity training blocks."})
+        st.info("Switched context! Go to the **AI Coach & Sparring** tab to discuss your supplements.")
 
 # ================= TAB 5: ACTIVITY INSPECTOR =================
 with tab_history:
@@ -397,6 +409,10 @@ with tab_history:
         if st.session_state.selected_activity_analysis:
             st.markdown("---")
             st.markdown(st.session_state.selected_activity_analysis)
+            
+            if st.button("💬 Clarify This Debrief with Coach", key="discuss_debrief_btn"):
+                st.session_state.messages.append({"role": "user", "content": f"I want to ask some clarifications regarding the recent debrief for activity: {selected_act.get('name')}."})
+                st.info("Switched context! Go to the **AI Coach & Sparring** tab to chat about this specific ride.")
     else:
         st.info("No activities found in your Intervals.icu sync history.")
 
