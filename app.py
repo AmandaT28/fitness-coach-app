@@ -201,6 +201,22 @@ else:
 
 google_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
+# --- UNIVERSAL SESSION STATE INITIALIZATION ---
+if "athlete_gear" not in st.session_state:
+    st.session_state.athlete_gear = "Cervélo Soloist (48), 160mm crankset, dual power meter, Wahoo Speedplay titanium pedals, GP5000 28mm tires."
+
+if "athlete_limitations" not in st.session_state:
+    st.session_state.athlete_limitations = "None reported. Focus on climbing efficiency and cadence consistency."
+
+if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict):
+    st.session_state.goals = {}
+
+if "event_name" not in st.session_state.goals:
+    st.session_state.goals["event_name"] = "Bintan Round Island"
+
+if "target_metric" not in st.session_state.goals:
+    st.session_state.goals["target_metric"] = "Survive steep climbs on group rides & improve threshold power"
+    
 # --- INITIALIZE GEAR & LIMITATIONS IN SESSION STATE ---
 if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict):
     st.session_state.goals = {}
