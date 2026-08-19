@@ -122,6 +122,7 @@ if "goals" not in st.session_state or not isinstance(st.session_state.goals, dic
 st.session_state.goals["event_name"] = user_profile.get("event_name") or "Bintan Round Island"
 st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Survive steep climbs on group rides & improve threshold power"
 
+# --- INITIALIZE SESSION STATES FOR SUPPLEMENTS & CHAT ---
 if "user_supplements" not in st.session_state:
     st.session_state.user_supplements = [
         {"name": "Creatine", "timing": "Post-Workout", "notes": "Cellular ATP replenishment & sprint power"},
@@ -132,7 +133,13 @@ if "user_supplements" not in st.session_state:
         {"name": "Collagen", "timing": "30m pre-loading", "notes": "Tendon/ligament fortification with Vitamin C"},
         {"name": "Magnesium", "timing": "30m before bed", "notes": "Nervous system relaxation & slow-wave sleep"}
     ]
-    
+
+if "messages" not in st.session_state:
+    st.session_state.messages = [{"role": "model", "content": "Hello! I am your proactive AI Performance Coach and sparring partner. Bounce ideas off me, ask questions about past activities or trends, and let's optimize your training!"}]
+
+if "selected_activity_analysis" not in st.session_state:
+    st.session_state.selected_activity_analysis = None
+
 # --- FETCH DATA ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data(aid, key):
@@ -161,12 +168,6 @@ if wellness_list:
 race_date = datetime.date(2026, 10, 24)
 days_left = (race_date - datetime.date.today()).days
 
-if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "model", "content": "Hello! I am your proactive AI Performance Coach and sparring partner. Bounce ideas off me, ask questions about past activities or trends, and let's optimize your training!"}]
-
-if "selected_activity_analysis" not in st.session_state:
-    st.session_state.selected_activity_analysis = None
-
 # --- SIDEBAR ---
 with st.sidebar:
     st.markdown(f"👤 **{st.session_state.user.email}**")
@@ -193,9 +194,9 @@ with st.sidebar:
         st.session_state.user = None
         st.rerun()
 
-# --- NAVIGATION SUITE ---
-tab_dash, tab_coach, tab_calendar, tab_recovery, tab_history, tab_strat = st.tabs([
-    "📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "💊 Recovery & Supplements", "🔍 Activity Inspector", "🗺️ Route Strategist"
+# --- REORDERED NAVIGATION SUITE ---
+tab_dash, tab_coach, tab_calendar, tab_history, tab_recovery, tab_strat = st.tabs([
+    "📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "💊 Recovery & Supplements", "🗺️ Route Strategist"
 ])
 
 # ================= TAB 1: COMMAND CENTER =================
@@ -241,13 +242,17 @@ with tab_dash:
             trend_analysis_text, _ = execute_multiprovider_generation(trend_payload, preferred_provider=selected_provider)
             st.markdown(trend_analysis_text)
             
-            # Contextual Action: Jump to chat with this trend analysis context
             if st.button("💬 Discuss These Trends With Coach", key="discuss_trends_btn"):
                 st.session_state.messages.append({
                     "role": "user", 
                     "content": f"Let's review my recent 90-day training trends (Fitness CTL: {round(ctl, 1)}, Fatigue ATL: {round(atl, 1)}, Form TSB: {round(tsb, 1)}). Based on my goal of '{st.session_state.goals['target_metric']}', am I progressing correctly?"
                 })
-                st.success("Context loaded! Go to the **AI Coach & Sparring** tab to start chatting.")
+                st.session_state.messages.append({
+                    "role": "model", 
+                    "content": "I've pulled up your 90-day trends. Looking at that ramp rate and your current CTL/TSB balance, what specific part of your progression would you like to tweak?"
+                })
+                st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
+                st.rerun()
         except Exception as e:
             st.error(f"Could not generate deep trend analysis: {e}")
 
@@ -282,9 +287,10 @@ with tab_coach:
     if prompt := st.chat_input("Bounce an idea or ask your coach a question..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         
+        stack_summary = ", ".join([f"{s['name']} ({s['timing']})" for s in st.session_state.user_supplements])
         payload = f"""
         You are an elite, proactive cycling sports science coach and collaborative sparring partner. Your job is not just to dictate, but to actively brainstorm with the athlete, weigh pros and cons of training ideas, discuss race tactics, and offer science-backed alternatives when they bounce ideas off you.
-        ATHLETE SUPPLEMENT STACK AVAILABLE: Creatine, Protein, Turmeric, Fish Oil, NMN, Collagen, Magnesium.
+        ACTIVE SUPPLEMENT STACK: {stack_summary}
         GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})
         METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.
         ACTIVITIES HISTORY: {activities_data[:20] if activities_data else 'None'}
@@ -317,8 +323,25 @@ with tab_calendar:
             st.dataframe(df_cal[display_cols] if display_cols else df_cal, use_container_width=True, hide_index=True)
             
             if st.button("💬 Discuss Schedule with Coach", key="discuss_calendar_btn"):
-                st.session_state.messages.append({"role": "user", "content": f"Let's review my upcoming training schedule: {planned_events[:5]}. Are there any adjustments we should make?"})
-                st.info("Switched context! Go to the **AI Coach & Sparring** tab to talk about your schedule.")
+                schedule_summary = []
+                for ev in planned_events[:5]:
+                    ev_date = ev.get('start_date_local', '')[:10]
+                    ev_name = ev.get('name', 'Workout')
+                    ev_desc = ev.get('description', 'No description')
+                    schedule_summary.append(f"- **{ev_date}**: {ev_name} ({ev_desc})")
+                
+                clean_schedule_text = "\n".join(schedule_summary) if schedule_summary else "No upcoming workouts found."
+                
+                st.session_state.messages.append({
+                    "role": "user", 
+                    "content": f"Let's review my upcoming training schedule:\n{clean_schedule_text}\n\nAre there any adjustments we should make to help me on climbs?"
+                })
+                st.session_state.messages.append({
+                    "role": "model", 
+                    "content": "I've loaded your schedule into our chat. Looking at these upcoming days, what specific adjustments are you thinking about?"
+                })
+                st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
+                st.rerun()
         else:
             st.info("No upcoming calendar events found in Intervals.icu.")
 
@@ -331,65 +354,18 @@ with tab_calendar:
             "3. If you missed a **key interval/climbing session**, evaluate your Form (TSB). If TSB > -10, shift it to today. If TSB < -20, skip it entirely to prevent overtraining."
         )
         if st.button("🤖 Ask Coach About a Missed Workout", use_container_width=True):
-            st.session_state.messages.append({"role": "user", "content": "I missed my scheduled workout yesterday. Given my current TSB and upcoming weekend group ride, what should I do?"})
-            st.info("Switched context! Go to the **AI Coach & Sparring** tab to discuss your missed session.")
+            st.session_state.messages.append({
+                "role": "user", 
+                "content": "I missed my scheduled workout yesterday. Given my current TSB and upcoming weekend group ride, what should I do?"
+            })
+            st.session_state.messages.append({
+                "role": "model", 
+                "content": "Let's figure out the best move for your missed session. Check your current TSB—is it holding steady or deeply negative?"
+            })
+            st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
+            st.rerun()
 
-# ================= TAB 4: RECOVERY & SUPPLEMENTS =================
-with tab_recovery:
-    st.markdown("### 💊 Dynamic Recovery & Supplement Protocol")
-    st.caption("Manage your personal supplement stack. The AI coach dynamically tracks these to optimize your recovery and training adaptation.")
-
-    # Form to add a new supplement
-    with st.form("add_supplement_form", clear_on_submit=True):
-        st.markdown("#### Add New Supplement")
-        col_s1, col_s2, col_s3 = st.columns([1, 1, 2])
-        new_name = col_s1.text_input("Supplement Name")
-        new_timing = col_s2.text_input("Target Timing (e.g., Pre-bed)")
-        new_notes = col_s3.text_input("Purpose / Notes")
-        
-        if st.form_submit_button("➕ Add to Stack", use_container_width=True):
-            if new_name:
-                st.session_state.user_supplements.append({
-                    "name": new_name.strip(), 
-                    "timing": new_timing.strip() if new_timing else "As needed", 
-                    "notes": new_notes.strip() if new_notes else "Custom supplement"
-                })
-                st.success(f"Added {new_name} to your stack!")
-                st.rerun()
-            else:
-                st.warning("Please enter a supplement name.")
-
-    st.markdown("---")
-    st.markdown("#### 📋 Current Active Supplement Stack")
-
-    # Render dynamic dataframe/table of supplements
-    if st.session_state.user_supplements:
-        df_supps = pd.DataFrame(st.session_state.user_supplements)
-        st.dataframe(df_supps, use_container_width=True, hide_index=True)
-
-        # Option to remove a supplement by name
-        supp_names = [s["name"] for s in st.session_state.user_supplements]
-        to_remove = st.selectbox("Select a supplement to remove (optional):", ["-- Select --"] + supp_names)
-        if to_remove != "-- Select --":
-            if st.button("🗑️ Remove Selected Supplement"):
-                st.session_state.user_supplements = [s for s in st.session_state.user_supplements if s["name"] != to_remove]
-                st.success(f"Removed {to_remove} from your stack.")
-                st.rerun()
-    else:
-        st.info("Your supplement stack is currently empty. Add one above!")
-
-    st.markdown("---")
-    
-    # Dynamic Chat Trigger using the live stack
-    if st.button("💬 Discuss Updated Supplement Stack With Coach", key="discuss_supplements_btn"):
-        stack_desc = ", ".join([f"{s['name']} ({s['timing']})" for s in st.session_state.user_supplements])
-        st.session_state.messages.append({
-            "role": "user", 
-            "content": f"Let's review my current active supplement stack: {stack_desc}. How should I coordinate these around my training schedule to optimize recovery and mitigate climbing fatigue?"
-        })
-        st.success("Context loaded with your live stack! Go to the **AI Coach & Sparring** tab to start chatting.")
-
-# ================= TAB 5: ACTIVITY INSPECTOR =================
+# ================= TAB 4: ACTIVITY INSPECTOR =================
 with tab_history:
     st.markdown("### 🔍 Past Activity Inspector & Deep Debrief")
     st.caption("Select any past activity from your 90-day history to run an AI-powered performance debrief.")
@@ -451,9 +427,70 @@ with tab_history:
                     "role": "user", 
                     "content": f"I want to ask some clarifications regarding my recent activity '{act_name}' ({act_dist} km, {act_time} mins, {act_watts}W avg power). Let's review how it impacts my climbing preparation."
                 })
-                st.success("Context loaded! Go to the **AI Coach & Sparring** tab to start chatting.")
+                st.session_state.messages.append({
+                    "role": "model", 
+                    "content": f"I have the details for '{act_name}' right here. What specific metric or section of this ride's debrief would you like to unpack?"
+                })
+                st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
+                st.rerun()
     else:
         st.info("No activities found in your Intervals.icu sync history.")
+
+# ================= TAB 5: RECOVERY & SUPPLEMENTS =================
+with tab_recovery:
+    st.markdown("### 💊 Dynamic Recovery & Supplement Protocol")
+    st.caption("Manage your personal supplement stack. The AI coach dynamically tracks these to optimize your recovery and training adaptation.")
+
+    with st.form("add_supplement_form", clear_on_submit=True):
+        st.markdown("#### Add New Supplement")
+        col_s1, col_s2, col_s3 = st.columns([1, 1, 2])
+        new_name = col_s1.text_input("Supplement Name")
+        new_timing = col_s2.text_input("Target Timing (e.g., Pre-bed)")
+        new_notes = col_s3.text_input("Purpose / Notes")
+        
+        if st.form_submit_button("➕ Add to Stack", use_container_width=True):
+            if new_name:
+                st.session_state.user_supplements.append({
+                    "name": new_name.strip(), 
+                    "timing": new_timing.strip() if new_timing else "As needed", 
+                    "notes": new_notes.strip() if new_notes else "Custom supplement"
+                })
+                st.success(f"Added {new_name} to your stack!")
+                st.rerun()
+            else:
+                st.warning("Please enter a supplement name.")
+
+    st.markdown("---")
+    st.markdown("#### 📋 Current Active Supplement Stack")
+
+    if st.session_state.user_supplements:
+        df_supps = pd.DataFrame(st.session_state.user_supplements)
+        st.dataframe(df_supps, use_container_width=True, hide_index=True)
+
+        supp_names = [s["name"] for s in st.session_state.user_supplements]
+        to_remove = st.selectbox("Select a supplement to remove (optional):", ["-- Select --"] + supp_names)
+        if to_remove != "-- Select --":
+            if st.button("🗑️ Remove Selected Supplement"):
+                st.session_state.user_supplements = [s for s in st.session_state.user_supplements if s["name"] != to_remove]
+                st.success(f"Removed {to_remove} from your stack.")
+                st.rerun()
+    else:
+        st.info("Your supplement stack is currently empty. Add one above!")
+
+    st.markdown("---")
+    
+    if st.button("💬 Discuss Updated Supplement Stack With Coach", key="discuss_supplements_btn"):
+        stack_desc = ", ".join([f"{s['name']} ({s['timing']})" for s in st.session_state.user_supplements])
+        st.session_state.messages.append({
+            "role": "user", 
+            "content": f"Let's review my current active supplement stack: {stack_desc}. How should I coordinate these around my training schedule to optimize recovery and mitigate climbing fatigue?"
+        })
+        st.session_state.messages.append({
+            "role": "model", 
+            "content": "I've loaded your updated supplement stack into our chat. Let's optimize your timing around your upcoming hard efforts!"
+        })
+        st.success("Context loaded with your live stack! Head to the **AI Coach & Sparring** tab.")
+        st.rerun()
 
 # ================= TAB 6: ROUTE STRATEGIST =================
 with tab_strat:
