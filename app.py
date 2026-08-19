@@ -38,12 +38,11 @@ google_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 openai_client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
-# App UI Configuration & Mobile-Responsive Custom CSS Styling
+# App UI Configuration
 st.set_page_config(page_title="AI Cycling Performance Coach", page_icon="🚴‍♂️", layout="wide")
 
 st.markdown("""
 <style>
-    /* Neater Metric Adjustments & Font Sizing */
     div[data-testid="stMetric"] {
         background-color: rgba(128, 128, 128, 0.02);
         border: 1px solid rgba(128, 128, 128, 0.08);
@@ -60,16 +59,6 @@ st.markdown("""
         font-size: 1.35rem !important;
         font-weight: 600;
     }
-
-    /* Clean Container Polish */
-    .stCard {
-        background-color: var(--background-secondary-color, #ffffff);
-        border: 1px solid rgba(128, 128, 128, 0.12);
-        border-radius: 10px;
-        padding: 16px;
-        margin-bottom: 12px;
-    }
-
     @media (max-width: 768px) {
         .main .block-container {
             padding: 1rem 0.75rem;
@@ -79,33 +68,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚴‍♂️ AI Cycling Performance Coach")
-st.caption("Indoor MyWhoosh & Outdoor Group Ride Intelligence • Intervals.icu Integrated")
+st.caption("Performance Analytics • Intervals.icu Trend Interpretation • MyWhoosh Integration")
 
 # --- MULTI-PROVIDER CROSS-PROVIDER FALLBACK ROUTER ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain", is_stream=False):
     def call_openai(stream=False):
         if not openai_client: raise Exception("OpenAI API key missing")
-        if stream:
-            return openai_client.chat.completions.create(
-                model="gpt-4o", messages=[{"role": "user", "content": prompt}], stream=True
-            ), "OpenAI GPT-4o"
-        else:
-            res = openai_client.chat.completions.create(
-                model="gpt-4o", messages=[{"role": "user", "content": prompt}]
-            )
-            return res.choices[0].message.content, "OpenAI GPT-4o"
+        res = openai_client.chat.completions.create(
+            model="gpt-4o", messages=[{"role": "user", "content": prompt}]
+        )
+        return res.choices[0].message.content, "OpenAI GPT-4o"
 
     def call_anthropic(stream=False):
         if not anthropic_client: raise Exception("Anthropic API key missing")
-        if stream:
-            return anthropic_client.messages.stream(
-                model="claude-3-5-sonnet-20241022", max_tokens=2048, messages=[{"role": "user", "content": prompt}]
-            ), "Anthropic Claude"
-        else:
-            res = anthropic_client.messages.create(
-                model="claude-3-5-sonnet-20241022", max_tokens=2048, messages=[{"role": "user", "content": prompt}]
-            )
-            return res.content[0].text, "Anthropic Claude"
+        res = anthropic_client.messages.create(
+            model="claude-3-5-sonnet-20241022", max_tokens=2048, messages=[{"role": "user", "content": prompt}]
+        )
+        return res.content[0].text, "Anthropic Claude"
 
     def call_google(stream=False):
         if not google_client: raise Exception("Google API key missing")
@@ -113,10 +92,7 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
         last_err = None
         for m in models:
             try:
-                if stream:
-                    return google_client.models.generate_content_stream(model=m, contents=prompt), f"Google {m}"
-                else:
-                    return google_client.models.generate_content(model=m, contents=prompt).text, f"Google {m}"
+                return google_client.models.generate_content(model=m, contents=prompt).text, f"Google {m}"
             except Exception as e:
                 last_err = e
                 continue
@@ -128,7 +104,7 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
     if google_client: active_stack.append(("Google", lambda: call_google(is_stream)))
 
     if not active_stack:
-        raise Exception("No AI provider API keys are configured in Streamlit Secrets!")
+        raise Exception("No AI provider API keys configured in Streamlit Secrets!")
 
     if preferred_provider == "OpenAI GPT" and openai_client:
         active_stack.insert(0, active_stack.pop([i for i, p in enumerate(active_stack) if p[0] == "OpenAI"][0]))
@@ -148,7 +124,7 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
     raise Exception(f"All active AI providers failed. Details: {last_error}")
 
 
-# --- AUTHENTICATION FLOW (SUPABASE AUTH) ---
+# --- AUTHENTICATION FLOW (SUPABASE) ---
 if "user" not in st.session_state:
     st.session_state.user = None
 
@@ -207,20 +183,18 @@ if not user_profile or not user_profile.get("intervals_api_key") or not user_pro
 INTERVALS_API_KEY = user_profile["intervals_api_key"]
 ATHLETE_ID = user_profile["intervals_athlete_id"]
 
-# --- PERSISTENT GOALS & TARGET EVENT INITIALIZATION FROM SUPABASE ---
 if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict):
     st.session_state.goals = {}
 
-st.session_state.goals["primary_sport"] = user_profile.get("primary_sport") or "Cycling (Road & Climbing)"
-st.session_state.goals["event_name"] = user_profile.get("event_name") or "Weekend Group Rides (No More Getting Dropped)"
-st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Survive steep climbs on Saturday club rides and improve threshold power"
+st.session_state.goals["event_name"] = user_profile.get("event_name") or "Weekend Group Rides (Climbing Efficiency)"
+st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Improve threshold power and climbing resilience to stay with the lead group"
 
-# --- DATA FETCHING ---
+# --- DATA FETCHING (90-Day Range for Trend Analysis) ---
 @st.cache_data(ttl=300, show_spinner=False) 
 def fetch_intervals_wellness(athlete_id, api_key):
     try:
         end_date = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
-        start_date = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
+        start_date = (datetime.date.today() - datetime.timedelta(days=90)).isoformat()
         url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/wellness?oldest={start_date}&newest={end_date}"
         res = requests.get(url, auth=("API_KEY", api_key), timeout=5)
         return res.json() if res.status_code == 200 and res.json() else []
@@ -230,7 +204,7 @@ def fetch_intervals_wellness(athlete_id, api_key):
 def fetch_recent_activities(athlete_id, api_key):
     try:
         end_date = datetime.date.today().isoformat()
-        start_date = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
+        start_date = (datetime.date.today() - datetime.timedelta(days=90)).isoformat()
         url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/activities?oldest={start_date}&newest={end_date}"
         res = requests.get(url, auth=("API_KEY", api_key), timeout=5)
         return res.json() if res.status_code == 200 else []
@@ -246,122 +220,41 @@ def fetch_planned_workouts(athlete_id, api_key):
         return res.json() if res.status_code == 200 else []
     except Exception: return []
 
-@st.cache_data(ttl=600, show_spinner=False)
-def fetch_rain_intelligence():
-    try:
-        url = "https://api.open-meteo.com/v1/forecast?latitude=1.3521&longitude=103.8198&current=precipitation,weather_code"
-        res = requests.get(url, timeout=3)
-        data = res.json().get("current", {})
-        precip = data.get("precipitation", 0.0)
-        w_code = data.get("weather_code", 0)
-        return precip > 0.1 or w_code in [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99]
-    except Exception:
-        return False
-
-def parse_gpx(file_bytes):
-    try:
-        try: xml_content = file_bytes.decode('utf-8')
-        except UnicodeDecodeError:
-            try: xml_content = file_bytes.decode('latin-1')
-            except: xml_content = file_bytes.decode('utf-16', errors='ignore')
-                
-        root = ET.fromstring(xml_content)
-        latlons, elevation_list = [], []
-        
-        for elem in root.iter():
-            tag = elem.tag.split('}')[-1].lower()
-            if tag in ['trkpt', 'rtept']:
-                lat_str = elem.attrib.get('lat') or elem.attrib.get('latitude')
-                lon_str = elem.attrib.get('lon') or elem.attrib.get('longitude')
-                if lat_str and lon_str:
-                    try:
-                        lat, lon = float(lat_str), float(lon_str)
-                        latlons.append((lat, lon))
-                        ele_val = elevation_list[-1] if elevation_list else 0.0
-                        for child in elem:
-                            if child.tag.split('}')[-1].lower() in ['ele', 'elevation', 'alt']:
-                                try: ele_val = float(child.text)
-                                except: pass
-                                break
-                        elevation_list.append(ele_val)
-                    except ValueError: pass
-                        
-        if not latlons: return None
-        total_ele_gain = sum(max(0, elevation_list[i] - elevation_list[i-1]) for i in range(1, len(elevation_list)))
-        total_dist_km = 0
-        for i in range(1, len(latlons)):
-            lat1, lon1 = latlons[i-1]
-            lat2, lon2 = latlons[i]
-            R = 6371.0 
-            dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
-            a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
-            total_dist_km += R * (2 * math.asin(math.sqrt(a)))
-
-        return {
-            "distance_km": round(max(total_dist_km, 0.1), 2),
-            "elevation_gain_m": round(total_ele_gain, 1),
-            "max_elevation": round(max(elevation_list), 1) if elevation_list else 0
-        }
-    except Exception as e:
-        st.error(f"XML Parsing Error: {str(e)}")
-        return None
-
-with st.spinner("Syncing telemetry & weather intelligence..."):
+with st.spinner("Syncing 90-day performance telemetry..."):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_wellness = executor.submit(fetch_intervals_wellness, ATHLETE_ID, INTERVALS_API_KEY)
         future_activities = executor.submit(fetch_recent_activities, ATHLETE_ID, INTERVALS_API_KEY)
         future_planned = executor.submit(fetch_planned_workouts, ATHLETE_ID, INTERVALS_API_KEY)
-        future_rain = executor.submit(fetch_rain_intelligence)
 
         wellness_list = future_wellness.result()
         activities_data = future_activities.result()
         planned_data = future_planned.result()
-        is_raining = future_rain.result()
 
-ctl, atl, tsb, sleep_score, hrv = 0, 0, 0, 0, 0
+ctl, atl, tsb, sleep_score = 0, 0, 0, 0
 if wellness_list:
     latest = wellness_list[-1]
     ctl, atl, tsb = latest.get("ctl", 0), latest.get("atl", 0), latest.get("tsb", 0)
     for r in reversed(wellness_list):
         if sleep_score == 0 and r.get("sleepScore"): sleep_score = r.get("sleepScore")
-        if hrv == 0 and r.get("hrv"): hrv = r.get("hrv")
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "model", "content": "Hello! Your custom AI cycling coach is active. Ask me to design a workout, and I will generate a downloadable MyWhoosh `.zwo` file directly in our chat!"}]
+    st.session_state.messages = [{"role": "model", "content": "Hello! Your performance coach is online. Ask me to analyze your 90-day Intervals.icu trends, review recent rides, or build a MyWhoosh workout."}]
 
 if "debrief_logs" not in st.session_state: st.session_state.debrief_logs = []
-if "group_ride_logs" not in st.session_state: st.session_state.group_ride_logs = []
-
-equipment_context = """
-Athlete Bike Build & Equipment Context:
-- Bike: Cervélo Soloist (Size 48), ~6.9kg
-- Gearing: Magene 50-34T Compact Chainrings, Dura-Ace 11-34T 12-speed Cassette & Chain
-- Crankset & Power Meter: Magene TEO P515 Carbon (160mm crank arm length) with P515 Spider Dual-sided Power Meter
-- Cockpit: THE ONE PRO Aero Carbon handlebars
-- Pedals: Wahoo Speedplay (Upgraded with Titanium Spindles)
-- Computer: Garmin Edge 530
-Note: Account for the 160mm short crank arms and 1:1 climbing gear ratio (34-34) in cadence recommendations and power profiling.
-"""
 
 # --- SIDEBAR ---
 with st.sidebar:
     st.markdown(f"👤 **{st.session_state.user.email}**")
-    st.subheader("🎯 Primary Cycling Goals")
+    st.subheader("🎯 Training Objectives")
     with st.form("goal_feedback_form"):
-        ev_name = st.text_input("Main Focus / Event", value=st.session_state.goals["event_name"])
+        ev_name = st.text_input("Focus Area", value=st.session_state.goals["event_name"])
         t_metric = st.text_input("Key Objective", value=st.session_state.goals["target_metric"])
         
         if st.form_submit_button("Update Goals", use_container_width=True):
             st.session_state.goals["event_name"] = ev_name
             st.session_state.goals["target_metric"] = t_metric
-            try:
-                supabase.table("profiles").update({
-                    "event_name": ev_name,
-                    "target_metric": t_metric
-                }).eq("id", USER_ID).execute()
-                st.success("Goals updated successfully!")
-            except Exception as e:
-                st.error(f"Cloud update failed: {e}")
+            supabase.table("profiles").update({"event_name": ev_name, "target_metric": t_metric}).eq("id", USER_ID).execute()
+            st.success("Goals updated!")
 
     st.markdown("---")
     selected_provider = st.selectbox("⚡ AI Engine Model", ["⚡ Auto-Fallback Chain", "OpenAI GPT", "Anthropic Claude", "Google Gemini"])
@@ -377,27 +270,18 @@ with st.sidebar:
         st.rerun()
 
 # --- NAVIGATION SUITE ---
-tab_cmd, tab_coach, tab_strat, tab_strength = st.tabs([
-    "📊 Command Center", "🤖 AI Coach & Chat", "🗺️ Route Strategist", "🏋️‍♂️ Cross-Training"
-])
+tab_cmd, tab_coach, tab_strat = st.tabs(["📊 Performance Command Center", "🤖 AI Coach & Trends", "🗺️ Route Strategist"])
 
-# ================= TAB 1: COMMAND CENTER =================
+# ================= TAB 1: PERFORMANCE COMMAND CENTER =================
 with tab_cmd:
-    st.markdown(f"### ☀️ Daily Coaching Briefing")
+    st.markdown("### 📈 90-Day Performance & Load Metrics")
     
-    # Neater Command Center layout
     c_brief, c_metrics = st.columns([2, 1])
     with c_brief:
-        weather_advisory = (
-            "🌧️ **Rain Alert:** Outdoor conditions wet. Switch your session to an indoor MyWhoosh workout."
-            if is_raining else
-            "☀️ **Weather Clear:** Great conditions for outdoor riding or club workouts."
-        )
         st.info(
-            f"**Current Focus:** *{st.session_state.goals['event_name']}*.\n\n"
-            f"{weather_advisory}\n\n"
-            f"**Readiness Check:** Form TSB is `{tsb:.1f}`. Sleep score: `{sleep_score}/100`. "
-            f"{'🟢 Ready for high-intensity work.' if tsb >= -15 else '🟡 Fatigue is high; prioritize recovery pacing.'}"
+            f"**Primary Objective:** *{st.session_state.goals['target_metric']}*.\n\n"
+            f"**Readiness Status:** Form (TSB) is `{tsb:.1f}` | Fitness (CTL): `{ctl:.1f}` | Fatigue (ATL): `{atl:.1f}`.\n"
+            f"{'🟢 Form is optimal for hard efforts & climbing blocks.' if tsb >= -15 else '🟡 Accumulated fatigue is high; prioritize structured recovery.'}"
         )
     with c_metrics:
         m1, m2 = st.columns(2)
@@ -415,20 +299,19 @@ with tab_cmd:
         st.markdown("#### 🚴 Recent Activities (Intervals.icu)")
         if activities_data:
             df_act = pd.DataFrame(activities_data)
-            # Filter columns neatly if available
             cols_to_show = [c for c in ['start_date_local', 'name', 'distance', 'moving_time'] if c in df_act.columns]
             if cols_to_show:
-                df_display = df_act[cols_to_show].head(5).copy()
+                df_display = df_act[cols_to_show].head(6).copy()
                 if 'distance' in df_display.columns:
                     df_display['distance'] = (df_display['distance'] / 1000).round(2).astype(str) + " km"
                 st.dataframe(df_display, use_container_width=True, hide_index=True)
             else:
-                st.dataframe(df_act.head(5), use_container_width=True, hide_index=True)
+                st.dataframe(df_act.head(6), use_container_width=True, hide_index=True)
         else:
-            st.info("No recent activities found from Intervals.icu sync.")
+            st.info("No recent activities found.")
             
     with col_cal:
-        st.markdown("#### 📅 Upcoming Calendar")
+        st.markdown("#### 📅 Planned Schedule")
         if planned_data:
             df_cal = pd.DataFrame(planned_data)
             display_cols = [c for c in ['start_date_local', 'name', 'type'] if c in df_cal.columns]
@@ -436,18 +319,17 @@ with tab_cmd:
         else:
             st.info("No upcoming calendar events synced.")
 
-# ================= TAB 2: AI COACH & CHAT (PINNED BOTTOM INPUT) =================
+# ================= TAB 2: AI COACH & TREND INTERPRETATION =================
 with tab_coach:
-    st.markdown("### 🤖 Cycling AI Coach & Chat")
+    st.markdown("### 🤖 Performance Coaching & Trend Interpretation")
     
-    # Render Chat History container with fixed height / scrolling feel
     chat_container = st.container()
     with chat_container:
         for idx, msg in enumerate(st.session_state.messages):
             with st.chat_message(msg["role"]): 
                 st.markdown(msg["content"])
                 
-                # Render download button if workout XML is present
+                # Render download button cleanly if workout XML is present in the message
                 if msg["role"] == "model":
                     match = re.search(r"```xml\s*(<\?xml.*?>.*?<\s*/\s*workout_file\s*>|<workout_file>.*?</\s*workout_file>)\s*```", msg["content"], re.DOTALL)
                     if not match:
@@ -463,21 +345,18 @@ with tab_coach:
                             key=f"download_zwo_{idx}"
                         )
 
-    # Pinned Bottom Input via standard chat_input
-    if prompt := st.chat_input("Ask for a climbing workout or ride review..."):
+    if prompt := st.chat_input("Ask for a 90-day trend analysis, ride critique, or MyWhoosh workout..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         
         payload = f"""
-        You are an elite cycling performance coach helping an active cyclist avoid getting dropped on group ride climbs.
+        You are an elite cycling sports science coach. Your job is to interpret the athlete's Intervals.icu data and trends.
         GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})
-        METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.
-        WEATHER: {'Raining (Indoor MyWhoosh required)' if is_raining else 'Clear'}
-        RECENT ACTIVITIES SYNCED: {activities_data[:3] if activities_data else 'None'}
-        {equipment_context}
+        METRICS (90-day baseline): CTL={ctl}, ATL={atl}, TSB={tsb}.
+        RECENT ACTIVITIES DATA: {activities_data[:15] if activities_data else 'None'}
         
-        Provide precise, actionable cycling coaching feedback. Include exact power zones (% of FTP) and cadence recommendations suited to a 160mm crank setup.
+        Provide direct, analytical coaching insights. Analyze trends in their training load, consistency, power progression, or recovery patterns.
         
-        CRITICAL INSTRUCTION FOR WORKOUTS: If the user requests an indoor workout or training session to run on MyWhoosh, you MUST include a complete valid MyWhoosh workout block in valid XML format (.zwo) enclosed inside a ```xml ... ``` code block (starting with <workout_file> and ending with </workout_file>) so they can easily download and load it into MyWhoosh.
+        CRITICAL INSTRUCTION FOR WORKOUTS: If the user requests an indoor workout, you MUST include a complete valid MyWhoosh workout block in valid XML format (.zwo) enclosed inside a ```xml ... ``` code block (starting with <workout_file> and ending with </workout_file>). Do NOT explain the raw code; just provide it cleanly so the download button handles it.
         """ + prompt
         
         try:
@@ -490,9 +369,34 @@ with tab_coach:
 
 # ================= TAB 3: ROUTE STRATEGIST =================
 with tab_strat:
-    st.markdown("### 🗺️ Route Climbing & Pacing Strategist")
+    st.markdown("### 🗺️ Route Pacing & Power Strategist")
     uploaded_gpx = st.file_uploader("Upload GPX Route File", type=["gpx"])
     
+    def parse_gpx(file_bytes):
+        try:
+            xml_content = file_bytes.decode('utf-8', errors='ignore')
+            root = ET.fromstring(xml_content)
+            latlons, elevation_list = [], []
+            for elem in root.iter():
+                tag = elem.tag.split('}')[-1].lower()
+                if tag in ['trkpt', 'rtept']:
+                    lat_str = elem.attrib.get('lat') or elem.attrib.get('latitude')
+                    lon_str = elem.attrib.get('lon') or elem.attrib.get('longitude')
+                    if lat_str and lon_str:
+                        latlons.append((float(lat_str), float(lon_str)))
+                        ele_val = elevation_list[-1] if elevation_list else 0.0
+                        for child in elem:
+                            if child.tag.split('}')[-1].lower() in ['ele', 'elevation', 'alt']:
+                                try: ele_val = float(child.text)
+                                except: pass
+                                break
+                        elevation_list.append(ele_val)
+            if not latlons: return None
+            total_ele_gain = sum(max(0, elevation_list[i] - elevation_list[i-1]) for i in range(1, len(elevation_list)))
+            total_dist_km = sum(6371.0 * (2 * math.asin(math.sqrt(math.sin(math.radians(latlons[i][0]-latlons[i-1][0])/2)**2 + math.cos(math.radians(latlons[i-1][0])) * math.cos(math.radians(latlons[i][0])) * math.sin(math.radians(latlons[i][1]-latlons[i-1][1])/2)**2))) for i in range(1, len(latlons)))
+            return {"distance_km": round(max(total_dist_km, 0.1), 2), "elevation_gain_m": round(total_ele_gain, 1), "max_elevation": round(max(elevation_list), 1) if elevation_list else 0}
+        except Exception: return None
+
     if uploaded_gpx:
         route_metrics = parse_gpx(uploaded_gpx.read())
         if route_metrics:
@@ -501,14 +405,12 @@ with tab_strat:
             c2.metric("Elevation Gain", f"{route_metrics['elevation_gain_m']} m")
             c3.metric("Max Elevation", f"{route_metrics['max_elevation']} m")
             
-            if st.button("🤖 Generate Climbing & Gearing Strategy", type="primary"):
-                with st.spinner("Analyzing route profile..."):
+            if st.button("🤖 Generate Pacing Strategy", type="primary"):
+                with st.spinner("Analyzing profile..."):
                     strat_prompt = f"""
                     Analyze this route profile for climbing performance: Distance {route_metrics['distance_km']} km, Elevation Gain {route_metrics['elevation_gain_m']} m.
                     Objective: {st.session_state.goals['target_metric']}
-                    {equipment_context}
-                    
-                    Provide precise pacing advice, specific power targets for the climbs, and how to manage the 34-34 climbing gear ratio so the athlete doesn't get dropped.
+                    Provide precise power pacing targets and climbing strategies to maintain group ride cohesion.
                     """
                     try:
                         strat_res, strat_model = execute_multiprovider_generation(strat_prompt, preferred_provider=selected_provider)
@@ -517,24 +419,3 @@ with tab_strat:
                         st.caption(f"Generated via: {strat_model}")
                     except Exception as e:
                         st.error(f"Strategy generation failed: {e}")
-
-# ================= TAB 4: CROSS-TRAINING =================
-with tab_strength:
-    st.markdown("### 🏋️‍♂️ Running & Strength Cross-Training")
-    st.caption("Targeted supplementary training designed to improve cycling power and prevent injuries.")
-    
-    st_focus = st.selectbox("Cross-Training Focus", [
-        "Core & Posterior Chain Strength for Cycling Climbs",
-        "Low-Impact Running for Aerobic Base Maintenance",
-        "Full Body Mobility & Injury Prevention"
-    ])
-    
-    if st.button("Generate Cross-Training Session", type="primary"):
-        with st.spinner("Designing session..."):
-            xt_prompt = f"{equipment_context}\nDesign a 45-minute cross-training session focusing on: {st_focus} to support cycling climbing performance."
-            try:
-                xt_res, xt_model = execute_multiprovider_generation(xt_prompt, preferred_provider=selected_provider)
-                st.markdown(xt_res)
-                st.caption(f"Generated via: {xt_model}")
-            except Exception as e:
-                st.error(f"Generation failed: {e}")
