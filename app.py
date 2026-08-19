@@ -292,10 +292,14 @@ with tab_dash:
     with c_met3: st.metric("Form (TSB)", round(tsb, 1))
     with c_met4: st.metric("Sleep Score", f"{sleep_score}/100" if sleep_score > 0 else "N/A")
 
-    st.markdown("---")
+st.markdown("---")
     st.markdown("#### 📈 Deep 90-Day Training Load & Progression Trend Analysis")
-    
-    with st.spinner("Synthesizing 90-day performance trends..."):
+    st.caption("Click below to synthesize your 90-day performance trends on demand.")
+
+    if "cached_trend_analysis" not in st.session_state:
+        st.session_state.cached_trend_analysis = None
+
+    if st.button("🚀 Run 90-Day Trend Synthesis", type="primary"):
         trend_payload = f"""
         Perform a rigorous, detailed 90-day sports science trend analysis based on my wellness and training data:
         CTL (Fitness): {ctl}, ATL (Fatigue): {atl}, TSB (Form): {tsb}
@@ -307,23 +311,26 @@ with tab_dash:
         
         Provide a structured analysis covering fitness trajectory, consistency, climbing readiness, and next steps.
         """
-        try:
-            trend_analysis_text, _ = execute_multiprovider_generation(trend_payload, preferred_provider=selected_provider)
-            st.markdown(trend_analysis_text)
-            
-            if st.button("💬 Discuss These Trends With Coach", key="discuss_trends_btn"):
-                st.session_state.messages.append({
-                    "role": "user", 
-                    "content": f"Let's review my recent 90-day training trends (Fitness CTL: {round(ctl, 1)}, Fatigue ATL: {round(atl, 1)}, Form TSB: {round(tsb, 1)}). Based on my goal of '{st.session_state.goals['target_metric']}', am I progressing correctly?"
-                })
-                st.session_state.messages.append({
-                    "role": "model", 
-                    "content": "I've pulled up your 90-day trends. What specific part of your progression would you like to tweak?"
-                })
-                st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
-                st.rerun()
-        except Exception as e:
-            st.error(f"Could not generate deep trend analysis: {e}")
+        with st.spinner("Synthesizing 90-day performance trends..."):
+            try:
+                trend_res, _ = execute_multiprovider_generation(trend_payload, preferred_provider=selected_provider)
+                st.session_state.cached_trend_analysis = trend_res
+            except Exception as e:
+                st.error(f"Trend synthesis failed: {e}")
+
+    if st.session_state.cached_trend_analysis:
+        st.markdown(st.session_state.cached_trend_analysis)
+        if st.button("💬 Discuss These Trends With Coach", key="discuss_trends_btn"):
+            st.session_state.messages.append({
+                "role": "user", 
+                "content": f"Let's review my recent 90-day training trends (Fitness CTL: {round(ctl, 1)}, Fatigue ATL: {round(atl, 1)}, Form TSB: {round(tsb, 1)}). Based on my goal of '{st.session_state.goals['target_metric']}', am I progressing correctly?"
+            })
+            st.session_state.messages.append({
+                "role": "model", 
+                "content": "I've pulled up your 90-day trends. What specific part of your progression would you like to tweak?"
+            })
+            st.success("Context loaded! Head to the **AI Coach & Sparring** tab.")
+            st.rerun()
 
 # ================= TAB 2: AI COACH & SPARRING CHAT =================
 with tab_coach:
