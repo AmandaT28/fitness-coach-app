@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Navigation & Light Mode Contrast Patched)
+"""AI Performance Coach • Elite Suite (Final Architectural & Design Overhaul)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -83,107 +83,94 @@ def init_state():
 
 init_state()
 
-# --- PRECISE UI & THEME CSS INJECTION ---
+# --- BULLETPROOF THEME ARCHITECTURE & STYLING ---
 current_theme = st.session_state.get("app_theme", "Dark Mode (Default)")
 is_light = "Light" in current_theme
 
 bg_color = "#FFFFFF" if is_light else "#0E1117"
 sidebar_bg = "#F4F6F8" if is_light else "#161B22"
 text_color = "#1F2328" if is_light else "#FAFAFA"
-card_bg = "#FFFFFF" if is_light else "#1E2530"
+card_bg = "#F8F9FA" if is_light else "#1E2530"
 input_bg = "#FFFFFF" if is_light else "#0D1117"
-input_border = "#D0D7DE" if is_light else "rgba(128,128,128,0.25)"
 border_color = "#D0D7DE" if is_light else "rgba(128,128,128,0.25)"
 
 st.markdown(f"""
 <style>
-/* Global App Variables & Theme Enforcement */
+/* Core App Theme Enforcement */
 .stApp {{
     background-color: {bg_color};
     color: {text_color};
 }}
 
-.block-container {{ max-width: 1480px; padding-top: 3.5rem; padding-bottom: 3rem; padding-left: 1rem; padding-right: 1rem; }}
-.top-nav-spacer {{ height: 2rem; }}
+.block-container {{ 
+    max-width: 1480px; 
+    padding-top: 2rem; 
+    padding-bottom: 3rem; 
+    padding-left: 1.5rem; 
+    padding-right: 1.5rem; 
+}}
 
-/* Solid Background Sidebar Overlay Fix */
+/* Sidebar Design Integrity */
 section[data-testid="stSidebar"] {{ 
     border-right: 1px solid {border_color}; 
     background-color: {sidebar_bg} !important; 
     z-index: 999999 !important;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    box-shadow: 5px 0 25px rgba(0,0,0,0.1);
 }}
 
 section[data-testid="stSidebar"] > div {{
     background-color: {sidebar_bg} !important;
-    color: {text_color} !important;
 }}
 
-/* Universal Text Readability for Sidebar and General Content */
-section[data-testid="stSidebar"] p, 
-section[data-testid="stSidebar"] span, 
-section[data-testid="stSidebar"] label,
-section[data-testid="stSidebar"] div {{
-    color: {text_color} !important;
-}}
-
-/* Navigation Radio Buttons - Explicit High-Contrast Fix for Both Light & Dark Modes */
-div[data-testid="stRadio"] {{
-    color: {text_color} !important;
-}}
-
-div[data-testid="stRadio"] [role="radiogroup"] {{
-    background-color: {card_bg};
-    padding: 10px 14px;
-    border-radius: 12px;
-    border: 1px solid {border_color};
-    flex-wrap: wrap;
-    gap: .25rem 1rem;
-}}
-
-div[data-testid="stRadio"] label p,
-div[data-testid="stRadio"] label span,
-div[data-testid="stRadio"] div[data-baseweb="radio"] div {{
-    color: {text_color} !important;
-    font-weight: 600 !important;
-    font-size: 0.92rem !important;
-}}
-
-/* Form Inputs, Text Areas & Selectboxes */
-div[data-baseweb="select"] > div, input[type="text"], input[type="password"], textarea {{
-    background-color: {input_bg} !important;
-    color: {text_color} !important;
-    border-color: {input_border} !important;
-}}
-
-/* Metric Cards */
+/* Metric Cards & Expanders */
 div[data-testid="stMetric"] {{ 
     background: {card_bg}; 
     border: 1px solid {border_color}; 
-    border-radius: 14px; 
-    padding: 12px 14px; 
-    box-shadow: 0 4px 18px rgba(0,0,0,.04);
-    word-break: break-word;
+    border-radius: 12px; 
+    padding: 14px 16px; 
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
 }}
 
-div[data-testid="stExpander"] {{ border: 1px solid {border_color}; border-radius: 12px; overflow: hidden; background: {card_bg}; }}
-div[data-testid="stExpander"] details summary {{ font-weight: 600; color: {text_color}; }}
+div[data-testid="stExpander"] {{ 
+    border: 1px solid {border_color}; 
+    border-radius: 12px; 
+    background: {card_bg}; 
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}}
 
-.stButton > button {{ border-radius: 10px; font-weight: 600; transition: transform .15s ease, box-shadow .15s ease; width: 100%; }}
-.stButton > button:hover {{ transform: translateY(-1px); box-shadow: 0 5px 14px rgba(0,0,0,.10); }}
+/* Buttons & Inputs */
+.stButton > button {{ 
+    border-radius: 8px; 
+    font-weight: 600; 
+    width: 100%; 
+    transition: all 0.2s ease;
+}}
 
-div[data-testid="stChatMessage"] {{ border-radius: 14px; word-break: break-word; color: {text_color}; }}
+/* Status Highlights */
+.readiness-card-red {{ 
+    background: linear-gradient(135deg, rgba(255, 64, 129, 0.12), rgba(255, 23, 68, 0.03)); 
+    border: 1px solid rgba(255, 64, 129, 0.4); 
+    border-radius: 12px; 
+    padding: 16px; 
+    margin-bottom: 1.5rem; 
+}}
 
-/* Status Cards */
-.readiness-card-red {{ background: linear-gradient(135deg, rgba(255, 64, 129, 0.12), rgba(255, 23, 68, 0.03)); border: 1px solid rgba(255, 64, 129, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; color: {text_color}; }}
-.readiness-card-green {{ background: linear-gradient(135deg, rgba(0, 230, 118, 0.12), rgba(0, 200, 83, 0.03)); border: 1px solid rgba(0, 230, 118, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; color: {text_color}; }}
-.workout-pill {{ display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; background: rgba(128,128,128,0.15); margin-right: 6px; margin-bottom: 6px; color: {text_color}; }}
+.readiness-card-green {{ 
+    background: linear-gradient(135deg, rgba(0, 230, 118, 0.12), rgba(0, 200, 83, 0.03)); 
+    border: 1px solid rgba(0, 230, 118, 0.4); 
+    border-radius: 12px; 
+    padding: 16px; 
+    margin-bottom: 1.5rem; 
+}}
 
-@media(max-width: 768px) {{
-    div[data-testid="stHorizontalBlock"] {{ flex-direction: column !important; gap: 1rem; }}
-    .block-container {{ padding-top: 2rem; }}
+.workout-pill {{ 
+    display: inline-block; 
+    padding: 4px 10px; 
+    border-radius: 8px; 
+    font-size: 0.8rem; 
+    font-weight: 600; 
+    background: rgba(128,128,128,0.15); 
+    margin-right: 6px; 
+    margin-bottom: 6px; 
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -194,12 +181,6 @@ def ensure_initial_message():
 
 def go_to(page):
     st.session_state.active_nav = page
-
-def sidebar_changed():
-    st.session_state.active_nav = st.session_state.sidebar_nav
-
-def top_nav_changed():
-    st.session_state.active_nav = st.session_state.top_nav
 
 def discuss_with_coach(topic, context):
     context = str(context)
@@ -582,9 +563,14 @@ with st.sidebar:
 
     st.session_state.primary_discipline = st.selectbox("Primary Focus", ["Cycling & Running (Multi-Sport)", "Cycling Focus", "Running Focus"], index=0)
 
-    st.radio("Navigate", NAV_OPTIONS, key="sidebar_nav", on_change=sidebar_changed)
+    st.markdown("---")
+    st.markdown("**Navigation**")
+    for nav_item in NAV_OPTIONS:
+        if st.button(nav_item, use_container_width=True, type="primary" if st.session_state.active_nav == nav_item else "secondary"):
+            go_to(nav_item)
+            st.rerun()
+
     st.divider()
-    
     st.session_state.coach_persona = st.selectbox("Coaching Persona", ["Collaborative Peer (Balanced & Brainstorming)", "Sports Scientist (Data & Periodization Focus)", "Drill Sergeant (Strict & Direct Accountability)"], index=0)
     
     with st.expander("Recovery, fuel & supplements", expanded=False):
@@ -656,9 +642,6 @@ with st.sidebar:
         persist_chat_to_db()
         st.rerun()
 
-st.markdown("<div class='top-nav-spacer'></div>", unsafe_allow_html=True)
-if st.session_state.get("top_nav") != st.session_state.active_nav: st.session_state.top_nav = st.session_state.active_nav
-st.radio("Navigate pages", NAV_OPTIONS, horizontal=True, label_visibility="collapsed", key="top_nav", on_change=top_nav_changed)
 selected_nav = st.session_state.active_nav
 
 latest = wellness_list[-1] if wellness_list else {}
@@ -1113,6 +1096,6 @@ def render_coach_reply(question, display_name):
                                 except Exception as exc: st.error(f"Sync failed: {exc}")
                         
                 st.session_state.messages.append({"role": "assistant", "content": response})
-                persist_chat_to_test = persist_chat_to_db()
+                persist_chat_to_db()
             except Exception as exc:
                 placeholder.error(f"⚠️ {exc}")
