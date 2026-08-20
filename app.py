@@ -127,6 +127,34 @@ def open_coach_with_reference(notice):
     st.session_state.coach_reference_notice = notice
     go_to(COACH_PAGE)
 
+# --- NEW FEATURE: Closed-Loop Compliance Scorer ---
+def calculate_compliance_score(activity):
+    """Deterministically grades power execution based on Variability Index (VI)."""
+    actual_np = activity.get("icu_weighted_avg_watts") or activity.get("average_watts") or 0
+    ap = activity.get("average_watts") or actual_np
+    if not actual_np or ap <= 0:
+        return "N/A"
+    
+    vi = round(actual_np / ap, 2)
+    score = 100
+    if vi > 1.08:  # Too much surging
+        score -= int((vi - 1.08) * 100)
+    return f"{max(50, min(100, score))}% (VI: {vi})"
+
+# --- NEW FEATURE: Proactive On-Load New Ride Detector ---
+def check_for_new_rides_on_startup(activities_data):
+    """Fires a welcome toast if a new ride synced from your bike computer since last session."""
+    if not activities_data:
+        return
+    latest_activity = activities_data[0]
+    last_checked_id = st.session_state.get("last_seen_activity_id")
+    current_top_id = str(latest_activity.get("id"))
+    
+    if last_checked_id and last_checked_id != current_top_id:
+        st.toast(f"🚴‍♂️ New activity detected: {latest_activity.get('name')}! Check the Activity Inspector.", icon="🚨")
+    
+    st.session_state["last_seen_activity_id"] = current_top_id
+
 def extract_icu_workout(text):
     text_content = text or ""
     def clean_json_string(s):
@@ -267,7 +295,6 @@ def load_persisted_trend():
     if isinstance(saved, list) and saved:
         st.session_state.cached_trend_analyses = saved
     elif st.session_state.get("cached_trend_analysis"):
-        # Backward compatibility fallback for single cached string
         st.session_state.cached_trend_analyses = [{
             "timestamp": st.session_state.get("trend_analysis_timestamp", "Previous"),
             "analysis": st.session_state.cached_trend_analysis
@@ -350,6 +377,37 @@ def build_gemini_payload(current_question, display_name):
     next_monday_str = next_monday.isoformat()
     today_str = today.isoformat()
 
+    # --- DYNAMIC MACRO-PERIODIZATION ---
+    try:
+        race_dt = dt.date.fromisoformat(st.session_state.goals['race_date'])
+        weeks_to_race = max(0, (race_dt - today).days // 7)
+    except Exception:
+        weeks_to_race = 12
+
+    if weeks_to_race > 12:
+        periodization_phase = "BASE BUILDING (Focus on aerobic endurance, zone 2 volume, and muscular endurance)."
+    elif weeks_to_race > 4:
+        periodization_phase = "BUILD PHASE (Focus on threshold intervals, VO2 max progression, and race-pace simulations)."
+    else:
+        periodization_phase = "TAPER & PEAK PHASE (Focus on reducing volume while maintaining intensity, prioritizing recovery and glycogen loading)."
+
+    # --- NEW FEATURE: READINESS GATEKEEPER CHECK ---
+    latest_wellness = wellness_list[-1] if wellness_list else {}
+    current_tsb = float(latest_wellness.get("tsb", latest_wellness.get("TSB", 0)) or 0)
+    current_sleep = float(latest_wellness.get("sleep_score", latest_wellness.get("sleepScore", 80)) or 80)
+    
+    gatekeeper_active = (current_tsb < -20) or (current_sleep < 60)
+    if gatekeeper_active:
+        gatekeeper_directive = (
+            f"🚨 READINESS GATEKEEPER TRIGGERED 🚨\n"
+            f"Current TSB is {current_tsb:.1f} and Sleep Score is {current_sleep:.0f}/100.\n"
+            f"MANDATORY RULE: You must VETO any user request for high-intensity, threshold, or VO2 max intervals today. "
+            f"Protect the athlete from overtraining. Proactively mandate an active recovery spin or complete rest, "
+            f"regardless of what the athlete asks for. Do not compromise on recovery."
+        )
+    else:
+        gatekeeper_directive = f"Readiness Gatekeeper Status: CLEAR (TSB: {current_tsb:.1f}, Sleep: {current_sleep:.0f}). Training approved as planned."
+
     trend_ctx = (st.session_state.get('cached_trend_analysis') or 'No Trend Analysis.')[:1200]
     calendar_ctx = (st.session_state.get('calendar_context') or 'Not loaded')[:1500]
     
@@ -363,6 +421,8 @@ def build_gemini_payload(current_question, display_name):
         f"Athlete: {display_name}\n"
         f"Today: {today_str} | Next Monday: {next_monday_str}\n"
         f"Goal: {st.session_state.goals['target_metric']} ({st.session_state.goals['event_name']} on {st.session_state.goals['race_date']})\n"
+        f"Current Periodization Phase: {periodization_phase} ({weeks_to_race} weeks to event)\n"
+        f"{gatekeeper_directive}\n"
         f"Gear: {gear_str} | Limitations: {limits_str}\n"
         f"Supplements & Fueling: {supplements_str}\n"
         f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n\n"
@@ -538,6 +598,9 @@ load_persisted_trend()
 wellness_list, activities_data, planned_events, power_curves_data, intervals_status = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
 st.session_state.calendar_context = json.dumps([session_summary(ev) for ev in planned_events[:10]], ensure_ascii=False)
 
+# Trigger startup check for newly synced rides
+check_for_new_rides_on_startup(activities_data)
+
 if st.session_state.active_nav not in NAV_OPTIONS: st.session_state.active_nav = NAV_OPTIONS[0]; st.session_state.sidebar_nav = NAV_OPTIONS[0]
 if st.session_state.sidebar_nav != st.session_state.active_nav: st.session_state.sidebar_nav = st.session_state.active_nav
 
@@ -641,7 +704,6 @@ if selected_nav == NAV_OPTIONS[0]:
     c2.metric("Fatigue (ATL)", round(float(atl), 1))
     c3.metric("Form (TSB)", round(float(tsb), 1))
 
-    # Robust PMC Graph with key sanitization
     if wellness_list:
         try:
             df = pd.DataFrame(wellness_list)
@@ -650,7 +712,6 @@ if selected_nav == NAV_OPTIONS[0]:
                 df['date_parsed'] = pd.to_datetime(df[date_col], errors='coerce')
                 df = df.dropna(subset=['date_parsed']).sort_values('date_parsed')
                 
-               # Robust PMC Graph with explicit Series conversion for fillna safety
                 raw_ctl = df.get('ctl', df.get('CTL', 0))
                 raw_atl = df.get('atl', df.get('ATL', 0))
                 raw_tsb = df.get('tsb', df.get('TSB', 0))
@@ -674,7 +735,6 @@ if selected_nav == NAV_OPTIONS[0]:
         except Exception as e:
             st.caption(f"Chart render warning: {e}")
     
- # Initialize list state key if missing
     if "cached_trend_analyses" not in st.session_state:
         st.session_state.cached_trend_analyses = []
 
@@ -685,7 +745,6 @@ if selected_nav == NAV_OPTIONS[0]:
                 new_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=3000)
                 timestamp_str = dt.datetime.now(LOCAL_TZ).strftime("%d %b %Y, %H:%M %Z")
                 
-                # Prepend the new analysis and keep max 3 items
                 st.session_state.cached_trend_analyses.insert(0, {
                     "timestamp": timestamp_str,
                     "analysis": new_analysis
@@ -796,7 +855,7 @@ elif selected_nav == NAV_OPTIONS[2]:
 
     grouped = {**past_grouped}
     for date, sessions in future_grouped.items():
-        grouped[date] = grouped.get(date, [],) + sessions
+        grouped[date] = grouped.get(date, []) + sessions
     if grouped:
         st.divider()
         discussion_date = st.selectbox("Discuss a calendar day with Coach", list(sorted(grouped)), format_func=lambda val: f"{val} · " + " + ".join(event.get("name") or "Workout" for event in grouped[val]))
@@ -834,16 +893,19 @@ elif selected_nav == NAV_OPTIONS[3]:
         options = {f"{x.get('start_date_local','')[:10]} — {x.get('name','Unnamed')} ({round((x.get('distance') or 0)/1000,1)} km)": x for x in activities_data}
         label = st.selectbox("Choose an activity", list(options))
         activity = options[label]
-        c1, c2, c3 = st.columns(3)
+        
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Distance", f"{round((activity.get('distance') or 0)/1000,2)} km")
         c2.metric("Moving Time", f"{int((activity.get('moving_time') or 0)/60)} min")
         c3.metric("Average Power", f"{activity.get('average_watts','N/A')} W")
+        c4.metric("Execution Score", calculate_compliance_score(activity))
         
         if st.button("Run AI Debrief", type="primary"):
             compact_activity = activity_summary(activity)
+            compliance = calculate_compliance_score(activity)
             with st.spinner("Analyzing performance data..."):
                 try:
-                    prompt_text = f"Give a concise cycling performance debrief for this activity: {json.dumps(compact_activity)}. Goal: {st.session_state.goals['target_metric']}."
+                    prompt_text = f"Give a concise cycling performance debrief for this activity: {json.dumps(compact_activity)}. Calculated Execution Compliance: {compliance}. Goal: {st.session_state.goals['target_metric']}."
                     st.session_state.selected_activity_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
                     st.session_state.selected_activity_label = label
                     st.toast("Debrief generated successfully!", icon="✅")
@@ -864,11 +926,9 @@ elif selected_nav == "🗺️ Route Strategist":
         if metrics:
             st.json(metrics)
             
-            # --- NEW FEATURE: Automated Fueling Calculator ---
             st.markdown("###### 🧮 Estimated Race-Day Fueling Calculator")
             est_hours = st.slider("Estimated Completion Time (Hours)", min_value=1.0, max_value=8.0, value=3.0, step=0.25)
             
-            # Standard endurance fueling guidelines based on intensity/duration
             carbs_per_hr = 90 if est_hours >= 2.5 else 60
             total_carbs = int(carbs_per_hr * est_hours)
             total_fluid_ml = int(750 * est_hours)
