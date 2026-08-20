@@ -566,6 +566,7 @@ elif selected_nav == "🤖 AI Coach & Sparring":
                 clean_content = re.sub(r"```\s*<workout_file>.*?</\s*workout_file>\s*```", "", clean_content, flags=re.DOTALL)
                 clean_content = re.sub(r"<icu_workout>.*?</icu_workout>", "", clean_content, flags=re.DOTALL)
                 clean_content = re.sub(r"<icu_reschedule>.*?</icu_reschedule>", "", clean_content, flags=re.DOTALL)
+                clean_content = re.sub(r"<icu_supplement>.*?</icu_supplement>", "", clean_content, flags=re.DOTALL)
                 st.markdown(clean_content.strip())
                 
                 if msg["role"] == "model":
@@ -591,14 +592,13 @@ elif selected_nav == "🤖 AI Coach & Sparring":
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     last_user_prompt = st.session_state.messages[-1]["content"]
     
-    stack_summary = ", ".join([f"{s['name']} ({s['timing']})" for s in st.session_state.user_supplements])
+    stack_summary = ", ".join([f"{s['name']} ({s['timing']} - {s['notes']})" for s in st.session_state.user_supplements])
     
-    # Format full rolling conversation history for context memory
     formatted_history = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages[:-1]])
     
     payload = "\n".join([
         f"You are an elite cycling sports science coach acting with the persona: '{coach_persona}'.",
-        f"ACTIVE SUPPLEMENT STACK: {stack_summary}",
+        f"CURRENT ACTIVE SUPPLEMENT STACK: {stack_summary}",
         f"GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
         f"METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.",
         f"ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}",
@@ -612,9 +612,12 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         f"Athlete Physical Limitations: {st.session_state.athlete_limitations}",
         "Do NOT repeat or list the gear or limitation details in your response unless there is a specific mechanical issue, injury risk, or direct performance impact that the user should be aware of.",
         "",
+        "COACHING RULE - SUPPLEMENT STACK UPDATES:",
+        "If the user asks to add, remove, or optimize supplements, or if you recommend a supplement addition based on training load, you may include a JSON array wrapped EXACTLY in <icu_supplement> ... </icu_supplement> tags with fields: 'name', 'timing', and 'notes'.",
+        "",
         "COACHING RULE - PLAN FIRST, ASK FOR AGREEMENT:",
         "1. When the athlete asks for a training plan or calendar adjustments, present the proposal clearly in chat first.",
-        "2. ONLY include <icu_workout> or <icu_reschedule> tags if the user has explicitly confirmed/agreed to the plan in this prompt or prior conversation (e.g., saying 'yes sync it', 'looks good go ahead'). If they are just asking for a proposal, do NOT output sync tags yet.",
+        "2. ONLY include <icu_workout> or <icu_reschedule> tags if the user has explicitly confirmed/agreed to the plan in this prompt or prior conversation (e.g., saying 'yes sync it', 'looks good go ahead').",
         "",
         "CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside standard markdown xml block formatting.",
         "CRITICAL CALENDAR CREATION INSTRUCTION: If approved/agreed, output a JSON array wrapped EXACTLY in <icu_workout> ... </icu_workout> tags with fields: 'start_date_local' (YYYY-MM-DD), 'name', 'description', 'type' ('Ride'), 'indoor' (boolean).",
@@ -627,6 +630,33 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         try:
             resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
             
+            # --- HANDLE SUPPLEMENT UPDATES FROM AI ---
+            supp_matches = re.findall(r'<icu_supplement>\s*(.*?)\s*</icu_supplement>', resp, re.DOTALL)
+            supp_updated = False
+            if supp_matches:
+                for match_str in supp_matches:
+                    try:
+                        clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
+                        new_supps = json.loads(clean_json_str)
+                        if not isinstance(new_supps, list):
+                            new_supps = [new_supps]
+                        for ns in new_supps:
+                            if 'name' in ns:
+                                # Check if already exists, update or append
+                                existing = next((s for s in st.session_state.user_supplements if s['name'].lower() == ns['name'].lower()), None)
+                                if existing:
+                                    existing['timing'] = ns.get('timing', existing['timing'])
+                                    existing['notes'] = ns.get('notes', existing['notes'])
+                                else:
+                                    st.session_state.user_supplements.append({
+                                        "name": ns['name'],
+                                        "timing": ns.get('timing', 'As needed'),
+                                        "notes": ns.get('notes', 'Recommended by AI Coach')
+                                    })
+                                supp_updated = True
+                    except Exception:
+                        pass
+
             icu_matches = re.findall(r'<icu_workout>\s*(.*?)\s*</icu_workout>', resp, re.DOTALL)
             parsed_workouts = 0
             
@@ -660,351 +690,4 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
             if resched_matches and ATHLETE_ID and INTERVALS_API_KEY:
                 for match_str in resched_matches:
                     try:
-                        clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
-                        data = json.loads(clean_json_str)
-                        
-                        for ev_id in data.get("delete_event_ids", []):
-                            requests.delete(
-                                f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events/{ev_id}",
-                                auth=("API_KEY", INTERVALS_API_KEY),
-                                timeout=10
-                            )
-                            resched_count += 1
-                        
-                        for w in data.get("new_events", []):
-                            w['category'] = 'WORKOUT'
-                            if 'start_date_local' in w and len(w['start_date_local']) == 10:
-                                w['start_date_local'] += "T00:00:00"
-                            
-                            requests.post(
-                                f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events",
-                                json=w,
-                                auth=("API_KEY", INTERVALS_API_KEY),
-                                timeout=10
-                            )
-                    except Exception:
-                        pass
-
-            full_resp = f"{resp}\n\n*(Engine: {engine})*"
-            
-            if parsed_workouts > 0 or resched_count > 0:
-                full_resp += f"\n\n✅ **Success:** Plan approved and synchronized automatically with Intervals.icu!"
-                fetch_intervals_data.clear() 
-
-            st.session_state.messages.append({"role": "model", "content": full_resp})
-            st.rerun()
-        except Exception as e:
-            st.error(f"AI Generation Failed: {str(e)}")
-
-# ================= VIEW 3: TRAINING CALENDAR =================
-elif selected_nav == "📅 Training Calendar":
-    st.markdown("### 📅 Training Calendar & 2-Week Block Planner")
-    st.caption("Review your schedule, view full session details, or click into any day to inspect double sessions.")
-
-    c_cal1, c_cal2 = st.columns([2, 1])
-    with c_cal1:
-        st.markdown("#### 🗓️ Your Timeline")
-        today_str = datetime.date.today().isoformat()
-        
-        combined_timeline = []
-        if planned_events:
-            for ev in planned_events:
-                dt = ev.get('start_date_local', '')[:10]
-                if dt >= (datetime.date.today() - datetime.timedelta(days=7)).isoformat():
-                    combined_timeline.append({
-                        "id": ev.get('id'),
-                        "date": dt,
-                        "name": ev.get('name', 'Planned Workout'),
-                        "type": ev.get('type', 'Ride'),
-                        "desc": ev.get('description', 'No description provided.'),
-                        "status": "Planned"
-                    })
-        
-        if activities_data:
-            for act in activities_data:
-                dt = act.get('start_date_local', '')[:10]
-                if dt >= (datetime.date.today() - datetime.timedelta(days=7)).isoformat():
-                    dist_km = round((act.get('distance') or 0) / 1000, 1)
-                    dur_min = int((act.get('moving_time') or 0) / 60)
-                    combined_timeline.append({
-                        "id": act.get('id'),
-                        "date": dt,
-                        "name": act.get('name', 'Recorded Activity'),
-                        "type": act.get('type', 'Ride'),
-                        "desc": f"Distance: {dist_km} km | Time: {dur_min} mins | Avg Power: {act.get('average_watts', 'N/A')}W",
-                        "status": "Completed"
-                    })
-
-        upcoming = []
-        past = []
-        for item in combined_timeline:
-            try:
-                dt_obj = datetime.datetime.strptime(item['date'], "%Y-%m-%d")
-                item['formatted_date'] = dt_obj.strftime("%A, %b %d")
-            except:
-                item['formatted_date'] = item['date']
-                
-            if item['date'] >= today_str:
-                upcoming.append(item)
-            else:
-                past.append(item)
-
-        upcoming = sorted(upcoming, key=lambda x: x['date'])
-        past = sorted(past, key=lambda x: x['date'], reverse=True)
-
-        tab_up, tab_past = st.tabs(["📅 Upcoming (Next 14 Days)", "✅ Past (Last 7 Days)"])
-        
-        with tab_up:
-            if upcoming:
-                for item in upcoming:
-                    with st.expander(f"{item['formatted_date']} — {item['name']} ({item['status']})"):
-                        st.markdown(f"**Type:** {item['type']}")
-                        st.markdown(f"**Full Details / Notes:**\n\n{item['desc']}")
-            else:
-                st.info("No upcoming workouts scheduled.")
-
-        with tab_past:
-            if past:
-                for item in past:
-                    with st.expander(f"{item['formatted_date']} — {item['name']} ({item['status']})"):
-                        st.markdown(f"**Type:** {item['type']}")
-                        st.markdown(f"**Activity Summary:**\n\n{item['desc']}")
-            else:
-                st.info("No activities recorded in the past 7 days.")
-
-        st.markdown("---")
-        st.markdown("#### 🤖 AI 2-Week Block Planner & Rescheduler")
-        
-        plan_focus = st.selectbox("Select 2-Week Block Focus:", [
-            "Threshold Power & Sweet Spot Progression", 
-            "Climbing Endurance & Resistance Blocks", 
-            "Recovery & Taper Structure", 
-            "Custom Indoor/Outdoor Balance"
-        ])
-        
-        c_pbtn1, c_pbtn2 = st.columns(2)
-        with c_pbtn1:
-            if st.button("🚀 Propose 2-Week Block Plan", type="primary", use_container_width=True):
-                st.session_state.messages.append({
-                    "role": "user", 
-                    "content": f"Please propose a complete 2-week training block focused on '{plan_focus}' for me to review first before syncing."
-                })
-                st.session_state.messages.append({
-                    "role": "model", 
-                    "content": f"I'm drafting your 2-week block proposal focused on '{plan_focus}'. Review it in the chat and let me know if you want me to sync it!"
-                })
-                st.session_state.active_nav = "🤖 AI Coach & Sparring"
-                st.rerun()
-                
-        with c_pbtn2:
-            if st.button("🔄 Propose Shift Forward 1 Day", use_container_width=True):
-                st.session_state.messages.append({
-                    "role": "user", 
-                    "content": "Please propose shifting all my upcoming workouts forward by 1 day so I can review the changes before syncing."
-                })
-                st.session_state.messages.append({
-                    "role": "model", 
-                    "content": "Here is how shifting your schedule forward by 1 day looks..."
-                })
-                st.session_state.active_nav = "🤖 AI Coach & Sparring"
-                st.rerun()
-
-    with c_cal2:
-        st.markdown("#### 💬 Custom Rescheduling via Chat")
-        st.info(
-            "**How the review process works:**\n\n"
-            "1. Ask your coach for a plan or adjustment.\n"
-            "2. The coach will present the workouts in chat for your review.\n"
-            "3. Reply with **'Looks good, sync it'** or **'Approved'** to automatically push it to Intervals.icu!"
-        )
-
-# ================= VIEW 4: ACTIVITY INSPECTOR =================
-elif selected_nav == "🔍 Activity Inspector":
-    st.markdown("### 🔍 Past Activity Inspector & Deep Debrief")
-    st.caption("Select any past activity from your 90-day history to run an AI-powered performance debrief with clear activity and date identification.")
-
-    if activities_data:
-        act_options = {}
-        for act in activities_data:
-            name = act.get("name", "Unnamed Activity")
-            date = act.get("start_date_local", "")[:10]
-            raw_dist = act.get("distance")
-            dist = round(((raw_dist if raw_dist is not None else 0) / 1000), 1)
-            raw_time = act.get("moving_time")
-            dur_min = int((raw_time if raw_time is not None else 0) / 60)
-            label = f"{date} — {name} ({dist} km, {dur_min} mins)"
-            act_options[label] = act
-
-        selected_label = st.selectbox("Choose a past activity to analyze:", list(act_options.keys()))
-        selected_act = act_options[selected_label]
-
-        act_display_name = selected_act.get('name', 'Workout')
-        act_display_date = selected_act.get('start_date_local', '')[:10]
-        st.markdown(f"""
-        <div style="background-color: #eaf2f8; border: 1px solid #a9cce3; padding: 12px 16px; border-radius: 10px; margin-bottom: 16px;">
-            <div style="font-size: 0.8rem; font-weight: bold; color: #2471a3; text-transform: uppercase;">Selected Activity Inspection</div>
-            <div style="font-size: 1.2rem; font-weight: bold; color: #1b4f72; margin-top: 2px;">{act_display_name}</div>
-            <div style="font-size: 0.9rem; color: #515a5a; margin-top: 2px;">📅 Date: {act_display_date}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        col_info1, col_info2, col_info3 = st.columns(3)
-        sel_dist = selected_act.get("distance")
-        safe_dist = round(((sel_dist if sel_dist is not None else 0) / 1000), 2)
-        col_info1.metric("Distance", f"{safe_dist} km")
-        
-        sel_time = selected_act.get("moving_time")
-        safe_time = int((sel_time if sel_time is not None else 0) / 60)
-        col_info2.metric("Moving Time", f"{safe_time} mins")
-        
-        avg_watts = selected_act.get("average_watts")
-        safe_watts = f"{avg_watts} W" if avg_watts is not None else "N/A"
-        col_info3.metric("Average Power", safe_watts)
-
-        if st.button("🤖 Run Deep AI Activity Debrief", type="primary", use_container_width=True):
-            with st.spinner("Analyzing activity metrics, power output, and pacing..."):
-                debrief_prompt = "\n".join([
-                    "You are an elite cycling coach. Perform a deep performance debrief for this specific activity:",
-                    f"Activity Name: {act_display_name}",
-                    f"Activity Date: {act_display_date}",
-                    f"Activity Details: {selected_act}",
-                    f"Target Event Goal: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
-                    "",
-                    "Evaluate: 1) Intensity distribution, 2) Pacing efficiency, 3) Strengths, and 4) Areas for improvement. Only mention equipment or physical limitations if there is a specific issue or impact."
-                ])
-
-                try:
-                    debrief_res, debrief_engine = execute_multiprovider_generation(debrief_prompt, preferred_provider=selected_provider)
-                    st.session_state.selected_activity_analysis = f"### 🚴‍♂️ Performance Debrief: {act_display_name}\n📅 **Date:** {act_display_date}\n\n{debrief_res}\n\n*(Engine: {debrief_engine})*"
-                except Exception as e:
-                    st.error(f"Analysis failed: {e}")
-
-        if st.session_state.selected_activity_analysis:
-            st.markdown("---")
-            st.markdown(st.session_state.selected_activity_analysis)
-            
-            if st.button("💬 Clarify This Debrief with Coach", key="discuss_debrief_btn"):
-                act_dist = round((selected_act.get('distance') or 0) / 1000, 2)
-                act_time = int((selected_act.get('moving_time') or 0) / 60)
-                act_watts = selected_act.get('average_watts', 'N/A')
-                
-                st.session_state.messages.append({
-                    "role": "user", 
-                    "content": f"I want clarifications regarding my activity '{act_display_name}' on {act_display_date} ({act_dist} km, {act_time} mins, {act_watts}W avg power)."
-                })
-                st.session_state.messages.append({
-                    "role": "model", 
-                    "content": f"I have the details for '{act_display_name}' ({act_display_date}) right here. What specific section would you like to unpack?"
-                })
-                st.session_state.active_nav = "🤖 AI Coach & Sparring"
-                st.rerun()
-    else:
-        st.info("No activities found in your Intervals.icu sync history.")
-
-# ================= VIEW 5: RECOVERY & SUPPLEMENTS =================
-elif selected_nav == "💊 Recovery & Supplements":
-    st.markdown("### 💊 Dynamic Recovery & Supplement Protocol")
-    st.caption("Manage your personal supplement stack. The AI coach dynamically tracks these to optimize your recovery and training adaptation.")
-
-    with st.form("add_supplement_form", clear_on_submit=True):
-        st.markdown("#### Add New Supplement")
-        col_s1, col_s2, col_s3 = st.columns([1, 1, 2])
-        new_name = col_s1.text_input("Supplement Name")
-        new_timing = col_s2.text_input("Target Timing (e.g., Pre-bed)")
-        new_notes = col_s3.text_input("Purpose / Notes")
-        
-        if st.form_submit_button("➕ Add to Stack", use_container_width=True):
-            if new_name:
-                st.session_state.user_supplements.append({
-                    "name": new_name.strip(), 
-                    "timing": new_timing.strip() if new_timing else "As needed", 
-                    "notes": new_notes.strip() if new_notes else "Custom supplement"
-                })
-                st.success(f"Added {new_name} to your stack!")
-                st.rerun()
-            else:
-                st.warning("Please enter a supplement name.")
-
-    st.markdown("---")
-    st.markdown("#### 📋 Current Active Supplement Stack")
-
-    if st.session_state.user_supplements:
-        df_supps = pd.DataFrame(st.session_state.user_supplements)
-        st.dataframe(df_supps, use_container_width=True, hide_index=True)
-
-        supp_names = [s["name"] for s in st.session_state.user_supplements]
-        to_remove = st.selectbox("Select a supplement to remove (optional):", ["-- Select --"] + supp_names)
-        if to_remove != "-- Select --":
-            if st.button("🗑️ Remove Selected Supplement"):
-                st.session_state.user_supplements = [s for s in st.session_state.user_supplements if s["name"] != to_remove]
-                st.success(f"Removed {to_remove} from your stack.")
-                st.rerun()
-    else:
-        st.info("Your supplement stack is currently empty. Add one above!")
-
-    st.markdown("---")
-    if st.button("💬 Discuss Updated Supplement Stack With Coach", key="discuss_supplements_btn"):
-        stack_desc = ", ".join([f"{s['name']} ({s['timing']})" for s in st.session_state.user_supplements])
-        st.session_state.messages.append({
-            "role": "user", 
-            "content": f"Let's review my active supplement stack: {stack_desc}. How should I coordinate these around my training schedule?"
-        })
-        st.session_state.messages.append({
-            "role": "model", 
-            "content": "I've loaded your updated supplement stack into our chat. Let's optimize your recovery!"
-        })
-        st.session_state.active_nav = "🤖 AI Coach & Sparring"
-        st.rerun()
-
-# ================= VIEW 6: ROUTE STRATEGIST =================
-elif selected_nav == "🗺️ Route Strategist":
-    st.markdown("### 🗺️ Route Pacing & Climbing Strategist")
-    uploaded_gpx = st.file_uploader("Upload GPX Route File (.gpx)", type=["gpx"])
-    
-    def parse_gpx(file_bytes):
-        try:
-            xml_content = file_bytes.decode('utf-8', errors='ignore')
-            root = ET.fromstring(xml_content)
-            latlons, elevation_list = [], []
-            for elem in root.iter():
-                tag = elem.tag.split('}')[-1].lower()
-                if tag in ['trkpt', 'rtept']:
-                    lat_str = elem.attrib.get('lat') or elem.attrib.get('latitude')
-                    lon_str = elem.attrib.get('lon') or elem.attrib.get('longitude')
-                    if lat_str and lon_str:
-                        latlons.append((float(lat_str), float(lon_str)))
-                        ele_val = elevation_list[-1] if elevation_list else 0.0
-                        for child in elem:
-                            if child.tag.split('}')[-1].lower() in ['ele', 'elevation', 'alt']:
-                                try: ele_val = float(child.text)
-                                except: pass
-                                break
-                        elevation_list.append(ele_val)
-            if not latlons: return None
-            total_ele_gain = sum(max(0, elevation_list[i] - elevation_list[i-1]) for i in range(1, len(elevation_list)))
-            total_dist_km = sum(6371.0 * (2 * math.asin(math.sqrt(math.sin(math.radians(latlons[i][0]-latlons[i-1][0])/2)**2 + math.cos(math.radians(latlons[i-1][0])) * math.cos(math.radians(latlons[i][0])) * math.sin(math.radians(latlons[i][1]-latlons[i-1][1])/2)**2))) for i in range(1, len(latlons)))
-            return {"distance_km": round(max(total_dist_km, 0.1), 2), "elevation_gain_m": round(total_ele_gain, 1), "max_elevation": round(max(elevation_list), 1) if elevation_list else 0}
-        except Exception: return None
-
-    if uploaded_gpx:
-        route_metrics = parse_gpx(uploaded_gpx.read())
-        if route_metrics:
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Distance", f"{route_metrics['distance_km']} km")
-            c2.metric("Elevation Gain", f"{route_metrics['elevation_gain_m']} m")
-            c3.metric("Max Elevation", f"{route_metrics['max_elevation']} m")
-            
-            if st.button("🤖 Generate Climbing Strategy", type="primary"):
-                with st.spinner("Analyzing route profile..."):
-                    strat_prompt = "\n".join([
-                        f"Analyze this route profile: Distance {route_metrics['distance_km']} km, Elevation Gain {route_metrics['elevation_gain_m']} m.",
-                        f"Objective: {st.session_state.goals['target_metric']}",
-                        "Provide precise power pacing targets and climbing strategies. Only reference gear or physical limitations if there is a specific issue or impact."
-                    ])
-                    try:
-                        strat_res, strat_model = execute_multiprovider_generation(strat_prompt, preferred_provider=selected_provider)
-                        st.markdown("---")
-                        st.markdown(strat_res)
-                        st.caption(f"Generated via: {strat_model}")
-                    except Exception as e:
-                        st.error(f"Strategy generation failed: {e}")
+                        clean_json_str = match_str.replace("```json", "").replace("
