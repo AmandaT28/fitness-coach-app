@@ -340,35 +340,33 @@ def build_gemini_payload(current_question, display_name):
     next_monday_str = next_monday.isoformat()
     today_str = today.isoformat()
 
-    system_instructions = f"""You are an elite cycling coach with full calendar integration.
+system_instructions = f"""You are an elite cycling coach with full calendar integration.
 Persona: {st.session_state.coach_persona}
 Athlete: {display_name}
 Today: {today_str} | Next Monday: {next_monday_str}
 Goal: {st.session_state.goals['target_metric']} ({st.session_state.goals['event_name']} on {st.session_state.goals['race_date']})
-Gear: {st.session_state.athlete_gear or 'N/A'} | Limitations: {st.session_state.athlete_limitations or 'N/A'}
-Supplements: {json.dumps(st.session_state.user_supplements, ensure_ascii=False) or 'N/A'}
 
-90-DAY TREND SYNTHESIS ({st.session_state.get('trend_analysis_timestamp', '')}):
-{(st.session_state.get('cached_trend_analysis') or 'No Trend Analysis.')[:1200]}
+CRITICAL WORKOUT FORMATTING RULES FOR INTERVALS.ICU & MYWHOOSH:
+When prescribing workouts, the `description` field MUST use strict Intervals.icu Markdown syntax so it parses into ERG mode automatically:
+- Use clear section headers on their own line: `Warmup`, `Main Set`, `Cooldown`.
+- Use bullet points starting with `- ` followed by exact duration and power percentage.
+- For intervals, use repeat declarations on a separate line (e.g., `3x`) followed by indented steps, or put the multiplier on the block header.
+- Example valid description:
+  "Warmup\\n- 10m 50%\\n\\nMain Set 3x\\n- 4m 100%\\n- 2m 50%\\n\\nCooldown\\n- 10m 45%"
 
-Calendar Context:
-{st.session_state.get('calendar_context', 'Not loaded')[:1500]}
-
-INSTRUCTIONS & FORMATTING RULES:
-1. Explain your reasoning concisely to the athlete based on their goals and recent load.
-2. IF PRESCRIBING OR UPDATING A MULTI-DAY / WEEKLY SCHEDULE, YOU MUST APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags at the end of your message.
-Format:
+1. IF PRESCRIBING A WEEKLY SCHEDULE, APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags:
 <icu_weekly_plan>
 [
   {{
-    "name": "VO2 Max 5x3min",
+    "name": "VO2 Max Intervals",
     "type": "Ride",
     "start_date_local": "{next_monday_str}",
-    "description": "- Warmup\\n  - 10m 50-65%\\n\\n- Main Set 5x\\n  - 3m 110-120%\\n  - 3m 50%\\n\\n- Cooldown\\n  - 10m 50%"
+    "description": "Warmup\\n- 10m 50%\\n\\nMain Set 5x\\n- 3m 115%\\n- 3m 50%\\n\\nCooldown\\n- 10m 50%"
   }}
 ]
 </icu_weekly_plan>
-3. IF PRESCRIBING A SINGLE WORKOUT, enclose a JSON object in `<icu_workout>` tags instead."""
+"""
+2. IF PRESCRIBING A SINGLE WORKOUT, enclose a JSON object in `<icu_workout>` tags instead."""
 
     # Map previous chat messages into the structure Gemini expects
     contents = []
