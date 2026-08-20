@@ -125,10 +125,15 @@ def open_coach_with_reference(notice):
 
 def extract_icu_workout(text):
     text_content = text or ""
+    
+    # Helper to strip accidental markdown formatting around the JSON output
+    def clean_json_string(s):
+        return re.sub(r"```(?:json)?\s*(.*?)\s*```", r"\1", s, flags=re.DOTALL | re.IGNORECASE).strip()
+
     plan_match = re.search(r"<icu_weekly_plan>(.*?)</icu_weekly_plan>", text_content, re.DOTALL | re.IGNORECASE)
     if plan_match:
         try:
-            parsed = json.loads(plan_match.group(1).strip())
+            parsed = json.loads(clean_json_string(plan_match.group(1)))
             if isinstance(parsed, list):
                 return parsed
         except Exception:
@@ -137,7 +142,7 @@ def extract_icu_workout(text):
     single_match = re.search(r"<icu_workout>(.*?)</icu_workout>", text_content, re.DOTALL | re.IGNORECASE)
     if single_match:
         try:
-            parsed = json.loads(single_match.group(1).strip())
+            parsed = json.loads(clean_json_string(single_match.group(1)))
             if isinstance(parsed, dict):
                 return [parsed]
         except Exception:
@@ -229,7 +234,6 @@ def persist_supplements_to_db():
         except Exception: pass
 
 def persist_chat_to_db():
-    # Keep last 30 turns max to prevent database bloat
     trimmed_messages = st.session_state.messages[-30:]
     if st.session_state.user and supabase:
         try:
@@ -332,7 +336,7 @@ def activity_summary(activity):
     return {key: value for key, value in fields.items() if value not in (None, "", 0)}
 
 def build_gemini_payload(current_question, display_name):
-    """Constructs message payloads containing history + system context for Gemini v1beta."""
+    """Constructs message payloads containing history + system context safely bounded for tokens."""
     today = dt.date.today()
     next_monday = today + dt.timedelta(days=(0 - today.weekday()) % 7)
     if next_monday == today: next_monday += dt.timedelta(days=7)
@@ -340,12 +344,25 @@ def build_gemini_payload(current_question, display_name):
     next_monday_str = next_monday.isoformat()
     today_str = today.isoformat()
 
+    # Safely bound large context blocks to prevent token bloat
+    trend_ctx = (st.session_state.get('cached_trend_analysis') or 'No Trend Analysis.')[:1200]
+    calendar_ctx = (st.session_state.get('calendar_context') or 'Not loaded')[:1500]
+    
+    # Safely fetch personal athlete configurations
+    supplements_str = json.dumps(st.session_state.user_supplements, ensure_ascii=False) if st.session_state.user_supplements else 'N/A'
+    gear_str = st.session_state.athlete_gear or 'N/A'
+    limits_str = st.session_state.athlete_limitations or 'N/A'
+
     system_instructions = (
         f"You are an elite cycling coach with full calendar integration.\n"
         f"Persona: {st.session_state.coach_persona}\n"
         f"Athlete: {display_name}\n"
         f"Today: {today_str} | Next Monday: {next_monday_str}\n"
-        f"Goal: {st.session_state.goals['target_metric']} ({st.session_state.goals['event_name']} on {st.session_state.goals['race_date']})\n\n"
+        f"Goal: {st.session_state.goals['target_metric']} ({st.session_state.goals['event_name']} on {st.session_state.goals['race_date']})\n"
+        f"Gear: {gear_str} | Limitations: {limits_str}\n"
+        f"Supplements & Fueling: {supplements_str}\n"
+        f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n\n"
+        f"CALENDAR CONTEXT:\n{calendar_ctx}\n\n"
         "CRITICAL WORKOUT FORMATTING RULES FOR INTERVALS.ICU & MYWHOOSH:\n"
         "When prescribing workouts, the `description` field MUST use strict Intervals.icu Markdown syntax so it parses into ERG mode automatically:\n"
         "- Use clear section headers on their own line: Warmup, Main Set, Cooldown.\n"
@@ -376,16 +393,18 @@ def build_gemini_payload(current_question, display_name):
         }
     ]
 
+    # Append recent chat history with message character caps for token safety
     for m in st.session_state.messages[-15:]:
         role = "user" if m["role"] == "user" else "model"
+        msg_text = str(m["content"])[:2000]
         contents.append({
             "role": role,
-            "parts": [{"text": str(m["content"])}]
+            "parts": [{"text": msg_text}]
         })
 
     contents.append({
         "role": "user",
-        "parts": [{"text": str(current_question)}]
+        "parts": [{"text": str(current_question)[:2000]}]
     })
 
     return contents
@@ -410,10 +429,11 @@ def render_coach_reply(question, display_name):
                     st.write(f"• **{session.get('start_date_local')}**: `{session.get('name', 'Workout')}` ({session.get('type', 'Ride')})")
                     
                 if st.button("🚀 Approve & Sync Plan to Intervals.icu & MyWhoosh", key=f"sync_chat_{len(st.session_state.messages)}", type="primary"):
-                    try:
-                        push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, icu_payload)
-                        st.success("✅ Proposed plan successfully synced to your Intervals.icu calendar!")
-                    except Exception as exc: st.error(f"Sync failed: {exc}")
+                    with st.spinner("⏳ Syncing proposed plan to Intervals.icu..."):
+                        try:
+                            push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, icu_payload)
+                            st.success("✅ Proposed plan successfully synced to your Intervals.icu calendar!")
+                        except Exception as exc: st.error(f"Sync failed: {exc}")
                     
             st.session_state.messages.append({"role": "assistant", "content": response})
             persist_chat_to_db()
@@ -650,10 +670,11 @@ elif selected_nav == COACH_PAGE:
                     for session in icu_payload:
                         st.write(f"• **{session.get('start_date_local')}**: `{session.get('name', 'Workout')}` ({session.get('type', 'Ride')})")
                     if st.button("🚀 Approve & Sync Plan to Intervals.icu & MyWhoosh", key=f"sync_hist_{idx}", type="primary"):
-                        try:
-                            push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, icu_payload)
-                            st.success("✅ Workouts successfully synced!")
-                        except Exception as exc: st.error(f"Sync failed: {exc}")
+                        with st.spinner("⏳ Syncing workouts to Intervals.icu..."):
+                            try:
+                                push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, icu_payload)
+                                st.success("✅ Workouts successfully synced!")
+                            except Exception as exc: st.error(f"Sync failed: {exc}")
 
     pending = st.session_state.pending_coach_prompt
     if pending:
@@ -731,16 +752,17 @@ elif selected_nav == NAV_OPTIONS[2]:
             w_type = st.selectbox("Activity Type", ["Ride", "VirtualRide", "Workout"], index=0)
             w_desc = st.text_area("Workout Steps (Intervals.icu Text Syntax with Cadence)", value="Warmup\n- 10m 50% 90rpm\n\nMain Set 5x\n- 3m 115% 100rpm\n- 3m 50% 85rpm\n\nCooldown\n- 10m 50% 85rpm")
             if st.form_submit_button("🚀 Push Workout to Intervals.icu", use_container_width=True):
-                try:
-                    push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, [{
-                        "name": w_name,
-                        "start_date_local": w_date.isoformat(),
-                        "type": w_type,
-                        "description": w_desc
-                    }])
-                    st.success(f"Pushed '{w_name}' to Intervals.icu for {w_date.isoformat()}!")
-                except Exception as exc:
-                    st.error(str(exc))
+                with st.spinner("⏳ Pushing workout to Intervals.icu..."):
+                    try:
+                        push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, [{
+                            "name": w_name,
+                            "start_date_local": w_date.isoformat(),
+                            "type": w_type,
+                            "description": w_desc
+                        }])
+                        st.success(f"Pushed '{w_name}' to Intervals.icu for {w_date.isoformat()}!")
+                    except Exception as exc:
+                        st.error(str(exc))
 
 elif selected_nav == NAV_OPTIONS[3]:
     st.markdown("##### 🔍 Activity Inspector")
@@ -777,6 +799,7 @@ elif selected_nav == "🗺️ Route Strategist":
             if st.button("Generate Climbing Strategy", type="primary"):
                 try:
                     prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Goal: {st.session_state.goals['target_metric']}. Give practical pacing and climbing strategies."
+                    # Fixed max_notes typo to max_tokens
                     st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
                 except Exception as exc: st.error(str(exc))
             if st.session_state.route_analysis:
