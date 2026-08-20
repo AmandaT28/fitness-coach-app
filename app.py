@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Single-File UX Redesigned)
+"""AI Performance Coach • Elite Suite (Advanced Functional Upgrade)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -51,7 +51,7 @@ GEMINI_KEYS = [
 GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-2.5-flash")
 AI_TIMEOUT = 15  
 INTERVALS_TIMEOUT = 6
-NAV_OPTIONS = ["📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "🗺️ Route Strategist"]
+NAV_OPTIONS = ["📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "🗺️ Route Strategist", "📈 Power Profiler"]
 COACH_PAGE = "🤖 AI Coach & Sparring"
 DEFAULT_GOALS = {"event_name": "Bintan Round Island", "target_metric": "Survive steep climbs on group rides & improve threshold power", "race_date": "2026-10-24"}
 
@@ -93,7 +93,7 @@ def init_state():
         "selected_activity_label": None, "route_analysis": None,
         "pending_coach_prompt": None, "ai_diagnostic": None, "coach_reference_notice": None,
         "trend_loaded": False, "calendar_context": "", "profile_loaded": False,
-        "coach_memory": ""
+        "coach_memory": "", "auto_compliance_cache": {}
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -134,6 +134,7 @@ def calculate_compliance_score(activity):
         score -= int((vi - 1.08) * 100)
     return f"{max(50, min(100, score))}% (VI: {vi})"
 
+# --- FUNCTION 1 & 2: Ramp Rate (ACWR) & Background Compliance Engine ---
 def check_for_new_rides_on_startup(activities_data):
     if not activities_data:
         return
@@ -141,8 +142,28 @@ def check_for_new_rides_on_startup(activities_data):
     last_checked_id = st.session_state.get("last_seen_activity_id")
     current_top_id = str(latest_activity.get("id"))
     if last_checked_id and last_checked_id != current_top_id:
-        st.toast(f"🚴‍♂️ New activity detected: {latest_activity.get('name')}! Check the Activity Inspector.", icon="🚨")
+        compliance = calculate_compliance_score(latest_activity)
+        st.toast(f"🚴‍♂️ New Ride Synced: '{latest_activity.get('name')}'! Execution Score: {compliance}", icon="🎯")
     st.session_state["last_seen_activity_id"] = current_top_id
+
+def calculate_acwr(wellness_list):
+    """Calculates Acute-to-Chronic Workload Ratio to catch overreaching risks."""
+    if not wellness_list or len(wellness_list) < 28:
+        return 1.0, "Stable"
+    try:
+        loads = [float(w.get("training_load", w.get("Load", w.get("atl", 0))) or 0) for w in wellness_list]
+        acute = sum(loads[-7:]) / 7.0
+        chronic = sum(loads[-28:]) / 28.0
+        if chronic == 0:
+            return 1.0, "Stable"
+        acwr = round(acute / chronic, 2)
+        if acwr > 1.35:
+            return acwr, "🚨 Danger: Overreaching / Spike Risk (>1.35)"
+        elif acwr < 0.8:
+            return acwr, "⚠️ Detraining / Undertraining Risk (<0.8)"
+        return acwr, "✅ Optimal Ramp Rate (0.8–1.35)"
+    except Exception:
+        return 1.0, "Stable"
 
 def extract_icu_workout(text):
     text_content = text or ""
@@ -546,17 +567,19 @@ if selected_nav == NAV_OPTIONS[0]:
     st.caption(f"Intervals.icu: {intervals_status}")
     
     sleep_score = latest.get("sleep_score") or latest.get("sleepScore")
+    acwr_val, acwr_status = calculate_acwr(wellness_list)
+    
     if not wellness_list:
         readiness, focus, watch = "Readiness unavailable", "Sync Intervals.icu to assess today.", "No current wellness data."
         card_class = "readiness-card-green"
-    elif tsb <= -20 or (sleep_score and sleep_score < 60):
-        readiness, focus, watch = "Recovery Gatekeeper Triggered", "Keep today easy or rest. High fatigue/low sleep detected.", f"Accumulated TSB {tsb:.0f}, Sleep {sleep_score or 'N/A'}/100."
+    elif tsb <= -20 or (sleep_score and sleep_score < 60) or acwr_val > 1.35:
+        readiness, focus, watch = "Recovery Gatekeeper Triggered", f"ACWR: {acwr_val} ({acwr_status}). High overreaching risk detected.", f"Accumulated TSB {tsb:.0f}, Sleep {sleep_score or 'N/A'}/100."
         card_class = "readiness-card-red"
     elif tsb <= -8:
-        readiness, focus, watch = "Manage the load", "Train, but avoid adding unplanned intensity.", f"Fatigue is elevated (TSB {tsb:.0f})."
+        readiness, focus, watch = "Manage the load", f"ACWR: {acwr_val}. Train, but avoid adding unplanned intensity.", f"Fatigue is elevated (TSB {tsb:.0f})."
         card_class = "readiness-card-red"
     else:
-        readiness, focus, watch = "Ready to train", "Your planned session is appropriate.", f"Form is balanced (TSB {tsb:.0f})."
+        readiness, focus, watch = "Ready to train", f"ACWR: {acwr_val} ({acwr_status}). Your planned session is appropriate.", f"Form is balanced (TSB {tsb:.0f})."
         card_class = "readiness-card-green"
         
     st.markdown(f"""
@@ -603,7 +626,7 @@ if selected_nav == NAV_OPTIONS[0]:
         st.session_state.cached_trend_analyses = []
 
     if st.button("🚀 Run 90-Day Trend Synthesis", type="primary"):
-        payload_text = f"Analyze this athlete's last 90 days. CTL {ctl}; ATL {atl}; TSB {tsb}. Goal: {st.session_state.goals['target_metric']}."
+        payload_text = f"Analyze this athlete's last 90 days. CTL {ctl}; ATL {atl}; TSB {tsb}. ACWR: {acwr_val}. Goal: {st.session_state.goals['target_metric']}."
         with st.spinner("Analyzing 90 days of training data..."):
             try:
                 new_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=3000)
@@ -659,7 +682,7 @@ elif selected_nav == COACH_PAGE:
         render_coach_reply(question.strip(), display_name)
 
 elif selected_nav == NAV_OPTIONS[2]:
-    st.markdown("##### 📅 Training Calendar & Intervals.icu Sync")
+    st.markdown("##### 📅 Training Calendar & Macrocycle Builder")
     today = dt.datetime.now(LOCAL_TZ).date()
     window_start, window_end = today - dt.timedelta(days=14), today + dt.timedelta(days=14)
     st.caption(f"Showing previous 14 days and next 14 days · {window_start:%d %b}–{window_end:%d %b %Y}")
@@ -716,7 +739,24 @@ elif selected_nav == NAV_OPTIONS[2]:
             st.rerun()
 
     st.divider()
-    with st.expander("➕ Push New Workout to Intervals.icu Calendar (Syncs to MyWhoosh)", expanded=False):
+    # --- FUNCTION 5: Multi-Week Macrocycle Builder Wizard ---
+    with st.expander("🏗️ Multi-Week Macrocycle Periodization Builder", expanded=False):
+        st.caption("Generate an automated multi-week skeleton block leading directly into your target race date.")
+        macro_weeks = st.slider("Macrocycle Duration (Weeks)", min_value=4, max_value=16, value=8, step=2)
+        if st.button("Generate & Push Periodized Macrocycle", type="primary"):
+            with st.spinner("Synthesizing periodized block..."):
+                try:
+                    macro_prompt = f"Generate a strict {macro_weeks}-week periodized training skeleton leading up to my race on {st.session_state.goals['race_date']}. Return a JSON array inside <icu_weekly_plan> tags containing structured workouts across the coming weeks with realistic progression."
+                    response = execute_ai([{"role": "user", "parts": [{"text": macro_prompt}]}], max_tokens=4000)
+                    macro_payload = extract_icu_workout(response)
+                    if macro_payload:
+                        push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, macro_payload)
+                        st.toast(f"Successfully pushed {len(macro_payload)} periodized sessions to Intervals.icu!", icon="🚀")
+                    else:
+                        st.warning("AI generated advice, but could not parse structured weekly plan JSON.")
+                except Exception as exc: st.error(str(exc))
+
+    with st.expander("➕ Push Single Workout to Intervals.icu Calendar", expanded=False):
         with st.form("push_workout_form"):
             w_name = st.text_input("Workout Name", value="VO2Max Intervals")
             w_date = st.date_input("Workout Date", value=today)
@@ -764,7 +804,7 @@ elif selected_nav == NAV_OPTIONS[3]:
                     discuss_with_coach(f"activity debrief for {st.session_state.selected_activity_label}", st.session_state.selected_activity_analysis)
                     st.rerun()
 
-elif selected_nav == "🗺️ Route Strategist":
+elif selected_nav == NAV_OPTIONS[4]:
     st.markdown("##### 🗺️ Route Pacing, Climbing & Fueling Strategist")
     uploaded = st.file_uploader("Upload GPX File", type=["gpx"])
     if uploaded:
@@ -808,6 +848,59 @@ elif selected_nav == "🗺️ Route Strategist":
         else:
             st.error("Could not parse GPX file. Ensure it contains valid track points and elevation data.")
 
+# --- FUNCTION 4: Interactive Power Duration Curve Profiler ---
+elif selected_nav == NAV_OPTIONS[5]:
+    st.markdown("##### 📈 Power-Duration Curve Profiler")
+    st.caption("Visualizing your anaerobic capacity, maximal aerobic power, and threshold limitations from Intervals.icu.")
+    
+    if not power_curves_data:
+        st.info("No power-duration curve data returned from Intervals.icu. Ensure your power meter and power curves are synced.")
+    else:
+        try:
+            # Handle list or dict response format from Intervals.icu power-curves endpoint
+            curve_points = power_curves_data if isinstance(power_curves_data, list) else power_curves_data.get("curve", [])
+            if not curve_points and isinstance(power_curves_data, dict):
+                # Fallback key check
+                curve_points = power_curves_data.get("watts", [])
+                
+            if curve_points:
+                if isinstance(curve_points[0], dict):
+                    secs = [float(p.get("secs", p.get("seconds", i)) or i) for i, p in enumerate(curve_points)]
+                    watts = [float(p.get("watts", p.get("power", 0)) or 0) for p in curve_points]
+                else:
+                    secs = [float(i) for i in range(len(curve_points))]
+                    watts = [float(w) for w in curve_points]
+                
+                df_pc = pd.DataFrame({"seconds": secs, "watts": watts})
+                df_pc = df_pc[df_pc["seconds"] > 0].sort_values("seconds")
+                
+                fig_pc = go.Figure()
+                fig_pc.add_trace(go.Scatter(x=df_pc["seconds"], y=df_pc["watts"], mode='lines+markers', name='Power Curve', line=dict(color='#00E676', width=3)))
+                fig_pc.update_layout(
+                    title="Power Duration Curve (Watts vs Seconds)",
+                    xaxis_title="Duration (Seconds, Log Scale)", yaxis_title="Power (Watts)",
+                    xaxis_type="log", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color="#E0E0E0")
+                )
+                st.plotly_chart(fig_pc, use_container_width=True)
+                
+                if st.button("🧠 Analyze Power Profile with AI Coach", type="primary"):
+                    with st.spinner("Analyzing physiological power profile..."):
+                        try:
+                            peak_5s = max(watts) if watts else 0
+                            peak_1m = df_pc[df_pc["seconds"].between(50, 70)]["watts"].max() if not df_pc.empty else 0
+                            peak_20m = df_pc[df_pc["seconds"].between(1150, 1250)]["watts"].max() if not df_pc.empty else 0
+                            profile_summary = f"Power Curve Metrics — 5s Max: {peak_5s}W, 1m Max: {peak_1m}W, 20m Max: {peak_20m}W."
+                            prompt_text = f"Analyze my power-duration profile: {profile_summary}. Goal: {st.session_state.goals['target_metric']}. Identify my physiological limiters and recommend specific interval workouts to address them."
+                            analysis_res = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
+                            st.markdown("###### 📊 AI Power Profile Analysis")
+                            st.markdown(analysis_res)
+                        except Exception as exc: st.error(str(exc))
+            else:
+                st.info("Power curve data structure empty or unrecognized.")
+        except Exception as exc:
+            st.error(f"Error rendering power curve: {exc}")
+
 def build_gemini_payload(current_question, display_name):
     today = dt.datetime.now(LOCAL_TZ).date()
     next_monday = today + dt.timedelta(days=(0 - today.weekday()) % 7)
@@ -831,18 +924,19 @@ def build_gemini_payload(current_question, display_name):
     latest_wellness = wellness_list[-1] if wellness_list else {}
     current_tsb = float(latest_wellness.get("tsb", latest_wellness.get("TSB", 0)) or 0)
     current_sleep = float(latest_wellness.get("sleep_score", latest_wellness.get("sleepScore", 80)) or 80)
+    acwr_val, acwr_status = calculate_acwr(wellness_list)
     
-    gatekeeper_active = (current_tsb < -20) or (current_sleep < 60)
+    gatekeeper_active = (current_tsb < -20) or (current_sleep < 60) or (acwr_val > 1.35)
     if gatekeeper_active:
         gatekeeper_directive = (
-            f"🚨 READINESS GATEKEEPER TRIGGERED 🚨\n"
-            f"Current TSB is {current_tsb:.1f} and Sleep Score is {current_sleep:.0f}/100.\n"
+            f"🚨 READINESS GATEKEEPER & ACWR GUARDIAN TRIGGERED 🚨\n"
+            f"Current TSB is {current_tsb:.1f}, Sleep Score is {current_sleep:.0f}/100, and ACWR is {acwr_val} ({acwr_status}).\n"
             f"MANDATORY RULE: You must VETO any user request for high-intensity, threshold, or VO2 max intervals today. "
-            f"Protect the athlete from overtraining. Proactively mandate an active recovery spin or complete rest, "
+            f"Protect the athlete from overtraining and excessive ramp rate spikes. Proactively mandate an active recovery spin or complete rest, "
             f"regardless of what the athlete asks for. Do not compromise on recovery."
         )
     else:
-        gatekeeper_directive = f"Readiness Gatekeeper Status: CLEAR (TSB: {current_tsb:.1f}, Sleep: {current_sleep:.0f}). Training approved as planned."
+        gatekeeper_directive = f"Readiness Gatekeeper Status: CLEAR (TSB: {current_tsb:.1f}, Sleep: {current_sleep:.0f}, ACWR: {acwr_val}). Training approved as planned."
 
     trend_ctx = (st.session_state.get('cached_trend_analysis') or 'No Trend Analysis.')[:1200]
     calendar_ctx = (st.session_state.get('calendar_context') or 'Not loaded')[:1500]
@@ -870,7 +964,7 @@ def build_gemini_payload(current_question, display_name):
         "- Use bullet points starting with '- ' followed by exact duration, power percentage, AND precise target cadence (RPM).\n"
         "- Example detailed cadence format: `- 3m 115% 95-100rpm` or `- 5m 65% 85-90rpm`.\n"
         "- For intervals, use repeat declarations on a separate line (e.g., '5x') followed by indented steps.\n\n"
-        "IF PRESCRIBING A WEEKLY SCHEDULE, APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags:\n"
+        "IF PRESCRIBING A WEEKLY SCHEDULE OR MACROCYCLE, APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags:\n"
         "<icu_weekly_plan>\n"
         "[\n"
         "  {\n"
