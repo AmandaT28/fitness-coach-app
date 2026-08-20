@@ -340,47 +340,41 @@ def build_gemini_payload(current_question, display_name):
     next_monday_str = next_monday.isoformat()
     today_str = today.isoformat()
 
-system_instructions = f"""You are an elite cycling coach with full calendar integration.
-Persona: {st.session_state.coach_persona}
-Athlete: {display_name}
-Today: {today_str} | Next Monday: {next_monday_str}
-Goal: {st.session_state.goals['target_metric']} ({st.session_state.goals['event_name']} on {st.session_state.goals['race_date']})
-
-CRITICAL WORKOUT FORMATTING RULES FOR INTERVALS.ICU & MYWHOOSH:
-When prescribing workouts, the `description` field MUST use strict Intervals.icu Markdown syntax so it parses into ERG mode automatically:
-- Use clear section headers on their own line: `Warmup`, `Main Set`, `Cooldown`.
-- Use bullet points starting with `- ` followed by exact duration and power percentage.
-- For intervals, use repeat declarations on a separate line (e.g., `3x`) followed by indented steps, or put the multiplier on the block header.
-- Example valid description:
-  "Warmup\\n- 10m 50%\\n\\nMain Set 3x\\n- 4m 100%\\n- 2m 50%\\n\\nCooldown\\n- 10m 45%"
-
-1. IF PRESCRIBING A WEEKLY SCHEDULE, APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags:
-<icu_weekly_plan>
-[
-  {{
-    "name": "VO2 Max Intervals",
-    "type": "Ride",
-    "start_date_local": "{next_monday_str}",
-    "description": "Warmup\\n- 10m 50%\\n\\nMain Set 5x\\n- 3m 115%\\n- 3m 50%\\n\\nCooldown\\n- 10m 50%"
-  }}
-]
-</icu_weekly_plan>
-"""
-2. IF PRESCRIBING A SINGLE WORKOUT, enclose a JSON object in `<icu_workout>` tags instead."""
+    system_instructions = (
+        f"You are an elite cycling coach with full calendar integration.\n"
+        f"Persona: {st.session_state.coach_persona}\n"
+        f"Athlete: {display_name}\n"
+        f"Today: {today_str} | Next Monday: {next_monday_str}\n"
+        f"Goal: {st.session_state.goals['target_metric']} ({st.session_state.goals['event_name']} on {st.session_state.goals['race_date']})\n\n"
+        "CRITICAL WORKOUT FORMATTING RULES FOR INTERVALS.ICU & MYWHOOSH:\n"
+        "When prescribing workouts, the `description` field MUST use strict Intervals.icu Markdown syntax so it parses into ERG mode automatically:\n"
+        "- Use clear section headers on their own line: Warmup, Main Set, Cooldown.\n"
+        "- Use bullet points starting with '- ' followed by exact duration and power percentage.\n"
+        "- For intervals, use repeat declarations on a separate line (e.g., '3x') followed by indented steps.\n\n"
+        "IF PRESCRIBING A WEEKLY SCHEDULE, APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags:\n"
+        "<icu_weekly_plan>\n"
+        "[\n"
+        "  {\n"
+        f"    \"name\": \"VO2 Max Intervals\",\n"
+        f"    \"type\": \"Ride\",\n"
+        f"    \"start_date_local\": \"{next_monday_str}\",\n"
+        f"    \"description\": \"Warmup\\n- 10m 50%\\n\\nMain Set 5x\\n- 3m 115%\\n- 3m 50%\\n\\nCooldown\\n- 10m 50%\"\n"
+        "  }\n"
+        "]\n"
+        "</icu_weekly_plan>"
+    )
 
     # Map previous chat messages into the structure Gemini expects
-    contents = []
-    
-    # Inject system instructions as part of a context-setting prefix or initial user prompt turn if needed, 
-    # or pass standard conversational array roles.
-    contents.append({
-        "role": "user",
-        "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]
-    })
-    contents.append({
-        "role": "model",
-        "parts": [{"text": "Understood. I am ready to act as your elite cycling coach based on your parameters and live data."}]
-    })
+    contents = [
+        {
+            "role": "user",
+            "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]
+        },
+        {
+            "role": "model",
+            "parts": [{"text": "Understood. I am ready to act as your elite cycling coach based on your parameters and live data."}]
+        }
+    ]
 
     # Append recent chat history
     for m in st.session_state.messages[-15:]:
