@@ -92,8 +92,8 @@ def ensure_initial_message():
         st.session_state.messages = [{"role": "assistant", "content": "Hello! I am your AI Performance Coach. Ask about training, recovery, climbing, threshold work, or your upcoming event."}]
 
 def go_to(page):
+    """Change the route without mutating an already-created radio widget."""
     st.session_state.active_nav = page
-    st.session_state.sidebar_nav = page
 
 def sidebar_changed():
     st.session_state.active_nav = st.session_state.sidebar_nav
@@ -314,6 +314,10 @@ if st.session_state.user:
 else:
     creds = st.session_state.user_credentials or {}
     INTERVALS_API_KEY, ATHLETE_ID, display_name = creds.get("icu_key", ""), creds.get("icu_id", ""), creds.get("name", "Athlete")
+    st.session_state.athlete_gear = st.session_state.athlete_gear or creds.get("gear", "")
+    st.session_state.athlete_limitations = st.session_state.athlete_limitations or creds.get("limitations", "")
+    if isinstance(creds.get("goals"), dict):
+        st.session_state.goals.update({key: value for key, value in creds["goals"].items() if key in DEFAULT_GOALS and value})
 ensure_initial_message()
 load_persisted_trend()
 
@@ -325,10 +329,51 @@ with st.sidebar:
     st.radio("Navigate", NAV_OPTIONS, key="sidebar_nav", on_change=sidebar_changed)
     st.divider()
     st.session_state.coach_persona = st.selectbox("Coaching Persona", ["Collaborative Peer (Balanced & Brainstorming)", "Sports Scientist (Data & Periodization Focus)", "Drill Sergeant (Strict & Direct Accountability)"], index=["Collaborative Peer (Balanced & Brainstorming)", "Sports Scientist (Data & Periodization Focus)", "Drill Sergeant (Strict & Direct Accountability)"].index(st.session_state.coach_persona))
+    with st.expander("Athlete profile & goal", expanded=False):
+        with st.form("sidebar_profile_form"):
+            event_name = st.text_input("Target event", value=st.session_state.goals["event_name"])
+            target_metric = st.text_area("Primary objective", value=st.session_state.goals["target_metric"])
+            race_date = st.date_input("Race date", value=dt.date.fromisoformat(st.session_state.goals["race_date"]))
+            gear = st.text_area("Bike / gear notes", value=st.session_state.athlete_gear)
+            limitations = st.text_area("Limitations / coaching notes", value=st.session_state.athlete_limitations)
+            if st.form_submit_button("Save profile", use_container_width=True):
+                st.session_state.goals = {"event_name": event_name.strip() or "Target event", "target_metric": target_metric.strip() or "Not provided", "race_date": race_date.isoformat()}
+                st.session_state.athlete_gear, st.session_state.athlete_limitations = gear, limitations
+                if st.session_state.user and supabase:
+                    try:
+                        (supabase.table("profiles").update({"event_name": st.session_state.goals["event_name"], "target_metric": st.session_state.goals["target_metric"], "race_date": st.session_state.goals["race_date"], "gear_notes": gear, "limitations_notes": limitations}).eq("id", st.session_state.user.id).execute())
+                    except Exception as exc:
+                        st.warning(f"Profile is saved for this session, but Supabase could not be updated: {exc}")
+                elif localS:
+                    try:
+                        st.session_state.user_credentials.update({"gear": gear, "limitations": limitations, "goals": st.session_state.goals})
+                        localS.setItem("athlete_profile_config", st.session_state.user_credentials)
+                    except Exception:
+                        pass
+                st.success("Profile saved.")
     with st.expander("AI connection", expanded=False):
         configured = sum(bool(key) for _, key in GEMINI_KEYS)
         st.write(f"Gemini keys configured: {configured}/3")
         st.caption(f"Model: {GEMINI_MODEL}")
+        if st.button("Test AI connection", key="test_gemini", use_container_width=True):
+            try:
+                execute_ai("Reply exactly: AI connection successful.")
+                st.success("AI connection successful.")
+            except Exception:
+                st.error("AI connection failed. Check the Gemini secrets and model name.")
+    if st.button("Clear chat history", use_container_width=True):
+        st.session_state.messages = []
+        ensure_initial_message()
+        st.rerun()
+    if st.button("Log out / switch account", use_container_width=True):
+        if st.session_state.user and supabase:
+            try: supabase.auth.sign_out()
+            except Exception: pass
+        st.session_state.user, st.session_state.user_credentials = None, None
+        if localS:
+            try: localS.deleteItem("athlete_profile_config")
+            except Exception: pass
+        st.rerun()
 
 top = st.columns(len(NAV_OPTIONS))
 for column, page in zip(top, NAV_OPTIONS):
