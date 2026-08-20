@@ -384,11 +384,14 @@ def coach_prompt(question, display_name):
     if next_monday == today:
         next_monday += dt.timedelta(days=7)
         
+    next_monday_str = next_monday.isoformat()
+    today_str = today.isoformat()
+
     return f"""You are an elite cycling performance coach with full read/write capability to the athlete's training calendar on Intervals.icu (which automatically syncs to MyWhoosh).
 Persona: {st.session_state.coach_persona}
 Athlete: {display_name}
-Today's Date: {today.isoformat()}
-Next Week Starts On (Monday): {next_monday.isoformat()}
+Today's Date: {today_str}
+Next Week Starts On (Monday): {next_monday_str}
 Goal: {st.session_state.goals['target_metric']}
 Target event: {st.session_state.goals['event_name']} on {st.session_state.goals['race_date']}
 Gear: {st.session_state.athlete_gear or 'Not provided'}
@@ -398,9 +401,14 @@ Available supplements / fuel: {json.dumps(st.session_state.user_supplements, ens
 ATHLETE'S 90-DAY TREND SYNTHESIS ({trend_time}):
 {trend_ctx}
 
-Athlete's Recent/Upcoming Calendar Context:\n{cal_ctx}
-Recent conversation:\n{history}
-Current question:\n{question}
+Athlete's Recent/Upcoming Calendar Context:
+{cal_ctx}
+
+Recent conversation:
+{history}
+
+Current question:
+{question}
 
 CRITICAL WORKOUT & WEEKLY PLAN GENERATION INSTRUCTIONS:
 1. Explain the rationale for the plan directly to the athlete based on their trends and form.
@@ -411,7 +419,7 @@ Format example for weekly schedule:
   {{
     "name": "VO2 Max 5x3min",
     "type": "Ride",
-    "start_date_local": "{next_monday.isoformat()}",
+    "start_date_local": "{next_monday_str}",
     "description": "- Warmup\\n  - 10m 50-65%\\n\\n- Main Set 5x\\n  - 3m 110-120% 95rpm\\n  - 3m 50% 85rpm\\n\\n- Cooldown\\n  - 10m 50-40%"
   }}
 ]
@@ -419,7 +427,6 @@ Format example for weekly schedule:
 
 3. IF PRESCRIBING A SINGLE WORKOUT ONLY, enclose a JSON object in `<icu_workout>` tags instead.
 Always supply valid Intervals.icu plain-text syntax in the `description` field for each workout so MyWhoosh renders ERG mode targets properly."""
-
 def render_coach_reply(question, display_name):
     st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"):
