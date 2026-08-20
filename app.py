@@ -66,6 +66,7 @@ st.markdown("""
 <style>
 /* Theme-aware polish: all surfaces inherit the active Streamlit light/dark palette. */
 .block-container { max-width: 1480px; padding-top: 1.4rem; padding-bottom: 3rem; }
+.top-nav-spacer { height: 2.5rem; }
 section[data-testid="stSidebar"] { border-right: 1px solid rgba(128,128,128,.18); }
 div[data-testid="stMetric"] { background: var(--secondary-background-color); border: 1px solid rgba(128,128,128,.20); border-radius: 14px; padding: 14px 16px; box-shadow: 0 4px 18px rgba(0,0,0,.05); }
 div[data-testid="stExpander"] { border: 1px solid rgba(128,128,128,.22); border-radius: 12px; overflow: hidden; }
@@ -132,7 +133,10 @@ def gemini_generate(prompt, api_key):
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
         json={
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 1800},
+            "generationConfig": {
+                "maxOutputTokens": 2400,
+                "thinkingConfig": {"thinkingLevel": "low"},
+            },
         },
         timeout=AI_TIMEOUT,
     )
@@ -465,6 +469,7 @@ with st.sidebar:
         st.rerun()
 
 # Keep the top navigation usable on laptop and tablet widths.
+st.markdown("<div class='top-nav-spacer'></div>", unsafe_allow_html=True)
 for row_index, pages in enumerate((NAV_OPTIONS[:3], NAV_OPTIONS[3:])):
     row_columns = st.columns(3)
     for column, page in zip(row_columns, pages):
