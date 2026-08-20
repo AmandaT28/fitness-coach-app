@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Mobile-Optimized & Fully Patched)
+"""AI Performance Coach • Elite Suite (Light/Dark Theme Switcher & Mobile Patched)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -63,57 +63,6 @@ if SUPABASE_URL and SUPABASE_KEY and create_client:
         pass
 localS = LocalStorage() if LocalStorage else None
 
-# --- UI/UX MOBILE-RESPONSIVE CSS INJECTION ---
-st.markdown("""
-<style>
-/* Global Mobile Resizing & Overflow Fixes */
-.block-container { max-width: 1480px; padding-top: 3.5rem; padding-bottom: 3rem; padding-left: 1rem; padding-right: 1rem; }
-.top-nav-spacer { height: 2rem; }
-
-/* Sidebar Mobile Overlap & Scrolling Fix */
-section[data-testid="stSidebar"] { 
-    border-right: 1px solid rgba(128,128,128,.18); 
-    background-color: var(--secondary-background-color); 
-    z-index: 100;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-}
-
-/* Metric Card Responsiveness */
-div[data-testid="stMetric"] { 
-    background: var(--secondary-background-color); 
-    border: 1px solid rgba(128,128,128,.20); 
-    border-radius: 14px; 
-    padding: 12px 14px; 
-    box-shadow: 0 4px 18px rgba(0,0,0,.05);
-    word-break: break-word;
-}
-
-div[data-testid="stExpander"] { border: 1px solid rgba(128,128,128,.22); border-radius: 12px; overflow: hidden; }
-div[data-testid="stExpander"] details summary { font-weight: 600; }
-
-.stButton > button { border-radius: 10px; font-weight: 600; transition: transform .15s ease, box-shadow .15s ease; width: 100%; }
-.stButton > button:hover { transform: translateY(-1px); box-shadow: 0 5px 14px rgba(0,0,0,.10); }
-
-div[data-testid="stChatMessage"] { border-radius: 14px; word-break: break-word; }
-
-/* Status Cards */
-.readiness-card-red { background: linear-gradient(135deg, rgba(255, 64, 129, 0.15), rgba(255, 23, 68, 0.05)); border: 1px solid rgba(255, 64, 129, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; }
-.readiness-card-green { background: linear-gradient(135deg, rgba(0, 230, 118, 0.15), rgba(0, 200, 83, 0.05)); border: 1px solid rgba(0, 230, 118, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; }
-.workout-pill { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; background: rgba(128,128,128,0.15); margin-right: 6px; margin-bottom: 6px; }
-
-/* Responsive Radio Buttons Layout */
-div[data-testid="stRadio"] [role="radiogroup"] { flex-wrap: wrap; gap: .25rem 1rem; }
-div[data-testid="stRadio"] label { font-size: .86rem; white-space: normal !important; }
-
-/* Mobile Column Stack Protection */
-@media(max-width: 768px) {
-    div[data-testid="stHorizontalBlock"] { flex-direction: column !important; gap: 1rem; }
-    .block-container { padding-top: 2rem; }
-}
-</style>
-""", unsafe_allow_html=True)
-
 def init_state():
     defaults = {
         "user": None, "user_credentials": None, "messages": [],
@@ -125,11 +74,83 @@ def init_state():
         "selected_activity_label": None, "route_analysis": None,
         "pending_coach_prompt": None, "ai_diagnostic": None, "coach_reference_notice": None,
         "trend_loaded": False, "calendar_context": "", "profile_loaded": False,
-        "coach_memory": "", "auto_compliance_cache": {}
+        "coach_memory": "", "auto_compliance_cache": {}, "app_theme": "Dark Mode (Default)"
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+init_state()
+
+# --- DYNAMIC THEME STYLING INJECTION ---
+current_theme = st.session_state.get("app_theme", "Dark Mode (Default)")
+is_light = "Light" in current_theme
+
+bg_color = "#FFFFFF" if is_light else "#0E1117"
+sidebar_bg = "#F8F9FA" if is_light else "#161B22"
+text_color = "#262730" if is_light else "#FAFAFA"
+card_bg = "#F1F3F5" if is_light else "#1E2530"
+border_color = "rgba(128,128,128,0.25)"
+
+st.markdown(f"""
+<style>
+/* Global App Variables & Theme Enforcement */
+.stApp {{
+    background-color: {bg_color};
+    color: {text_color};
+}}
+
+.block-container {{ max-width: 1480px; padding-top: 3.5rem; padding-bottom: 3rem; padding-left: 1rem; padding-right: 1rem; }}
+.top-nav-spacer {{ height: 2rem; }}
+
+/* Solid Background Sidebar Overlay Fix for Mobile */
+section[data-testid="stSidebar"] {{ 
+    border-right: 1px solid {border_color}; 
+    background-color: {sidebar_bg} !important; 
+    z-index: 999999 !important;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    box-shadow: 5px 0 25px rgba(0,0,0,0.25);
+}
+
+section[data-testid="stSidebar"] > div {{
+    background-color: {sidebar_bg} !important;
+}}
+
+/* Metric Card Responsiveness & Theme Adaptability */
+div[data-testid="stMetric"] {{ 
+    background: {card_bg}; 
+    border: 1px solid {border_color}; 
+    border-radius: 14px; 
+    padding: 12px 14px; 
+    box-shadow: 0 4px 18px rgba(0,0,0,.05);
+    word-break: break-word;
+}}
+
+div[data-testid="stExpander"] {{ border: 1px solid {border_color}; border-radius: 12px; overflow: hidden; background: {card_bg}; }}
+div[data-testid="stExpander"] details summary {{ font-weight: 600; color: {text_color}; }}
+
+.stButton > button {{ border-radius: 10px; font-weight: 600; transition: transform .15s ease, box-shadow .15s ease; width: 100%; }}
+.stButton > button:hover {{ transform: translateY(-1px); box-shadow: 0 5px 14px rgba(0,0,0,.10); }}
+
+div[data-testid="stChatMessage"] {{ border-radius: 14px; word-break: break-word; }}
+
+/* Status Cards */
+.readiness-card-red {{ background: linear-gradient(135deg, rgba(255, 64, 129, 0.15), rgba(255, 23, 68, 0.05)); border: 1px solid rgba(255, 64, 129, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; }}
+.readiness-card-green {{ background: linear-gradient(135deg, rgba(0, 230, 118, 0.15), rgba(0, 200, 83, 0.05)); border: 1px solid rgba(0, 230, 118, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; }}
+.workout-pill {{ display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; background: rgba(128,128,128,0.15); margin-right: 6px; margin-bottom: 6px; }}
+
+/* Responsive Radio Buttons Layout */
+div[data-testid="stRadio"] [role="radiogroup"] {{ flex-wrap: wrap; gap: .25rem 1rem; }}
+div[data-testid="stRadio"] label {{ font-size: .86rem; white-space: normal !important; }}
+
+/* Mobile Column Stack Protection */
+@media(max-width: 768px) {
+    div[data-testid="stHorizontalBlock"] { flex-direction: column !important; gap: 1rem; }
+    .block-container { padding-top: 2rem; }
+}
+</style>
+""", unsafe_allow_html=True)
 
 def ensure_initial_message():
     if not st.session_state.messages:
@@ -427,8 +448,6 @@ def parse_gpx(raw):
     except Exception:
         return None
 
-init_state()
-
 try:
     token = st.query_params.get("token")
     if token and not st.session_state.user_credentials:
@@ -508,6 +527,13 @@ if st.session_state.sidebar_nav != st.session_state.active_nav: st.session_state
 with st.sidebar:
     st.markdown("##### 🚴‍♂️ AI Performance Coach")
     st.caption(f"Athlete: **{display_name}**")
+    
+    # --- LIGHT / DARK THEME SELECTOR ---
+    new_theme = st.selectbox("App Theme", ["Dark Mode (Default)", "Light Mode (Sunlight View)"], index=0 if "Dark" in st.session_state.get("app_theme", "") else 1)
+    if new_theme != st.session_state.get("app_theme"):
+        st.session_state.app_theme = new_theme
+        st.rerun()
+
     st.radio("Navigate", NAV_OPTIONS, key="sidebar_nav", on_change=sidebar_changed)
     st.divider()
     
@@ -643,10 +669,10 @@ if selected_nav == NAV_OPTIONS[0]:
                 fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['atl_clean'], mode='lines', name='Fatigue (ATL)', line=dict(color='#FF4081', width=2)))
                 fig.add_trace(go.Bar(x=df['date_parsed'], y=df['tsb_clean'], name='Form (TSB)', marker_color=['#00E676' if val >= 0 else '#FF4081' for val in df['tsb_clean']]))
                 fig.update_layout(
-                    title="90-Day Performance Management Chart", title_font=dict(size=14, color="#E0E0E0"),
+                    title="90-Day Performance Management Chart", title_font=dict(size=14, color=text_color),
                     margin=dict(l=0, r=0, t=40, b=0), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#E0E0E0")),
-                    xaxis=dict(showgrid=False, color="#E0E0E0"), yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)", color="#E0E0E0")
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color=text_color)),
+                    xaxis=dict(showgrid=False, color=text_color), yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)", color=text_color)
                 )
                 st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
@@ -906,7 +932,7 @@ elif selected_nav == NAV_OPTIONS[5]:
                     title="Power Duration Curve (Watts vs Seconds)",
                     xaxis_title="Duration (Seconds, Log Scale)", yaxis_title="Power (Watts)",
                     xaxis_type="log", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color="#E0E0E0")
+                    font=dict(color=text_color)
                 )
                 st.plotly_chart(fig_pc, use_container_width=True)
                 
