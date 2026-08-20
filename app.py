@@ -752,10 +752,6 @@ def sync_icu_workouts(response_text: str) -> int:
 
     return synced
 
-
-# -----------------------------------------------------------------------------
-# VIEW 1: COMMAND CENTER
-# -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
 # VIEW 1: COMMAND CENTER
 # -----------------------------------------------------------------------------
@@ -785,14 +781,18 @@ if selected_nav == "📊 Command Center":
     with st.form("trend_analysis_form"):
         submitted = st.form_submit_button("🚀 Run 90-Day Trend Synthesis", use_container_width=True, type="primary")
         if submitted:
+            if submitted:
+            # Clean and condense activities before sending to AI
+            compact_activities = summarize_activities(activities_data, limit=25)
+            
             trend_payload = "\n".join(
                 [
                     "Perform a rigorous 90-day cycling sports-science trend analysis.",
-                    f"CTL={ctl}, ATL={atl}, TSB={tsb}.",
-                    f"Recent activities: {json.dumps(activities_data[:25], ensure_ascii=False, default=str)}",
+                    f"CTL={ctl:.1f}, ATL={atl:.1f}, TSB={tsb:.1f}.",
+                    f"Recent activities summary: {json.dumps(compact_activities, ensure_ascii=False)}",
                     f"Target event: {st.session_state.goals['event_name']} in {days_left} days.",
                     f"Objective: {st.session_state.goals['target_metric']}.",
-                    "Cover fitness trajectory, consistency, fatigue management, climbing readiness, and next steps.",
+                    "Cover fitness trajectory, consistency, fatigue management, climbing readiness, and actionable recommendations.",
                 ]
             )
             with st.spinner("Synthesizing 90-day performance trends…"):
