@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Final Architectural & Design Overhaul)
+"""AI Performance Coach • Elite Suite (Definitive Sidebar & Theme Fix)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -83,20 +83,24 @@ def init_state():
 
 init_state()
 
-# --- BULLETPROOF THEME ARCHITECTURE & STYLING ---
+# --- HARMONIZED THEME VARIABLES ---
 current_theme = st.session_state.get("app_theme", "Dark Mode (Default)")
 is_light = "Light" in current_theme
 
 bg_color = "#FFFFFF" if is_light else "#0E1117"
 sidebar_bg = "#F4F6F8" if is_light else "#161B22"
 text_color = "#1F2328" if is_light else "#FAFAFA"
-card_bg = "#F8F9FA" if is_light else "#1E2530"
-input_bg = "#FFFFFF" if is_light else "#0D1117"
+card_bg = "#FFFFFF" if is_light else "#1E2530"
 border_color = "#D0D7DE" if is_light else "rgba(128,128,128,0.25)"
+
+# Harmonized button styling variables based on theme
+btn_bg_inactive = "#E1E4E8" if is_light else "#21262D"
+btn_text_inactive = "#24292E" if is_light else "#C9D1D9"
+btn_bg_active = "#0366D6" if is_light else "#1F6FEB"
+btn_text_active = "#FFFFFF"
 
 st.markdown(f"""
 <style>
-/* Core App Theme Enforcement */
 .stApp {{
     background-color: {bg_color};
     color: {text_color};
@@ -110,7 +114,6 @@ st.markdown(f"""
     padding-right: 1.5rem; 
 }}
 
-/* Sidebar Design Integrity */
 section[data-testid="stSidebar"] {{ 
     border-right: 1px solid {border_color}; 
     background-color: {sidebar_bg} !important; 
@@ -121,31 +124,42 @@ section[data-testid="stSidebar"] > div {{
     background-color: {sidebar_bg} !important;
 }}
 
-/* Metric Cards & Expanders */
+/* Harmonized Sidebar Navigation Buttons */
+section[data-testid="stSidebar"] button {{
+    background-color: {btn_bg_inactive} !important;
+    color: {btn_text_inactive} !important;
+    border: 1px solid {border_color} !important;
+    border-radius: 8px;
+    font-weight: 600;
+    width: 100%;
+    text-align: left;
+    transition: all 0.15s ease;
+}}
+
+section[data-testid="stSidebar"] button:hover {{
+    border-color: #0366D6 !important;
+}}
+
+/* Active Navigation Button Override */
+section[data-testid="stSidebar"] button[kind="primary"] {{
+    background-color: {btn_bg_active} !important;
+    color: {btn_text_active} !important;
+    border-color: {btn_bg_active} !important;
+}}
+
 div[data-testid="stMetric"] {{ 
     background: {card_bg}; 
     border: 1px solid {border_color}; 
     border-radius: 12px; 
     padding: 14px 16px; 
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
 }}
 
 div[data-testid="stExpander"] {{ 
     border: 1px solid {border_color}; 
     border-radius: 12px; 
     background: {card_bg}; 
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
 }}
 
-/* Buttons & Inputs */
-.stButton > button {{ 
-    border-radius: 8px; 
-    font-weight: 600; 
-    width: 100%; 
-    transition: all 0.2s ease;
-}}
-
-/* Status Highlights */
 .readiness-card-red {{ 
     background: linear-gradient(135deg, rgba(255, 64, 129, 0.12), rgba(255, 23, 68, 0.03)); 
     border: 1px solid rgba(255, 64, 129, 0.4); 
