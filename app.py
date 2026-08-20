@@ -36,7 +36,6 @@ except Exception:
 
 st.set_page_config(page_title="AI Performance Coach • Elite Suite", page_icon="🚴‍♂️", layout="wide")
 
-# Pin application logic to local timezone to prevent UTC drift
 LOCAL_TZ = ZoneInfo("Asia/Singapore")
 
 def secret(name, default=None):
@@ -130,7 +129,6 @@ def open_coach_with_reference(notice):
 
 def extract_icu_workout(text):
     text_content = text or ""
-    
     def clean_json_string(s):
         return re.sub(r"```(?:json)?\s*(.*?)\s*```", r"\1", s, flags=re.DOTALL | re.IGNORECASE).strip()
 
@@ -177,7 +175,6 @@ def gemini_generate(messages_payload, api_key, max_tokens=4000):
     }
 
     response = requests.post(url, headers=headers, json=payload, timeout=AI_TIMEOUT)
-    
     if response.status_code == 429:
         raise RuntimeError("Quota/Rate Limit exceeded on this API key.")
     if response.status_code != 200:
@@ -293,7 +290,7 @@ def clear_persisted_trend():
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data(athlete_id, api_key):
     if not athlete_id or not api_key:
-        return [], [], [], "Intervals.icu credentials are missing."
+        return [], [], [], [], "Intervals.icu credentials are missing."
     try:
         today = dt.datetime.now(LOCAL_TZ).date()
         base = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
@@ -301,16 +298,17 @@ def fetch_intervals_data(athlete_id, api_key):
             f"{base}/wellness?oldest={(today-dt.timedelta(days=90)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
             f"{base}/activities?oldest={(today-dt.timedelta(days=90)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
             f"{base}/events?oldest={(today-dt.timedelta(days=14)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
+            f"{base}/power-curves",
         ]
         result = []
         for url in urls:
             response = requests.get(url, auth=("API_KEY", api_key), timeout=INTERVALS_TIMEOUT)
-            result.append(response.json() if response.status_code == 200 else [])
-        return result[0], result[1], result[2], "Connected."
+            result.append(response.json() if response.status_code == 200 else ([] if "power-curves" in url else []))
+        return result[0], result[1], result[2], result[3], "Connected."
     except requests.Timeout:
-        return [], [], [], "Intervals.icu request timed out."
+        return [], [], [], [], "Intervals.icu request timed out."
     except Exception as exc:
-        return [], [], [], f"Intervals.icu error: {exc}"
+        return [], [], [], [], f"Intervals.icu error: {exc}"
 
 def event_date(event):
     raw = event.get("start_date_local") or event.get("start_date") or ""
@@ -396,13 +394,10 @@ def build_gemini_payload(current_question, display_name):
 
     for m in st.session_state.messages[-15:]:
         role = "user" if m["role"] == "user" else "model"
-        
-        # Strip out the bulky XML/JSON tags from the model's past replies to prevent token inflation & corruption
         if role == "model":
             msg_text = clean_chat_content(str(m["content"]))
         else:
             msg_text = str(m["content"])
-            
         contents.append({
             "role": role,
             "parts": [{"text": msg_text[:2500]}]
@@ -465,7 +460,6 @@ def parse_gpx(raw):
     except Exception:
         return None
 
-# Guarantee session state initialization before rendering
 init_state()
 
 try:
@@ -536,7 +530,7 @@ else:
 ensure_initial_message()
 load_persisted_trend()
 
-wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
+wellness_list, activities_data, planned_events, power_curves_data, intervals_status = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
 st.session_state.calendar_context = json.dumps([session_summary(ev) for ev in planned_events[:10]], ensure_ascii=False)
 
 if st.session_state.active_nav not in NAV_OPTIONS: st.session_state.active_nav = NAV_OPTIONS[0]; st.session_state.sidebar_nav = NAV_OPTIONS[0]
@@ -614,7 +608,9 @@ st.radio("Navigate pages", NAV_OPTIONS, horizontal=True, label_visibility="colla
 selected_nav = st.session_state.active_nav
 
 latest = wellness_list[-1] if wellness_list else {}
-ctl, atl, tsb = latest.get("ctl", 0) or 0, latest.get("atl", 0) or 0, latest.get("tsb", 0) or 0
+ctl = latest.get("ctl", 0) or latest.get("CTL", 0) or 0
+atl = latest.get("atl", 0) or latest.get("ATL", 0) or 0
+tsb = latest.get("tsb", 0) or latest.get("TSB", 0) or 0
 
 if selected_nav == NAV_OPTIONS[0]:
     st.markdown("##### ☀️ Command Center")
@@ -636,23 +632,27 @@ if selected_nav == NAV_OPTIONS[0]:
     st.info(f"**{readiness}.** {focus} **Note:** {watch}{sleep_note}")
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("Fitness (CTL)", round(ctl, 1))
-    c2.metric("Fatigue (ATL)", round(atl, 1))
-    c3.metric("Form (TSB)", round(tsb, 1))
+    c1.metric("Fitness (CTL)", round(float(ctl), 1))
+    c2.metric("Fatigue (ATL)", round(float(atl), 1))
+    c3.metric("Form (TSB)", round(float(tsb), 1))
 
-    # High-Performance Data Visualization (PMC Chart)
+    # Robust PMC Graph with key sanitization
     if wellness_list:
         try:
             df = pd.DataFrame(wellness_list)
-            date_col = 'id' if 'id' in df.columns else 'date' if 'date' in df.columns else None
+            date_col = next((col for col in ['id', 'date', 'start_date'] if col in df.columns), None)
             if date_col and not df.empty:
-                df['date_parsed'] = pd.to_datetime(df[date_col])
-                df = df.sort_values('date_parsed')
+                df['date_parsed'] = pd.to_datetime(df[date_col], errors='coerce')
+                df = df.dropna(subset=['date_parsed']).sort_values('date_parsed')
+                
+                df['ctl_clean'] = pd.to_numeric(df.get('ctl', df.get('CTL', 0)), errors='coerce').fillna(0)
+                df['atl_clean'] = pd.to_numeric(df.get('atl', df.get('ATL', 0)), errors='coerce').fillna(0)
+                df['tsb_clean'] = pd.to_numeric(df.get('tsb', df.get('TSB', 0)), errors='coerce').fillna(0)
                 
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['ctl'], mode='lines', name='Fitness (CTL)', line=dict(color='#00E676', width=2)))
-                fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['atl'], mode='lines', name='Fatigue (ATL)', line=dict(color='#FF4081', width=2)))
-                fig.add_trace(go.Bar(x=df['date_parsed'], y=df['tsb'], name='Form (TSB)', marker_color=['#00E676' if val >= 0 else '#FF4081' for val in df['tsb']]))
+                fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['ctl_clean'], mode='lines', name='Fitness (CTL)', line=dict(color='#00E676', width=2)))
+                fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['atl_clean'], mode='lines', name='Fatigue (ATL)', line=dict(color='#FF4081', width=2)))
+                fig.add_trace(go.Bar(x=df['date_parsed'], y=df['tsb_clean'], name='Form (TSB)', marker_color=['#00E676' if val >= 0 else '#FF4081' for val in df['tsb_clean']]))
                 
                 fig.update_layout(
                     title="90-Day Performance Management Chart", title_font=dict(size=14, color="#E0E0E0"),
@@ -662,7 +662,7 @@ if selected_nav == NAV_OPTIONS[0]:
                 )
                 st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
-            st.caption(f"Chart render failed: {e}")
+            st.caption(f"Chart render warning: {e}")
     
     if st.button("🚀 Run 90-Day Trend Synthesis", type="primary"):
         payload_text = f"Analyze this athlete's last 90 days. CTL {ctl}; ATL {atl}; TSB {tsb}. Goal: {st.session_state.goals['target_metric']}."
@@ -766,7 +766,7 @@ elif selected_nav == NAV_OPTIONS[2]:
 
     grouped = {**past_grouped}
     for date, sessions in future_grouped.items():
-        grouped[date] = grouped.get(date, []) + sessions
+        grouped[date] = grouped.get(date, [],) + sessions
     if grouped:
         st.divider()
         discussion_date = st.selectbox("Discuss a calendar day with Coach", list(sorted(grouped)), format_func=lambda val: f"{val} · " + " + ".join(event.get("name") or "Workout" for event in grouped[val]))
@@ -827,24 +827,42 @@ elif selected_nav == NAV_OPTIONS[3]:
                     st.rerun()
 
 elif selected_nav == "🗺️ Route Strategist":
-    st.markdown("##### 🗺️ Route Pacing & Climbing Strategist")
+    st.markdown("##### 🗺️ Route Pacing, Climbing & Fueling Strategist")
     uploaded = st.file_uploader("Upload GPX File", type=["gpx"])
     if uploaded:
         metrics = parse_gpx(uploaded.read())
         if metrics:
             st.json(metrics)
-            if st.button("Generate Climbing Strategy", type="primary"):
-                with st.spinner("Analyzing elevation profile..."):
+            
+            # --- NEW FEATURE: Automated Fueling Calculator ---
+            st.markdown("###### 🧮 Estimated Race-Day Fueling Calculator")
+            est_hours = st.slider("Estimated Completion Time (Hours)", min_value=1.0, max_value=8.0, value=3.0, step=0.25)
+            
+            # Standard endurance fueling guidelines based on intensity/duration
+            carbs_per_hr = 90 if est_hours >= 2.5 else 60
+            total_carbs = int(carbs_per_hr * est_hours)
+            total_fluid_ml = int(750 * est_hours)
+            sodium_mg = int(500 * est_hours)
+            
+            fc1, fc2, fc3 = st.columns(3)
+            fc1.metric("Carbs Target", f"{total_carbs}g total", f"{carbs_per_hr}g / hour")
+            fc2.metric("Fluid Target", f"{total_fluid_ml / 1000:.1f} L", "750ml / hour")
+            fc3.metric("Sodium Target", f"{sodium_mg}mg total", "500mg / hour")
+            st.divider()
+
+            if st.button("Generate Climbing & Fueling Strategy", type="primary"):
+                with st.spinner("Analyzing elevation profile & fueling requirements..."):
                     try:
-                        prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Goal: {st.session_state.goals['target_metric']}. Give practical pacing and climbing strategies."
+                        prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Est Duration: {est_hours}h. Goal: {st.session_state.goals['target_metric']}. Give practical pacing, climbing, and exact hourly nutrition/electrolyte guidelines."
                         st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
+                        st.toast("Climbing strategy generated!", icon="🏔️")
                     except Exception as exc: st.error(str(exc))
                     
             if st.session_state.route_analysis:
-                with st.expander("🗺️ Read Climbing Strategy", expanded=True):
+                with st.expander("🗺️ Read Climbing & Fueling Strategy", expanded=True):
                     st.markdown(st.session_state.route_analysis)
                     if st.button("💬 Discuss with Coach", key="route_discuss"):
-                        discuss_with_coach("my route strategy", st.session_state.route_analysis)
+                        discuss_with_coach("my route strategy and fueling plan", st.session_state.route_analysis)
                         st.rerun()
         else:
             st.error("Could not parse GPX file. Ensure it contains valid track points and elevation data.")
