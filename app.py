@@ -349,22 +349,22 @@ def build_gemini_payload(current_question, display_name):
         "CRITICAL WORKOUT FORMATTING RULES FOR INTERVALS.ICU & MYWHOOSH:\n"
         "When prescribing workouts, the `description` field MUST use strict Intervals.icu Markdown syntax so it parses into ERG mode automatically:\n"
         "- Use clear section headers on their own line: Warmup, Main Set, Cooldown.\n"
-        "- Use bullet points starting with '- ' followed by exact duration and power percentage.\n"
-        "- For intervals, use repeat declarations on a separate line (e.g., '3x') followed by indented steps.\n\n"
+        "- Use bullet points starting with '- ' followed by exact duration, power percentage, AND precise target cadence (RPM).\n"
+        "- Example detailed cadence format: `- 3m 115% 95-100rpm` or `- 5m 65% 85-90rpm`.\n"
+        "- For intervals, use repeat declarations on a separate line (e.g., '5x') followed by indented steps.\n\n"
         "IF PRESCRIBING A WEEKLY SCHEDULE, APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags:\n"
         "<icu_weekly_plan>\n"
         "[\n"
         "  {\n"
-        f"    \"name\": \"VO2 Max Intervals\",\n"
+        f"    \"name\": \"Detailed VO2 Max Intervals\",\n"
         f"    \"type\": \"Ride\",\n"
         f"    \"start_date_local\": \"{next_monday_str}\",\n"
-        f"    \"description\": \"Warmup\\n- 10m 50%\\n\\nMain Set 5x\\n- 3m 115%\\n- 3m 50%\\n\\nCooldown\\n- 10m 50%\"\n"
+        f"    \"description\": \"Warmup\\n- 10m 50% 90rpm\\n\\nMain Set 5x\\n- 3m 115% 100rpm\\n- 3m 50% 85rpm\\n\\nCooldown\\n- 10m 50% 85rpm\"\n"
         "  }\n"
         "]\n"
         "</icu_weekly_plan>"
     )
 
-    # Map previous chat messages into the structure Gemini expects
     contents = [
         {
             "role": "user",
@@ -372,11 +372,10 @@ def build_gemini_payload(current_question, display_name):
         },
         {
             "role": "model",
-            "parts": [{"text": "Understood. I am ready to act as your elite cycling coach based on your parameters and live data."}]
+            "parts": [{"text": "Understood. I am ready to act as your elite cycling coach, ensuring precise power and cadence targets are prescribed."}]
         }
     ]
 
-    # Append recent chat history
     for m in st.session_state.messages[-15:]:
         role = "user" if m["role"] == "user" else "model"
         contents.append({
@@ -384,7 +383,6 @@ def build_gemini_payload(current_question, display_name):
             "parts": [{"text": str(m["content"])}]
         })
 
-    # Append current question
     contents.append({
         "role": "user",
         "parts": [{"text": str(current_question)}]
@@ -669,24 +667,6 @@ elif selected_nav == NAV_OPTIONS[2]:
     today = dt.date.today()
     window_start, window_end = today - dt.timedelta(days=14), today + dt.timedelta(days=14)
     st.caption(f"Showing previous 14 days and next 14 days · {window_start:%d %b}–{window_end:%d %b %Y}")
-    
-    with st.expander("➕ Push New Workout to Intervals.icu Calendar (Syncs to MyWhoosh)", expanded=False):
-        with st.form("push_workout_form"):
-            w_name = st.text_input("Workout Name", value="VO2Max Intervals")
-            w_date = st.date_input("Workout Date", value=today)
-            w_type = st.selectbox("Activity Type", ["Ride", "VirtualRide", "Workout"], index=0)
-            w_desc = st.text_area("Workout Steps (Intervals.icu Text Syntax)", value="- 10m 50%\n- 5x [3m 115%, 3m 50%]\n- 10m 50%")
-            if st.form_submit_button("🚀 Push Workout to Intervals.icu", use_container_width=True):
-                try:
-                    push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, [{
-                        "name": w_name,
-                        "start_date_local": w_date.isoformat(),
-                        "type": w_type,
-                        "description": w_desc
-                    }])
-                    st.success(f"Pushed '{w_name}' to Intervals.icu for {w_date.isoformat()}!")
-                except Exception as exc:
-                    st.error(str(exc))
 
     def calendar_items(records, source, start_date, end_date):
         result = []
@@ -740,6 +720,27 @@ elif selected_nav == NAV_OPTIONS[2]:
             readable_sessions = [session_summary(event) for event in grouped[discussion_date]]
             discuss_with_coach(f"my training sessions on {discussion_date}", json.dumps(readable_sessions, ensure_ascii=False))
             st.rerun()
+
+    st.divider()
+    
+    # Moved to the bottom of the page
+    with st.expander("➕ Push New Workout to Intervals.icu Calendar (Syncs to MyWhoosh)", expanded=False):
+        with st.form("push_workout_form"):
+            w_name = st.text_input("Workout Name", value="VO2Max Intervals")
+            w_date = st.date_input("Workout Date", value=today)
+            w_type = st.selectbox("Activity Type", ["Ride", "VirtualRide", "Workout"], index=0)
+            w_desc = st.text_area("Workout Steps (Intervals.icu Text Syntax with Cadence)", value="Warmup\n- 10m 50% 90rpm\n\nMain Set 5x\n- 3m 115% 100rpm\n- 3m 50% 85rpm\n\nCooldown\n- 10m 50% 85rpm")
+            if st.form_submit_button("🚀 Push Workout to Intervals.icu", use_container_width=True):
+                try:
+                    push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, [{
+                        "name": w_name,
+                        "start_date_local": w_date.isoformat(),
+                        "type": w_type,
+                        "description": w_desc
+                    }])
+                    st.success(f"Pushed '{w_name}' to Intervals.icu for {w_date.isoformat()}!")
+                except Exception as exc:
+                    st.error(str(exc))
 
 elif selected_nav == NAV_OPTIONS[3]:
     st.markdown("##### 🔍 Activity Inspector")
