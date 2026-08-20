@@ -89,7 +89,7 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
         if not client:
             raise ValueError(f"{name} client not initialized.")
         # Locked strictly to highly reliable and cheap model names
-        models = ["gemini-1.5-flash", "gemini-1.5-pro"]
+        models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.7-pro-preview"]
         for m in models:
             try:
                 res = client.models.generate_content(model=m, contents=prompt)
