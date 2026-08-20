@@ -74,6 +74,12 @@ div[data-testid="stExpander"] details summary { font-weight: 600; }
 .stButton > button { border-radius: 10px; font-weight: 600; transition: transform .15s ease, box-shadow .15s ease; }
 .stButton > button:hover { transform: translateY(-1px); box-shadow: 0 5px 14px rgba(0,0,0,.10); }
 div[data-testid="stChatMessage"] { border-radius: 14px; }
+div[data-testid="stChatMessage"] div[data-testid="stMarkdownContainer"],
+div[data-testid="stMarkdownContainer"] { font-size: .92rem; line-height: 1.5; }
+div[data-testid="stChatMessage"] div[data-testid="stMarkdownContainer"] p,
+div[data-testid="stChatMessage"] div[data-testid="stMarkdownContainer"] li { font-size: .92rem; line-height: 1.5; }
+div[data-testid="stRadio"] [role="radiogroup"] { flex-wrap: wrap; gap: .25rem 1rem; }
+div[data-testid="stRadio"] label { font-size: .86rem; white-space: nowrap; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -105,6 +111,9 @@ def go_to(page):
 def sidebar_changed():
     st.session_state.active_nav = st.session_state.sidebar_nav
 
+def top_nav_changed():
+    st.session_state.active_nav = st.session_state.top_nav
+
 def discuss_with_coach(topic, context):
     """Carry a view's context into the coach page and generate the reply there."""
     # Raw Intervals/GPX objects can be very large. Keep navigation context useful
@@ -134,7 +143,7 @@ def gemini_generate(prompt, api_key):
         json={
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
-                "maxOutputTokens": 2400,
+                "maxOutputTokens": 8000,
                 "thinkingConfig": {"thinkingLevel": "low"},
             },
         },
@@ -468,14 +477,18 @@ with st.sidebar:
             except Exception: pass
         st.rerun()
 
-# Keep the top navigation usable on laptop and tablet widths.
+# Compact top navigation wraps only when the screen is too narrow.
 st.markdown("<div class='top-nav-spacer'></div>", unsafe_allow_html=True)
-for row_index, pages in enumerate((NAV_OPTIONS[:3], NAV_OPTIONS[3:])):
-    row_columns = st.columns(3)
-    for column, page in zip(row_columns, pages):
-        if column.button(page, key=f"top_{row_index}_{page}", use_container_width=True):
-            go_to(page)
-            st.rerun()
+if st.session_state.get("top_nav") != st.session_state.active_nav:
+    st.session_state.top_nav = st.session_state.active_nav
+st.radio(
+    "Navigate pages",
+    NAV_OPTIONS,
+    horizontal=True,
+    label_visibility="collapsed",
+    key="top_nav",
+    on_change=top_nav_changed,
+)
 selected_nav = st.session_state.active_nav
 
 if selected_nav == COACH_PAGE:
@@ -488,6 +501,20 @@ ctl, atl, tsb = latest.get("ctl", 0) or 0, latest.get("atl", 0) or 0, latest.get
 if selected_nav == NAV_OPTIONS[0]:
     st.markdown("### ☀️ Command Center")
     st.caption(f"Intervals.icu: {intervals_status}")
+    sleep_score = latest.get("sleep_score") or latest.get("sleepScore")
+    if not wellness_list:
+        readiness, focus, watch = "Readiness unavailable", "Sync Intervals.icu to assess today.", "No current wellness data."
+    elif tsb <= -20:
+        readiness, focus, watch = "Recovery first", "Keep today easy or rest.", f"High accumulated fatigue (TSB {tsb:.0f})."
+    elif tsb <= -8:
+        readiness, focus, watch = "Manage the load", "Train, but avoid adding unplanned intensity.", f"Fatigue is elevated (TSB {tsb:.0f})."
+    elif tsb <= 12:
+        readiness, focus, watch = "Ready to train", "Your planned session is appropriate.", f"Form is balanced (TSB {tsb:.0f})."
+    else:
+        readiness, focus, watch = "Fresh", "A quality session can fit if it is on the plan.", f"You are carrying low fatigue (TSB {tsb:.0f})."
+    sleep_note = f" Sleep score: {sleep_score}/100." if sleep_score else ""
+    st.markdown("#### Today at a glance")
+    st.info(f"**{readiness}.** {focus} **Note:** {watch}{sleep_note}")
     c1,c2,c3 = st.columns(3); c1.metric("Fitness (CTL)", round(ctl,1)); c2.metric("Fatigue (ATL)", round(atl,1)); c3.metric("Form (TSB)", round(tsb,1))
     if st.button("🚀 Run 90-Day Trend Synthesis", type="primary"):
         payload = f"Analyze this cycling athlete's last 90 days. CTL {ctl}; ATL {atl}; TSB {tsb}. Recent activities: {json.dumps(activities_data[:15], default=str)}. Goal: {st.session_state.goals['target_metric']}. Give trajectory, consistency, fatigue, climbing readiness, and practical next steps."
