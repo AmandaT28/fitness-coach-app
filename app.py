@@ -40,7 +40,6 @@ st.set_page_config(page_title="AI Performance Coach • Elite Suite", page_icon=
 
 st.markdown("""
 <style>
-    /* Force hide Streamlit Community Cloud's bottom-right floating badge */
     [data-testid="stStatusWidget"],
     .viewerBadge_container__1QSob,
     div[class*="viewerBadge"] {
@@ -88,7 +87,7 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
 
     def call_google(client, name):
         if not client:
-            raise ValueError(f"{name} client not initialized. Key missing.")
+            raise ValueError(f"{name} client not initialized.")
         models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]
         for m in models:
             try:
@@ -157,7 +156,6 @@ if url_token and "user_credentials" not in st.session_state:
     except:
         pass
 
-# Initialize session state flags
 if "user_credentials" not in st.session_state:
     st.session_state.user_credentials = None
 
@@ -267,7 +265,7 @@ else:
 
 if not is_onboarded:
     st.markdown("### 🚴‍♂️ Coach's Initial Intake & Onboarding")
-    st.markdown("Welcome! Before we dive into your Intervals.icu telemetry, let's have a quick introductory chat.")
+    st.markdown("Welcome! Before we dive into your telemetry, let's have a quick introductory chat.")
     
     if len(st.session_state.messages) == 0:
         st.session_state.messages = [{
@@ -533,74 +531,64 @@ elif selected_nav == "🤖 AI Coach & Sparring":
                     zwo_data = match.group(1).strip()
                     st.download_button(label="📥 Download MyWhoosh Workout File (.zwo)", data=zwo_data, file_name=f"AI_Coach_Workout_{idx}.zwo", mime="application/xml", key=f"download_zwo_{idx}")
 
-    # 2. Interactive Input and Live Generation
-    if prompt := st.chat_input("Ask your coach to plan training or bounce an idea..."):
-        # Append and display immediately
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+    # 2. Guaranteed-Delivery Chat Form Interface
+    with st.form(key="chat_form", clear_on_submit=True):
+        chat_prompt = st.text_input("Ask your coach to plan training or bounce an idea...", placeholder="Type message here...")
+        submitted = st.form_submit_button("Send to Coach", use_container_width=True)
 
-        # Process Live
-        with st.chat_message("assistant"):
-            with st.status("🤖 AI Coach is processing telemetry & drafting response...", expanded=True) as status:
-                stack_summary = ", ".join([f"{s['name']} ({s['timing']} - {s['notes']})" for s in st.session_state.user_supplements])
-                formatted_history = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages[:-1]])
+    if submitted and chat_prompt.strip():
+        st.session_state.messages.append({"role": "user", "content": chat_prompt.strip()})
+        
+        with st.spinner("🤖 AI Coach is processing telemetry & drafting response..."):
+            stack_summary = ", ".join([f"{s['name']} ({s['timing']} - {s['notes']})" for s in st.session_state.user_supplements])
+            formatted_history = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages[:-1]])
+            
+            payload = "\n".join([
+                f"You are an elite cycling sports science coach acting with the persona: '{coach_persona}'.",
+                f"CURRENT ACTIVE SUPPLEMENT STACK: {stack_summary}",
+                f"GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
+                f"METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.",
+                f"ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}",
+                f"CURRENT UPCOMING SCHEDULE (NEXT 14 DAYS): {planned_events[:20] if planned_events else 'None'}",
+                "",
+                "PREVIOUS CONVERSATION HISTORY:",
+                formatted_history if formatted_history else "None yet.",
+                "",
+                f"Athlete Bike Build / Gear: {st.session_state.athlete_gear}",
+                f"Athlete Physical Limitations: {st.session_state.athlete_limitations}",
+                "Do NOT repeat gear/limitations unless directly relevant.",
+                "",
+                f"USER: {chat_prompt.strip()}"
+            ])
+            
+            try:
+                resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
                 
-                payload = "\n".join([
-                    f"You are an elite cycling sports science coach acting with the persona: '{coach_persona}'.",
-                    f"CURRENT ACTIVE SUPPLEMENT STACK: {stack_summary}",
-                    f"GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
-                    f"METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.",
-                    f"ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}",
-                    f"CURRENT UPCOMING SCHEDULE (NEXT 14 DAYS): {planned_events[:20] if planned_events else 'None'}",
-                    "",
-                    "PREVIOUS CONVERSATION HISTORY:",
-                    formatted_history if formatted_history else "None yet.",
-                    "",
-                    f"Athlete Bike Build / Gear: {st.session_state.athlete_gear}",
-                    f"Athlete Physical Limitations: {st.session_state.athlete_limitations}",
-                    "Do NOT repeat gear/limitations unless directly relevant.",
-                    "",
-                    f"USER: {prompt}"
-                ])
-                
-                try:
-                    st.write("📡 Routing query through active Gemini / Multi-Provider chain...")
-                    resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
-                    
-                    st.write("⚙️ Checking for workout sync or calendar updates...")
-                    icu_matches = re.findall(r'<icu_workout>\s*(.*?)\s*</icu_workout>', resp, re.DOTALL)
-                    parsed_workouts = 0
-                    if icu_matches and ATHLETE_ID and INTERVALS_API_KEY:
-                        for match_str in icu_matches:
-                            try:
-                                clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
-                                workouts = json.loads(clean_json_str)
-                                if not isinstance(workouts, list): workouts = [workouts]
-                                for w in workouts:
-                                    w['category'] = 'WORKOUT'
-                                    if 'start_date_local' in w and len(w['start_date_local']) == 10: w['start_date_local'] += "T00:00:00"
-                                    api_resp = requests.post(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events", json=w, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
-                                    if api_resp.status_code == 200: parsed_workouts += 1
-                            except Exception: pass
+                icu_matches = re.findall(r'<icu_workout>\s*(.*?)\s*</icu_workout>', resp, re.DOTALL)
+                parsed_workouts = 0
+                if icu_matches and ATHLETE_ID and INTERVALS_API_KEY:
+                    for match_str in icu_matches:
+                        try:
+                            clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
+                            workouts = json.loads(clean_json_str)
+                            if not isinstance(workouts, list): workouts = [workouts]
+                            for w in workouts:
+                                w['category'] = 'WORKOUT'
+                                if 'start_date_local' in w and len(w['start_date_local']) == 10: w['start_date_local'] += "T00:00:00"
+                                api_resp = requests.post(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events", json=w, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+                                if api_resp.status_code == 200: parsed_workouts += 1
+                        except Exception: pass
 
-                    full_resp = f"{resp}\n\n*(Engine: {engine})*"
-                    
-                    st.session_state.messages.append({"role": "model", "content": full_resp})
-                    st.markdown(clean_content.strip() if 'clean_content' in locals() else full_resp)
-                    
-                    if parsed_workouts > 0:
-                        st.success(f"✅ **Success:** Plan synchronized with Intervals.icu!")
-                        fetch_intervals_data.clear()
+                full_resp = f"{resp}\n\n*(Engine: {engine})*"
+                if parsed_workouts > 0:
+                    full_resp += f"\n\n✅ **Success:** Plan synchronized with Intervals.icu!"
+                    fetch_intervals_data.clear()
 
-                    status.update(label="✅ Response complete!", state="complete", expanded=False)
-                    
-                    # Force page reload so components flush out of the status box and align naturally
-                    st.rerun()
+                st.session_state.messages.append({"role": "model", "content": full_resp})
+                st.rerun()
 
-                except Exception as e:
-                    status.update(label="❌ Generation failed", state="error", expanded=True)
-                    st.error(f"AI Generation Failed: {str(e)}")
+            except Exception as e:
+                st.error(f"AI Generation Failed: {str(e)}")
 
 # ================= VIEW 3: TRAINING CALENDAR =================
 elif selected_nav == "📅 Training Calendar":
