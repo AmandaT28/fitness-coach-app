@@ -50,7 +50,7 @@ GEMINI_KEYS = [
 GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-3.6-flash")
 AI_TIMEOUT = 25
 INTERVALS_TIMEOUT = 6
-NAV_OPTIONS = ["📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "💊 Recovery & Supplements", "🗺️ Route Strategist"]
+NAV_OPTIONS = ["📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "🗺️ Route Strategist"]
 COACH_PAGE = "🤖 AI Coach & Sparring"
 DEFAULT_GOALS = {"event_name": "Bintan Round Island", "target_metric": "Survive steep climbs on group rides & improve threshold power", "race_date": "2026-10-24"}
 
@@ -81,7 +81,7 @@ def init_state():
         "trend_analysis_timestamp": None, "selected_activity_analysis": None,
         "selected_activity_label": None, "route_analysis": None,
         "pending_coach_prompt": None, "ai_test_result": None,
-        "ai_diagnostic": None,
+        "ai_diagnostic": None, "coach_reference_notice": None,
         "trend_loaded": False,
     }
     for key, value in defaults.items():
@@ -101,7 +101,17 @@ def sidebar_changed():
 
 def discuss_with_coach(topic, context):
     """Carry a view's context into the coach page and generate the reply there."""
+    # Raw Intervals/GPX objects can be very large. Keep navigation context useful
+    # without letting it make the first coach request too large.
+    context = str(context)
+    if len(context) > 6000:
+        context = context[:6000] + "\n[Context truncated for a fast coach response.]"
     st.session_state.pending_coach_prompt = f"Let's discuss {topic}.\n\nContext from the app:\n{context}\n\nPlease explain what matters and give my next best action."
+    go_to(COACH_PAGE)
+
+def open_coach_with_reference(notice):
+    """Navigate without copying a saved report into chat or triggering an AI call."""
+    st.session_state.coach_reference_notice = notice
     go_to(COACH_PAGE)
 
 def clean_chat_content(text):
@@ -115,7 +125,11 @@ def gemini_generate(prompt, api_key):
     response = requests.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-        json={"contents": [{"role": "user", "parts": [{"text": prompt}]}]}, timeout=AI_TIMEOUT,
+        json={
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": 900},
+        },
+        timeout=AI_TIMEOUT,
     )
     if response.status_code != 200:
         raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:500]}")
@@ -221,8 +235,50 @@ def fetch_intervals_data(athlete_id, api_key):
     except Exception as exc:
         return [], [], [], f"Intervals.icu error: {exc}"
 
+def event_date(event):
+    raw = event.get("start_date_local") or event.get("start_date") or ""
+    try:
+        return dt.date.fromisoformat(str(raw)[:10])
+    except ValueError:
+        return None
+
+def session_summary(event):
+    """Human-readable training details; never render the raw API object."""
+    duration_seconds = event.get("moving_time") or event.get("duration") or 0
+    distance_m = event.get("distance") or 0
+    details = []
+    if duration_seconds:
+        details.append(f"Duration: {round(float(duration_seconds) / 60)} min")
+    if distance_m:
+        details.append(f"Distance: {float(distance_m) / 1000:.1f} km")
+    if event.get("icu_training_load") is not None:
+        details.append(f"Training load: {round(float(event['icu_training_load']))}")
+    if event.get("type"):
+        details.append(f"Type: {event['type']}")
+    instructions = event.get("description") or event.get("notes") or event.get("workout_description") or event.get("workout_doc") or "No coach instructions were supplied for this session."
+    if isinstance(instructions, dict):
+        instructions = instructions.get("description") or instructions.get("notes") or instructions.get("name") or "No coach instructions were supplied for this session."
+    elif isinstance(instructions, list):
+        instructions = " ".join(str(item) for item in instructions if item)
+    return {"name": event.get("name") or "Planned workout", "details": details, "instructions": instructions}
+
+def activity_summary(activity):
+    fields = {
+        "date": str(activity.get("start_date_local", ""))[:10], "name": activity.get("name", "Unnamed"),
+        "type": activity.get("type"), "distance_km": round(float(activity.get("distance") or 0) / 1000, 1),
+        "moving_minutes": round(float(activity.get("moving_time") or 0) / 60),
+        "average_power_w": activity.get("average_watts"), "normalized_power_w": activity.get("icu_weighted_avg_watts") or activity.get("weighted_average_watts"),
+        "training_load": activity.get("icu_training_load"), "elevation_gain_m": activity.get("total_elevation_gain"),
+    }
+    return {key: value for key, value in fields.items() if value not in (None, "", 0)}
+
 def coach_prompt(question, display_name):
-    history = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages[-7:])
+    recent_messages = st.session_state.messages[-4:]
+    history = "\n".join(
+        f"{m['role'].upper()}: {str(m['content'])[-1200:]}"
+        for m in recent_messages
+    )
+    question = str(question)[-4000:]
     return f"""You are an elite cycling performance coach.
 Persona: {st.session_state.coach_persona}
 Athlete: {display_name}
@@ -230,6 +286,7 @@ Goal: {st.session_state.goals['target_metric']}
 Target event: {st.session_state.goals['event_name']} on {st.session_state.goals['race_date']}
 Gear: {st.session_state.athlete_gear or 'Not provided'}
 Limitations: {st.session_state.athlete_limitations or 'Not provided'}
+Available supplements / fuel: {json.dumps(st.session_state.user_supplements, ensure_ascii=False) or 'Not provided'}
 Recent conversation:\n{history}
 Current question:\n{question}
 Give a direct, practical coaching answer. Do not invent telemetry or claim to alter Intervals.icu."""
@@ -324,6 +381,9 @@ ensure_initial_message()
 load_persisted_trend()
 
 # A single source of truth fixes the former two-click navigation bug.
+if st.session_state.active_nav not in NAV_OPTIONS:
+    st.session_state.active_nav = NAV_OPTIONS[0]
+    st.session_state.sidebar_nav = NAV_OPTIONS[0]
 if st.session_state.sidebar_nav != st.session_state.active_nav:
     st.session_state.sidebar_nav = st.session_state.active_nav
 with st.sidebar:
@@ -331,6 +391,22 @@ with st.sidebar:
     st.radio("Navigate", NAV_OPTIONS, key="sidebar_nav", on_change=sidebar_changed)
     st.divider()
     st.session_state.coach_persona = st.selectbox("Coaching Persona", ["Collaborative Peer (Balanced & Brainstorming)", "Sports Scientist (Data & Periodization Focus)", "Drill Sergeant (Strict & Direct Accountability)"], index=["Collaborative Peer (Balanced & Brainstorming)", "Sports Scientist (Data & Periodization Focus)", "Drill Sergeant (Strict & Direct Accountability)"].index(st.session_state.coach_persona))
+    with st.expander("Recovery, fuel & supplements", expanded=False):
+        st.caption("For your coach's reference when discussing recovery and ride fueling.")
+        with st.form("sidebar_supplement_form", clear_on_submit=True):
+            supplement_name = st.text_input("Supplement / fuel")
+            supplement_timing = st.text_input("When to use it")
+            supplement_notes = st.text_input("Purpose or notes")
+            if st.form_submit_button("Add to coach reference", use_container_width=True) and supplement_name.strip():
+                st.session_state.user_supplements.append({"name": supplement_name.strip(), "timing": supplement_timing.strip() or "As needed", "notes": supplement_notes.strip() or ""})
+                st.rerun()
+        if st.session_state.user_supplements:
+            for item in st.session_state.user_supplements:
+                st.write(f"• **{item['name']}** — {item['timing']}{(': ' + item['notes']) if item['notes'] else ''}")
+            remove_name = st.selectbox("Remove from coach reference", ["Keep all"] + [item["name"] for item in st.session_state.user_supplements], key="remove_supplement")
+            if remove_name != "Keep all" and st.button("Remove selected", key="remove_supplement_button", use_container_width=True):
+                st.session_state.user_supplements = [item for item in st.session_state.user_supplements if item["name"] != remove_name]
+                st.rerun()
     with st.expander("Athlete profile & goal", expanded=False):
         with st.form("sidebar_profile_form"):
             event_name = st.text_input("Target event", value=st.session_state.goals["event_name"])
@@ -411,11 +487,16 @@ if selected_nav == NAV_OPTIONS[0]:
         st.caption(f"Generated {st.session_state.trend_analysis_timestamp} · remains visible until cleared or re-run.")
         st.markdown(st.session_state.cached_trend_analysis)
         a,b = st.columns(2)
-        if a.button("💬 Discuss with Coach", key="trend_discuss"): discuss_with_coach("my 90-day trend analysis", st.session_state.cached_trend_analysis); st.rerun()
+        if a.button("💬 Discuss with Coach", key="trend_discuss"):
+            open_coach_with_reference("Your dated 90-Day Trend Analysis remains on the Command Center. Ask the coach a question about it here; the full report is not copied into chat.")
+            st.rerun()
         if b.button("Clear trend analysis", key="clear_trend"): clear_persisted_trend(); st.rerun()
 
 elif selected_nav == COACH_PAGE:
     st.markdown("### 🤖 AI Coach & Collaborative Sparring Partner")
+    if st.session_state.coach_reference_notice:
+        st.info(st.session_state.coach_reference_notice)
+        st.session_state.coach_reference_notice = None
     for message in st.session_state.messages:
         with st.chat_message(message["role"]): st.markdown(clean_chat_content(message["content"]))
     pending = st.session_state.pending_coach_prompt
@@ -427,16 +508,33 @@ elif selected_nav == COACH_PAGE:
 
 elif selected_nav == NAV_OPTIONS[2]:
     st.markdown("### 📅 Training Calendar")
-    if not planned_events: st.info("No upcoming Intervals.icu events were returned.")
+    today = dt.date.today()
+    window_start, window_end = today - dt.timedelta(days=7), today + dt.timedelta(days=14)
+    calendar_events = [event for event in planned_events if event_date(event) and window_start <= event_date(event) <= window_end]
+    st.caption(f"Showing the previous 7 days and the next 14 days · {window_start:%d %b}–{window_end:%d %b %Y}")
+    if not calendar_events: st.info("No planned or completed sessions were returned for this 21-day window.")
     grouped = {}
-    for event in planned_events: grouped.setdefault(event.get("start_date_local", "")[:10] or "Unscheduled", []).append(event)
-    for date, sessions in grouped.items():
-        with st.expander(f"{date} · {len(sessions)} session{'s' if len(sessions) != 1 else ''}", expanded=False):
+    for event in calendar_events: grouped.setdefault(event_date(event).isoformat(), []).append(event)
+    for date, sessions in sorted(grouped.items()):
+        session_names = [event.get("name") or "Planned workout" for event in sessions]
+        header_names = " + ".join(session_names[:2])
+        if len(session_names) > 2:
+            header_names += f" + {len(session_names) - 2} more"
+        with st.expander(f"{date} · {header_names}", expanded=False):
             for number, event in enumerate(sessions, 1):
-                st.markdown(f"**Session {number}: {event.get('name', 'Planned workout')}**")
-                st.write(event.get("description") or event.get("notes") or "No coach instructions provided.")
-                with st.expander("Session details", expanded=False): st.json(event)
-            if st.button("💬 Discuss these sessions with Coach", key=f"calendar_{date}"): discuss_with_coach(f"the {date} training sessions", json.dumps(sessions, default=str)); st.rerun()
+                session = session_summary(event)
+                st.markdown(f"**Session {number}: {session['name']}**")
+                if session["details"]:
+                    st.caption(" · ".join(session["details"]))
+                st.markdown(f"**Coach instructions:** {session['instructions']}")
+                if number < len(sessions): st.divider()
+    if grouped:
+        st.divider()
+        discussion_date = st.selectbox("Discuss a training day with Coach", list(sorted(grouped)), format_func=lambda value: f"{value} · " + " + ".join(event.get("name") or "Planned workout" for event in grouped[value]))
+        if st.button("💬 Discuss selected day with Coach", type="primary"):
+            readable_sessions = [session_summary(event) for event in grouped[discussion_date]]
+            discuss_with_coach(f"my training sessions on {discussion_date}", json.dumps(readable_sessions, ensure_ascii=False))
+            st.rerun()
 
 elif selected_nav == NAV_OPTIONS[3]:
     st.markdown("### 🔍 Activity Inspector")
@@ -446,21 +544,14 @@ elif selected_nav == NAV_OPTIONS[3]:
         label = st.selectbox("Choose an activity", list(options)); activity = options[label]
         c1,c2,c3=st.columns(3); c1.metric("Distance", f"{round((activity.get('distance') or 0)/1000,2)} km"); c2.metric("Moving Time", f"{int((activity.get('moving_time') or 0)/60)} min"); c3.metric("Average Power", f"{activity.get('average_watts','N/A')} W")
         if st.button("Run AI Debrief", type="primary"):
-            try: st.session_state.selected_activity_analysis = execute_ai(f"Perform a cycling performance debrief. Activity: {json.dumps(activity, default=str)}. Goal: {st.session_state.goals['target_metric']}. Cover execution, intensity, stimulus, strengths, weaknesses, recovery, and next recommendation."); st.session_state.selected_activity_label = label
+            compact_activity = activity_summary(activity)
+            try: st.session_state.selected_activity_analysis = execute_ai(f"Give a concise cycling performance debrief based only on this summary: {json.dumps(compact_activity)}. Goal: {st.session_state.goals['target_metric']}. Use six short sections: execution, intensity, stimulus, strengths, recovery, and next session."); st.session_state.selected_activity_label = label
             except Exception as exc: st.error(str(exc))
         if st.session_state.selected_activity_analysis:
             st.markdown(st.session_state.selected_activity_analysis)
             if st.button("💬 Discuss with Coach", key="activity_discuss"): discuss_with_coach(f"activity debrief for {st.session_state.selected_activity_label}", st.session_state.selected_activity_analysis); st.rerun()
 
-elif selected_nav == NAV_OPTIONS[4]:
-    st.markdown("### 💊 Recovery & Supplement Protocol")
-    with st.form("supplement"):
-        a,b,c=st.columns(3); name=a.text_input("Name"); timing=b.text_input("Timing"); notes=c.text_input("Notes")
-        if st.form_submit_button("Add") and name.strip(): st.session_state.user_supplements.append({"name":name.strip(),"timing":timing.strip() or "As needed","notes":notes.strip()}); st.rerun()
-    if st.session_state.user_supplements: st.dataframe(pd.DataFrame(st.session_state.user_supplements), hide_index=True, use_container_width=True)
-    if st.button("💬 Discuss recovery with Coach"): discuss_with_coach("my recovery and supplements", json.dumps(st.session_state.user_supplements)); st.rerun()
-
-elif selected_nav == NAV_OPTIONS[5]:
+elif selected_nav == "🗺️ Route Strategist":
     st.markdown("### 🗺️ Route Pacing & Climbing Strategist")
     uploaded = st.file_uploader("Upload GPX", type=["gpx"])
     if uploaded:
