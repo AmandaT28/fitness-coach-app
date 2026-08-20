@@ -74,33 +74,45 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- DUAL GOOGLE API KEYS INITIALIZATION ---
+# --- TRIPLE GOOGLE API KEYS INITIALIZATION ---
 PRIMARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("primary_key") or st.secrets.get("GEMINI_API_KEY") or os.getenv("PRIMARY_KEY") or os.getenv("GEMINI_API_KEY")
 SECONDARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("secondary_key") or os.getenv("SECONDARY_GEMINI_KEY") or os.getenv("SECONDARY_KEY")
+TERTIARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("tertiary_key") or os.getenv("TERTIARY_GEMINI_KEY") or os.getenv("TERTIARY_KEY")
 
 primary_google_client = genai.Client(api_key=PRIMARY_GEMINI_KEY) if PRIMARY_GEMINI_KEY else None
 secondary_google_client = genai.Client(api_key=SECONDARY_GEMINI_KEY) if SECONDARY_GEMINI_KEY else None
+tertiary_google_client = genai.Client(api_key=TERTIARY_GEMINI_KEY) if TERTIARY_GEMINI_KEY else None
 
 # --- SPEED-OPTIMIZED MULTI-PROVIDER AI ROUTER WITH DUAL GOOGLE KEYS ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain"):
-    def call_google():
-        models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.7-pro-preview"]
-        
-        if primary_google_client:
-            for m in models:
-                try:
-                    return primary_google_client.models.generate_content(model=m, contents=prompt).text, f"Google {m} (Primary Key)"
-                except Exception: 
-                    continue
-                    
-        if secondary_google_client:
-            for m in models:
-                try:
-                    return secondary_google_client.models.generate_content(model=m, contents=prompt).text, f"Google {m} (Secondary Key Failover)"
-                except Exception:
-                    continue
-                    
-        raise Exception("All Google keys and models failed.")
+   def call_google():
+    models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.7-pro-preview"]
+    
+    # 1. Try Primary Key
+    if primary_google_client:
+        for m in models:
+            try:
+                return primary_google_client.models.generate_content(model=m, contents=prompt).text, f"Google {m} (Primary Key)"
+            except Exception: 
+                continue
+                
+    # 2. Try Secondary Key
+    if secondary_google_client:
+        for m in models:
+            try:
+                return secondary_google_client.models.generate_content(model=m, contents=prompt).text, f"Google {m} (Secondary Key Failover)"
+            except Exception:
+                continue
+
+    # 3. Try Tertiary Key
+    if tertiary_google_client:
+        for m in models:
+            try:
+                return tertiary_google_client.models.generate_content(model=m, contents=prompt).text, f"Google {m} (Tertiary Key Failover)"
+            except Exception:
+                continue
+                
+    raise Exception("All Google keys and models failed.")
         
     def call_openai():
         res = openai_client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
