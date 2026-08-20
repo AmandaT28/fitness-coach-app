@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (UI/UX Redesigned)
+"""AI Performance Coach • Elite Suite (Single-File UX Redesigned)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -51,6 +51,8 @@ GEMINI_KEYS = [
 GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-2.5-flash")
 AI_TIMEOUT = 15  
 INTERVALS_TIMEOUT = 6
+NAV_OPTIONS = ["📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "🗺️ Route Strategist"]
+COACH_PAGE = "🤖 AI Coach & Sparring"
 DEFAULT_GOALS = {"event_name": "Bintan Round Island", "target_metric": "Survive steep climbs on group rides & improve threshold power", "race_date": "2026-10-24"}
 
 supabase = None
@@ -64,6 +66,7 @@ localS = LocalStorage() if LocalStorage else None
 st.markdown("""
 <style>
 .block-container { max-width: 1480px; padding-top: 3.5rem; padding-bottom: 3rem; }
+.top-nav-spacer { height: 2rem; }
 section[data-testid="stSidebar"] { border-right: 1px solid rgba(128,128,128,.18); background-color: var(--secondary-background-color); }
 div[data-testid="stMetric"] { background: var(--secondary-background-color); border: 1px solid rgba(128,128,128,.20); border-radius: 14px; padding: 14px 16px; box-shadow: 0 4px 18px rgba(0,0,0,.05); }
 div[data-testid="stExpander"] { border: 1px solid rgba(128,128,128,.22); border-radius: 12px; overflow: hidden; }
@@ -74,12 +77,15 @@ div[data-testid="stChatMessage"] { border-radius: 14px; }
 .readiness-card-red { background: linear-gradient(135deg, rgba(255, 64, 129, 0.15), rgba(255, 23, 68, 0.05)); border: 1px solid rgba(255, 64, 129, 0.4); border-radius: 14px; padding: 18px 20px; margin-bottom: 1.5rem; }
 .readiness-card-green { background: linear-gradient(135deg, rgba(0, 230, 118, 0.15), rgba(0, 200, 83, 0.05)); border: 1px solid rgba(0, 230, 118, 0.4); border-radius: 14px; padding: 18px 20px; margin-bottom: 1.5rem; }
 .workout-pill { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; background: rgba(128,128,128,0.15); margin-right: 6px; margin-bottom: 6px; }
+div[data-testid="stRadio"] [role="radiogroup"] { flex-wrap: wrap; gap: .25rem 1rem; }
+div[data-testid="stRadio"] label { font-size: .86rem; white-space: nowrap; }
 </style>
 """, unsafe_allow_html=True)
 
 def init_state():
     defaults = {
         "user": None, "user_credentials": None, "messages": [],
+        "active_nav": NAV_OPTIONS[0], "sidebar_nav": NAV_OPTIONS[0],
         "coach_persona": "Collaborative Peer (Balanced & Brainstorming)",
         "athlete_gear": "", "athlete_limitations": "", "goals": DEFAULT_GOALS.copy(),
         "user_supplements": [], "cached_trend_analysis": None,
@@ -97,16 +103,25 @@ def ensure_initial_message():
     if not st.session_state.messages:
         st.session_state.messages = [{"role": "assistant", "content": "Hello! I am your AI Performance Coach. Ask me to propose next week's training block or adjust your current schedule."}]
 
+def go_to(page):
+    st.session_state.active_nav = page
+
+def sidebar_changed():
+    st.session_state.active_nav = st.session_state.sidebar_nav
+
+def top_nav_changed():
+    st.session_state.active_nav = st.session_state.top_nav
+
 def discuss_with_coach(topic, context):
     context = str(context)
     if len(context) > 3000:
         context = context[:3000] + "\n[Context truncated for speed.]"
     st.session_state.pending_coach_prompt = f"Let's discuss {topic}.\n\nContext:\n{context}\n\nPlease explain what matters and give my next best action."
-    st.switch_page("pages/coach.py")
+    go_to(COACH_PAGE)
 
 def open_coach_with_reference(notice):
     st.session_state.coach_reference_notice = notice
-    st.switch_page("pages/coach.py")
+    go_to(COACH_PAGE)
 
 def calculate_compliance_score(activity):
     actual_np = activity.get("icu_weighted_avg_watts") or activity.get("average_watts") or 0
@@ -436,20 +451,13 @@ wellness_list, activities_data, planned_events, power_curves_data, intervals_sta
 st.session_state.calendar_context = json.dumps([session_summary(ev) for ev in planned_events[:10]], ensure_ascii=False)
 check_for_new_rides_on_startup(activities_data)
 
-# --- NATIVE MULTI-PAGE NAVIGATION SETUP ---
-pg = st.navigation({
-    "Elite Performance": [
-        st.Page(lambda: render_command_center(), title="📊 Command Center", icon="☀️"),
-        st.Page(lambda: render_ai_coach(), title="🤖 AI Coach & Sparring", icon="💬"),
-        st.Page(lambda: render_training_calendar(), title="📅 Training Calendar", icon="📅"),
-        st.Page(lambda: render_activity_inspector(), title="🔍 Activity Inspector", icon="🔍"),
-        st.Page(lambda: render_route_strategist(), title="🗺️ Route Strategist", icon="🗺️"),
-    ]
-})
+if st.session_state.active_nav not in NAV_OPTIONS: st.session_state.active_nav = NAV_OPTIONS[0]; st.session_state.sidebar_nav = NAV_OPTIONS[0]
+if st.session_state.sidebar_nav != st.session_state.active_nav: st.session_state.sidebar_nav = st.session_state.active_nav
 
 with st.sidebar:
     st.markdown("##### 🚴‍♂️ AI Performance Coach")
     st.caption(f"Athlete: **{display_name}**")
+    st.radio("Navigate", NAV_OPTIONS, key="sidebar_nav", on_change=sidebar_changed)
     st.divider()
     
     st.session_state.coach_persona = st.selectbox("Coaching Persona", ["Collaborative Peer (Balanced & Brainstorming)", "Sports Scientist (Data & Periodization Focus)", "Drill Sergeant (Strict & Direct Accountability)"], index=0)
@@ -523,19 +531,21 @@ with st.sidebar:
         persist_chat_to_db()
         st.rerun()
 
-# --- PAGE RENDERING FUNCTIONS ---
+st.markdown("<div class='top-nav-spacer'></div>", unsafe_allow_html=True)
+if st.session_state.get("top_nav") != st.session_state.active_nav: st.session_state.top_nav = st.session_state.active_nav
+st.radio("Navigate pages", NAV_OPTIONS, horizontal=True, label_visibility="collapsed", key="top_nav", on_change=top_nav_changed)
+selected_nav = st.session_state.active_nav
 
-def render_command_center():
+latest = wellness_list[-1] if wellness_list else {}
+ctl = latest.get("ctl", 0) or latest.get("CTL", 0) or 0
+atl = latest.get("atl", 0) or latest.get("ATL", 0) or 0
+tsb = latest.get("tsb", 0) or latest.get("TSB", 0) or 0
+
+if selected_nav == NAV_OPTIONS[0]:
     st.markdown("##### ☀️ Command Center")
     st.caption(f"Intervals.icu: {intervals_status}")
     
-    latest = wellness_list[-1] if wellness_list else {}
-    ctl = latest.get("ctl", 0) or latest.get("CTL", 0) or 0
-    atl = latest.get("atl", 0) or latest.get("ATL", 0) or 0
-    tsb = latest.get("tsb", 0) or latest.get("TSB", 0) or 0
     sleep_score = latest.get("sleep_score") or latest.get("sleepScore")
-    
-    # Dynamic Physiological Status Card
     if not wellness_list:
         readiness, focus, watch = "Readiness unavailable", "Sync Intervals.icu to assess today.", "No current wellness data."
         card_class = "readiness-card-green"
@@ -612,12 +622,13 @@ def render_command_center():
                 a, b = st.columns(2)
                 if a.button("💬 Discuss with Coach", key=f"trend_discuss_{idx}"):
                     open_coach_with_reference(f"Your dated 90-Day Trend Analysis from {item['timestamp']} remains on record.")
+                    st.rerun()
                 if b.button("Delete report", key=f"clear_single_trend_{idx}"):
                     st.session_state.cached_trend_analyses.pop(idx)
                     persist_trend()
                     st.rerun()
 
-def render_ai_coach():
+elif selected_nav == COACH_PAGE:
     st.markdown("##### 🤖 AI Coach & Collaborative Sparring Partner")
     if st.session_state.coach_reference_notice:
         st.info(st.session_state.coach_reference_notice)
@@ -647,7 +658,7 @@ def render_ai_coach():
     elif question := st.chat_input("Ask your coach anything... e.g. 'Plan my next week of training'"):
         render_coach_reply(question.strip(), display_name)
 
-def render_training_calendar():
+elif selected_nav == NAV_OPTIONS[2]:
     st.markdown("##### 📅 Training Calendar & Intervals.icu Sync")
     today = dt.datetime.now(LOCAL_TZ).date()
     window_start, window_end = today - dt.timedelta(days=14), today + dt.timedelta(days=14)
@@ -702,6 +713,7 @@ def render_training_calendar():
         if st.button("💬 Discuss selected day with Coach", type="primary"):
             readable_sessions = [session_summary(event) for event in grouped[discussion_date]]
             discuss_with_coach(f"my training sessions on {discussion_date}", json.dumps(readable_sessions, ensure_ascii=False))
+            st.rerun()
 
     st.divider()
     with st.expander("➕ Push New Workout to Intervals.icu Calendar (Syncs to MyWhoosh)", expanded=False):
@@ -719,7 +731,7 @@ def render_training_calendar():
                         st.toast(f"Pushed '{w_name}' to Intervals.icu for {w_date.isoformat()}!", icon="🚀")
                     except Exception as exc: st.error(str(exc))
 
-def render_activity_inspector():
+elif selected_nav == NAV_OPTIONS[3]:
     st.markdown("##### 🔍 Activity Inspector")
     if not activities_data:
         st.info("No activities found.")
@@ -750,14 +762,14 @@ def render_activity_inspector():
                 st.markdown(st.session_state.selected_activity_analysis)
                 if st.button("💬 Discuss with Coach", key="activity_discuss"):
                     discuss_with_coach(f"activity debrief for {st.session_state.selected_activity_label}", st.session_state.selected_activity_analysis)
+                    st.rerun()
 
-def render_route_strategist():
+elif selected_nav == "🗺️ Route Strategist":
     st.markdown("##### 🗺️ Route Pacing, Climbing & Fueling Strategist")
     uploaded = st.file_uploader("Upload GPX File", type=["gpx"])
     if uploaded:
         metrics = parse_gpx(uploaded.read())
         if metrics:
-            # Human-Readable Metric Grid Card
             st.markdown("###### 📊 Route Summary & Elevation Profile")
             m1, m2, m3 = st.columns(3)
             m1.metric("📏 Total Distance", f"{metrics['distance_km']} km")
@@ -792,6 +804,7 @@ def render_route_strategist():
                     st.markdown(st.session_state.route_analysis)
                     if st.button("💬 Discuss with Coach", key="route_discuss"):
                         discuss_with_coach("my route strategy and fueling plan", st.session_state.route_analysis)
+                        st.rerun()
         else:
             st.error("Could not parse GPX file. Ensure it contains valid track points and elevation data.")
 
@@ -912,5 +925,3 @@ def render_coach_reply(question, display_name):
                 persist_chat_to_db()
             except Exception as exc:
                 placeholder.error(f"⚠️ {exc}")
-
-pg.run()
