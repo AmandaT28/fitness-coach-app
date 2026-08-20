@@ -64,7 +64,7 @@ localS = LocalStorage() if LocalStorage else None
 
 st.markdown("""
 <style>
-.block-container { max-width: 1480px; padding-top: 1.4rem; padding-bottom: 3rem; }
+.block-container { max-width: 1480px; padding-top: 4rem; padding-bottom: 3rem; }
 .top-nav-spacer { height: 2.5rem; }
 section[data-testid="stSidebar"] { border-right: 1px solid rgba(128,128,128,.18); }
 div[data-testid="stMetric"] { background: var(--secondary-background-color); border: 1px solid rgba(128,128,128,.20); border-radius: 14px; padding: 14px 16px; box-shadow: 0 4px 18px rgba(0,0,0,.05); }
