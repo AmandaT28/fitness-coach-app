@@ -1,8 +1,12 @@
 """AI Performance Coach — Streamlit single-file app with Supabase persistence.
-
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 OpenAI and Anthropic are intentionally not used.
 """
+from zoneinfo import ZoneInfo
+# Pin the application to your local timezone
+LOCAL_TZ = ZoneInfo("Asia/Singapore")
+today = dt.datetime.now(LOCAL_TZ).date()
+
 import base64
 import datetime as dt
 import json
@@ -393,13 +397,21 @@ def build_gemini_payload(current_question, display_name):
         }
     ]
 
-    # Append recent chat history with message character caps for token safety
+    # Append recent chat history safely by stripping out bulky JSON/XML tags
     for m in st.session_state.messages[-15:]:
         role = "user" if m["role"] == "user" else "model"
-        msg_text = str(m["content"])[:2000]
+        
+        # If it's the model's past reply, strip the bulky sync data out so it 
+        # doesn't eat tokens or cause broken JSON string slicing
+        if role == "model":
+            msg_text = clean_chat_content(str(m["content"]))
+        else:
+            msg_text = str(m["content"])
+            
+        # Cap at 2500 chars just in case, but after the dangerous JSON is removed
         contents.append({
             "role": role,
-            "parts": [{"text": msg_text}]
+            "parts": [{"text": msg_text[:2500]}]
         })
 
     contents.append({
