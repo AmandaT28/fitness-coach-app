@@ -81,18 +81,19 @@ primary_google_client = genai.Client(api_key=PRIMARY_GEMINI_KEY) if PRIMARY_GEMI
 secondary_google_client = genai.Client(api_key=SECONDARY_GEMINI_KEY) if SECONDARY_GEMINI_KEY else None
 tertiary_google_client = genai.Client(api_key=TERTIARY_GEMINI_KEY) if TERTIARY_GEMINI_KEY else None
 
-# --- BULLETPROOF MULTI-PROVIDER AI ROUTER ---
+# --- STRICT MULTI-PROVIDER AI ROUTER (NO MORE TOKEN BLEEDING) ---
 def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallback Chain"):
     errors = []
 
     def call_google(client, name):
         if not client:
             raise ValueError(f"{name} client not initialized.")
-        models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]
+        # Locked strictly to highly reliable and cheap model names
+        models = ["gemini-1.5-flash", "gemini-1.5-pro"]
         for m in models:
             try:
                 res = client.models.generate_content(model=m, contents=prompt)
-                if res and res.text:
+                if res and hasattr(res, "text") and res.text:
                     return res.text, f"Google {m} ({name})"
             except Exception as e:
                 errors.append(f"{name} ({m}): {str(e)}")
@@ -108,25 +109,24 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
         res = openai_client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
         if res.choices and res.choices[0].message.content:
             return res.choices[0].message.content, "OpenAI GPT-4o-mini"
-        raise Exception("OpenAI returned an empty response.")
+        raise Exception("OpenAI failed.")
 
     def action_anthropic():
         if not anthropic_client: raise ValueError("Anthropic client missing.")
         res = anthropic_client.messages.create(model="claude-3-5-sonnet-20241022", max_tokens=1500, messages=[{"role": "user", "content": prompt}])
         if res.content and res.content[0].text:
             return res.content[0].text, "Anthropic Claude"
-        raise Exception("Anthropic returned an empty response.")
+        raise Exception("Anthropic failed.")
 
-    all_actions = [action_primary_google, action_secondary_google, action_tertiary_google, action_openai, action_anthropic]
-
-    if preferred_provider == "⚡ Auto-Fallback Chain":
-        active_chain = all_actions
-    elif "Google" in preferred_provider:
-        active_chain = [action_primary_google, action_secondary_google, action_tertiary_google, action_openai, action_anthropic]
+    # Strictly assign the chain based on user preference to prevent silent key bleeding
+    if "Google" in preferred_provider:
+        active_chain = [action_primary_google, action_secondary_google, action_tertiary_google]
     elif "OpenAI" in preferred_provider:
-        active_chain = [action_openai] + all_actions
+        active_chain = [action_openai]
+    elif "Anthropic" in preferred_provider:
+        active_chain = [action_anthropic]
     else:
-        active_chain = [action_anthropic] + all_actions
+        active_chain = [action_primary_google, action_openai, action_anthropic]
 
     for action in active_chain:
         try:
@@ -137,7 +137,7 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
             errors.append(str(e))
             continue
             
-    raise Exception(f"All AI providers failed. Diagnostics: { ' | '.join(errors[:3]) }")
+    raise Exception(f"Selected AI Engine failed. Diagnostics: { ' | '.join(errors) }")
 
 localS = LocalStorage()
 
@@ -350,19 +350,6 @@ except:
     race_date_obj = datetime.date(2026, 10, 24)
 days_left = (race_date_obj - datetime.date.today()).days
 
-# --- AUTOMATED POST-WORKOUT CHECKER ---
-if activities_data and st.session_state.auto_debriefed_id != activities_data[0].get('id'):
-    latest_act = activities_data[0]
-    act_id = latest_act.get('id')
-    act_name = latest_act.get('name', 'Latest Ride')
-    st.session_state.auto_debriefed_id = act_id
-    
-    auto_prompt = f"[Autonomous Post-Workout Auto-Debrief] A new activity synced: {latest_act}. Provide a concise performance debrief based on {st.session_state.goals['target_metric']}."
-    try:
-        auto_res, _ = execute_multiprovider_generation(auto_prompt)
-        st.session_state.messages.append({"role": "model", "content": f"🚨 **Autonomous Post-Ride Debrief ({act_name}):**\n\n{auto_res}"})
-    except: pass
-
 # --- NAVIGATION ---
 NAV_OPTIONS = ["📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "💊 Recovery & Supplements", "🗺️ Route Strategist"]
 if "active_nav" not in st.session_state: st.session_state.active_nav = "📊 Command Center"
@@ -453,10 +440,6 @@ if selected_nav == "📊 Command Center":
         <span style="font-size: 0.75rem; font-weight: bold; color: #d68910; background: #fcf3cf; padding: 2px 6px; border-radius: 4px;">📊 INTERVALS.ICU & GARMIN SYNC ACTIVE</span>
         <div style="font-weight: bold; font-size: 1.1rem; margin-top: 4px;">Target Race: {st.session_state.goals['event_name']} ({days_left} days left — {race_date_obj.strftime('%B %d, %Y')})</div>
         <div style="color: #666; font-size: 0.85rem; margin-top: 4px;">Objective: {st.session_state.goals['target_metric']}</div>
-        <hr style="margin: 10px 0; border-top: 1px solid #fce881;">
-        <div style="font-size: 0.9rem; font-weight: 500; color: #333;">
-            {'🟢 <strong>Readiness High:</strong> Telemetry verified via Garmin/Intervals.icu. Form (TSB) is optimal for hard efforts.' if tsb >= -15 else '🟡 <strong>Fatigue Warning:</strong> Telemetry shows elevated stress. Prioritize sleep and recovery pacing.'}
-        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -514,81 +497,89 @@ elif selected_nav == "🤖 AI Coach & Sparring":
     st.markdown("### 🤖 AI Coach & Collaborative Sparring Partner")
     st.caption(f"Active Persona: **{coach_persona}** | Proposes plans first, and only syncs to Intervals.icu when you explicitly agree!")
 
-    # 1. Render History
-    for idx, msg in enumerate(st.session_state.messages):
-        with st.chat_message(msg["role"]):
-            clean_content = re.sub(r"```xml\s*<\?xml.*?>.*?</\s*workout_file\s*>\s*```", "", msg["content"], flags=re.DOTALL)
-            clean_content = re.sub(r"```\s*<workout_file>.*?</\s*workout_file>\s*```", "", clean_content, flags=re.DOTALL)
-            clean_content = re.sub(r"<icu_workout>.*?</icu_workout>", "", clean_content, flags=re.DOTALL)
-            clean_content = re.sub(r"<icu_reschedule>.*?</icu_reschedule>", "", clean_content, flags=re.DOTALL)
-            clean_content = re.sub(r"<icu_supplement>.*?</icu_supplement>", "", clean_content, flags=re.DOTALL)
-            st.markdown(clean_content.strip())
-            
-            if msg["role"] == "model":
-                match = re.search(r"```xml\s*(<\?xml.*?>.*?<\s*/\s*workout_file\s*>|<workout_file>.*?</\s*workout_file>)\s*```", msg["content"], re.DOTALL)
-                if not match: match = re.search(r"```\s*(<workout_file>.*?</\s*workout_file>)\s*```", msg["content"], re.DOTALL)
-                if match:
-                    zwo_data = match.group(1).strip()
-                    st.download_button(label="📥 Download MyWhoosh Workout File (.zwo)", data=zwo_data, file_name=f"AI_Coach_Workout_{idx}.zwo", mime="application/xml", key=f"download_zwo_{idx}")
+    # 1. Isolate chat UI into a container
+    chat_container = st.container()
 
-    # 2. Guaranteed-Delivery Chat Form Interface
-    with st.form(key="chat_form", clear_on_submit=True):
-        chat_prompt = st.text_input("Ask your coach to plan training or bounce an idea...", placeholder="Type message here...")
-        submitted = st.form_submit_button("Send to Coach", use_container_width=True)
-
-    if submitted and chat_prompt.strip():
-        st.session_state.messages.append({"role": "user", "content": chat_prompt.strip()})
-        
-        with st.spinner("🤖 AI Coach is processing telemetry & drafting response..."):
-            stack_summary = ", ".join([f"{s['name']} ({s['timing']} - {s['notes']})" for s in st.session_state.user_supplements])
-            formatted_history = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages[:-1]])
-            
-            payload = "\n".join([
-                f"You are an elite cycling sports science coach acting with the persona: '{coach_persona}'.",
-                f"CURRENT ACTIVE SUPPLEMENT STACK: {stack_summary}",
-                f"GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
-                f"METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.",
-                f"ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}",
-                f"CURRENT UPCOMING SCHEDULE (NEXT 14 DAYS): {planned_events[:20] if planned_events else 'None'}",
-                "",
-                "PREVIOUS CONVERSATION HISTORY:",
-                formatted_history if formatted_history else "None yet.",
-                "",
-                f"Athlete Bike Build / Gear: {st.session_state.athlete_gear}",
-                f"Athlete Physical Limitations: {st.session_state.athlete_limitations}",
-                "Do NOT repeat gear/limitations unless directly relevant.",
-                "",
-                f"USER: {chat_prompt.strip()}"
-            ])
-            
-            try:
-                resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
+    with chat_container:
+        for idx, msg in enumerate(st.session_state.messages):
+            with st.chat_message(msg["role"]):
+                clean_content = re.sub(r"```xml\s*<\?xml.*?>.*?</\s*workout_file\s*>\s*```", "", msg["content"], flags=re.DOTALL)
+                clean_content = re.sub(r"```\s*<workout_file>.*?</\s*workout_file>\s*```", "", clean_content, flags=re.DOTALL)
+                clean_content = re.sub(r"<icu_workout>.*?</icu_workout>", "", clean_content, flags=re.DOTALL)
+                st.markdown(clean_content.strip())
                 
-                icu_matches = re.findall(r'<icu_workout>\s*(.*?)\s*</icu_workout>', resp, re.DOTALL)
-                parsed_workouts = 0
-                if icu_matches and ATHLETE_ID and INTERVALS_API_KEY:
-                    for match_str in icu_matches:
-                        try:
-                            clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
-                            workouts = json.loads(clean_json_str)
-                            if not isinstance(workouts, list): workouts = [workouts]
-                            for w in workouts:
-                                w['category'] = 'WORKOUT'
-                                if 'start_date_local' in w and len(w['start_date_local']) == 10: w['start_date_local'] += "T00:00:00"
-                                api_resp = requests.post(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events", json=w, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
-                                if api_resp.status_code == 200: parsed_workouts += 1
-                        except Exception: pass
+                if msg["role"] == "model":
+                    match = re.search(r"```xml\s*(<\?xml.*?>.*?<\s*/\s*workout_file\s*>|<workout_file>.*?</\s*workout_file>)\s*```", msg["content"], re.DOTALL)
+                    if not match: match = re.search(r"```\s*(<workout_file>.*?</\s*workout_file>)\s*```", msg["content"], re.DOTALL)
+                    if match:
+                        zwo_data = match.group(1).strip()
+                        st.download_button(label="📥 Download MyWhoosh File (.zwo)", data=zwo_data, file_name=f"Coach_Workout_{idx}.zwo", mime="application/xml", key=f"zwo_{idx}")
 
-                full_resp = f"{resp}\n\n*(Engine: {engine})*"
-                if parsed_workouts > 0:
-                    full_resp += f"\n\n✅ **Success:** Plan synchronized with Intervals.icu!"
-                    fetch_intervals_data.clear()
+    # 2. Hardened native Streamlit chat input with fallback protection
+    if prompt := st.chat_input("Ask your coach to plan training or bounce an idea..."):
+        # Immediately append and display the user's message
+        st.session_state.messages.append({"role": "user", "content": prompt.strip()})
+        with chat_container.chat_message("user"):
+            st.markdown(prompt.strip())
 
-                st.session_state.messages.append({"role": "model", "content": full_resp})
-                st.rerun()
+        # Safely wrap generation in a try-except to prevent UI lockup
+        with chat_container.chat_message("assistant"):
+            with st.spinner("🤖 Coach is analyzing and drafting..."):
+                try:
+                    stack_summary = ", ".join([f"{s['name']} ({s['timing']})" for s in st.session_state.user_supplements])
+                    
+                    # TOKEN OPTIMIZATION: Only send the last 6 chat messages, 5 activities, and 7 upcoming events to save keys
+                    recent_history = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages[-7:-1]])
+                    recent_acts = activities_data[:5] if activities_data else 'None'
+                    upcoming_evs = planned_events[:7] if planned_events else 'None'
+                    
+                    payload = "\n".join([
+                        f"You are an elite cycling sports science coach. Persona: '{coach_persona}'.",
+                        f"SUPPLEMENT STACK: {stack_summary}",
+                        f"GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
+                        f"METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.",
+                        f"RECENT 5 ACTIVITIES: {recent_acts}",
+                        f"NEXT 7 DAYS SCHEDULE: {upcoming_evs}",
+                        "RECENT CONVERSATION:",
+                        recent_history if recent_history else "None yet.",
+                        f"Bike/Gear: {st.session_state.athlete_gear}",
+                        f"Limits: {st.session_state.athlete_limitations}",
+                        f"USER: {prompt.strip()}"
+                    ])
+                    
+                    resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
+                    
+                    # Handle syncing logic seamlessly
+                    icu_matches = re.findall(r'<icu_workout>\s*(.*?)\s*</icu_workout>', resp, re.DOTALL)
+                    parsed_workouts = 0
+                    if icu_matches and ATHLETE_ID and INTERVALS_API_KEY:
+                        for match_str in icu_matches:
+                            try:
+                                clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
+                                workouts = json.loads(clean_json_str)
+                                if not isinstance(workouts, list): workouts = [workouts]
+                                for w in workouts:
+                                    w['category'] = 'WORKOUT'
+                                    if 'start_date_local' in w and len(w['start_date_local']) == 10: w['start_date_local'] += "T00:00:00"
+                                    api_resp = requests.post(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events", json=w, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+                                    if api_resp.status_code == 200: parsed_workouts += 1
+                            except Exception: pass
 
-            except Exception as e:
-                st.error(f"AI Generation Failed: {str(e)}")
+                    full_resp = f"{resp}\n\n*(Engine: {engine})*"
+                    if parsed_workouts > 0:
+                        full_resp += f"\n\n✅ **Success:** Plan synchronized with Intervals.icu!"
+                        fetch_intervals_data.clear()
+
+                    st.markdown(full_resp)
+                    st.session_state.messages.append({"role": "model", "content": full_resp})
+                    
+                    # Crucial state reset
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"⚠️ Connection Failed: {str(e)}")
+                    # Prevent UI lock-up by popping the user's unfulfilled message so they can try again instantly
+                    st.session_state.messages.pop() 
 
 # ================= VIEW 3: TRAINING CALENDAR =================
 elif selected_nav == "📅 Training Calendar":
