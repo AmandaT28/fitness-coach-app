@@ -779,29 +779,27 @@ if selected_nav == "📊 Command Center":
 
     # Use a form or callback-driven execution to safely handle the generation trigger
     with st.form("trend_analysis_form"):
-        submitted = st.form_submit_button("🚀 Run 90-Day Trend Synthesis", use_container_width=True, type="primary")
-        if submitted:
-            if submitted:
-            # Clean and condense activities before sending to AI
-            compact_activities = summarize_activities(activities_data, limit=25)
-            
-            trend_payload = "\n".join(
-                [
-                    "Perform a rigorous 90-day cycling sports-science trend analysis.",
-                    f"CTL={ctl:.1f}, ATL={atl:.1f}, TSB={tsb:.1f}.",
-                    f"Recent activities summary: {json.dumps(compact_activities, ensure_ascii=False)}",
-                    f"Target event: {st.session_state.goals['event_name']} in {days_left} days.",
-                    f"Objective: {st.session_state.goals['target_metric']}.",
-                    "Cover fitness trajectory, consistency, fatigue management, climbing readiness, and actionable recommendations.",
-                ]
-            )
-            with st.spinner("Synthesizing 90-day performance trends…"):
-                try:
-                    result, _ = execute_multiprovider_generation(trend_payload, selected_provider)
-                    st.session_state.cached_trend_analysis = result
-                    st.session_state.trend_analysis_timestamp = dt.datetime.now().strftime("%B %d, %Y at %H:%M")
-                except Exception as exc:
-                    st.error(f"Trend synthesis failed: {exc}")
+        if st.button("🚀 Run 90-Day Trend Synthesis", type="primary", use_container_width=True):
+        # Clean and condense activities before sending to AI
+        compact_activities = summarize_activities(activities_data, limit=25)
+        
+        trend_payload = "\n".join(
+            [
+                "Perform a rigorous 90-day cycling sports-science trend analysis.",
+                f"CTL={ctl:.1f}, ATL={atl:.1f}, TSB={tsb:.1f}.",
+                f"Recent activities summary: {json.dumps(compact_activities, ensure_ascii=False)}",
+                f"Target event: {st.session_state.goals['event_name']} in {days_left} days.",
+                f"Objective: {st.session_state.goals['target_metric']}.",
+                "Cover fitness trajectory, consistency, fatigue management, climbing readiness, and actionable recommendations.",
+            ]
+        )
+        with st.spinner("Synthesizing 90-day performance trends…"):
+            try:
+                result, _ = execute_multiprovider_generation(trend_payload, selected_provider)
+                st.session_state.cached_trend_analysis = result
+                st.session_state.trend_analysis_timestamp = dt.datetime.now().strftime("%B %d, %Y at %H:%M")
+            except Exception as exc:
+                st.error(f"Trend synthesis failed: {exc}")
 
     # Render cached analysis independently of the button state
     if st.session_state.cached_trend_analysis:
