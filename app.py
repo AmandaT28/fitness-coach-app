@@ -116,8 +116,6 @@ def top_nav_changed():
 
 def discuss_with_coach(topic, context):
     """Carry a view's context into the coach page and generate the reply there."""
-    # Raw Intervals/GPX objects can be very large. Keep navigation context useful
-    # without letting it make the first coach request too large.
     context = str(context)
     if len(context) > 6000:
         context = context[:6000] + "\n[Context truncated for a fast coach response.]"
@@ -134,7 +132,7 @@ def clean_chat_content(text):
     text = re.sub(r"```xml\s*<\?xml.*?</workout_file>\s*```", "", text, flags=re.S | re.I)
     return re.sub(r"<icu_workout>.*?</icu_workout>", "", text, flags=re.S | re.I).strip()
 
-def gemini_generate(prompt, api_key):
+def gemini_generate(prompt, api_key, max_tokens=9000):
     if not api_key:
         raise RuntimeError("Gemini API key is not configured.")
     response = requests.post(
@@ -143,7 +141,7 @@ def gemini_generate(prompt, api_key):
         json={
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
-                "maxOutputTokens": 8000,
+                "maxOutputTokens": max_tokens,
                 "thinkingConfig": {"thinkingLevel": "low"},
             },
         },
@@ -157,7 +155,7 @@ def gemini_generate(prompt, api_key):
         raise RuntimeError("Gemini returned no usable text.")
     return text
 
-def execute_ai(prompt):
+def execute_ai(prompt, max_tokens=9000):
     """Gemini-only server-side failover. Provider/key identity is never displayed."""
     errors, seen = [], set()
     for _, key in GEMINI_KEYS:
@@ -165,7 +163,7 @@ def execute_ai(prompt):
             continue
         seen.add(key)
         try:
-            return gemini_generate(prompt, key)
+            return gemini_generate(prompt, key, max_tokens=max_tokens)
         except Exception as exc:
             errors.append(str(exc))
     st.session_state.ai_diagnostic = "\n\n".join(errors)[:2000] or "No Gemini API keys were found in Streamlit secrets."
@@ -189,7 +187,6 @@ def load_persisted_trend():
             if row.get("trend_analysis"):
                 saved = {"analysis": row["trend_analysis"], "timestamp": row.get("trend_analysis_timestamp")}
         except Exception:
-            # The browser copy remains a safe fallback when the migration is not deployed yet.
             pass
     if not saved and localS:
         try:
@@ -319,7 +316,8 @@ def render_coach_reply(question, display_name):
         placeholder = st.empty()
         placeholder.markdown("🤔 **Coach is thinking...**")
         try:
-            response = execute_ai(coach_prompt(question, display_name))
+            # Sparring replies max tokens set to 9000
+            response = execute_ai(coach_prompt(question, display_name), max_tokens=9000)
         except Exception:
             response = "⚠️ **Coach could not respond right now.** Please try again in a moment."
         placeholder.markdown(response)
@@ -349,7 +347,7 @@ if not st.session_state.user and not st.session_state.user_credentials and local
     except Exception: pass
 
 if not st.session_state.user and not st.session_state.user_credentials:
-    st.markdown("## 🔐 Elite Athlete Portal")
+    st.markdown("##### 🔐 Elite Athlete Portal")
     owner_tab, guest_tab = st.tabs(["Owner Login", "Friend / Guest Setup"])
     with owner_tab:
         if not supabase:
@@ -407,7 +405,7 @@ if st.session_state.active_nav not in NAV_OPTIONS:
 if st.session_state.sidebar_nav != st.session_state.active_nav:
     st.session_state.sidebar_nav = st.session_state.active_nav
 with st.sidebar:
-    st.header("AI Performance Coach")
+    st.markdown("##### AI Performance Coach")
     st.radio("Navigate", NAV_OPTIONS, key="sidebar_nav", on_change=sidebar_changed)
     st.divider()
     st.session_state.coach_persona = st.selectbox("Coaching Persona", ["Collaborative Peer (Balanced & Brainstorming)", "Sports Scientist (Data & Periodization Focus)", "Drill Sergeant (Strict & Direct Accountability)"], index=["Collaborative Peer (Balanced & Brainstorming)", "Sports Scientist (Data & Periodization Focus)", "Drill Sergeant (Strict & Direct Accountability)"].index(st.session_state.coach_persona))
@@ -499,7 +497,7 @@ latest = wellness_list[-1] if wellness_list else {}
 ctl, atl, tsb = latest.get("ctl", 0) or 0, latest.get("atl", 0) or 0, latest.get("tsb", 0) or 0
 
 if selected_nav == NAV_OPTIONS[0]:
-    st.markdown("### ☀️ Command Center")
+    st.markdown("##### ☀️ Command Center")
     st.caption(f"Intervals.icu: {intervals_status}")
     sleep_score = latest.get("sleep_score") or latest.get("sleepScore")
     if not wellness_list:
@@ -513,19 +511,20 @@ if selected_nav == NAV_OPTIONS[0]:
     else:
         readiness, focus, watch = "Fresh", "A quality session can fit if it is on the plan.", f"You are carrying low fatigue (TSB {tsb:.0f})."
     sleep_note = f" Sleep score: {sleep_score}/100." if sleep_score else ""
-    st.markdown("#### Today at a glance")
+    st.markdown("###### Today at a glance")
     st.info(f"**{readiness}.** {focus} **Note:** {watch}{sleep_note}")
     c1,c2,c3 = st.columns(3); c1.metric("Fitness (CTL)", round(ctl,1)); c2.metric("Fatigue (ATL)", round(atl,1)); c3.metric("Form (TSB)", round(tsb,1))
     if st.button("🚀 Run 90-Day Trend Synthesis", type="primary"):
         payload = f"Analyze this cycling athlete's last 90 days. CTL {ctl}; ATL {atl}; TSB {tsb}. Recent activities: {json.dumps(activities_data[:15], default=str)}. Goal: {st.session_state.goals['target_metric']}. Give trajectory, consistency, fatigue, climbing readiness, and practical next steps."
         with st.spinner("Analyzing 90 days of training..."):
             try:
-                st.session_state.cached_trend_analysis = execute_ai(payload)
+                # 90-day trend synthesis max tokens increased to 9000
+                st.session_state.cached_trend_analysis = execute_ai(payload, max_tokens=9000)
                 st.session_state.trend_analysis_timestamp = dt.datetime.now().astimezone().strftime("%d %b %Y, %H:%M %Z")
                 persist_trend()
             except Exception as exc: st.error(str(exc))
     if st.session_state.cached_trend_analysis:
-        st.markdown("#### 90-Day Trend Analysis")
+        st.markdown("###### 90-Day Trend Analysis")
         st.caption(f"Generated {st.session_state.trend_analysis_timestamp} · remains visible until cleared or re-run.")
         st.markdown(st.session_state.cached_trend_analysis)
         a,b = st.columns(2)
@@ -535,7 +534,7 @@ if selected_nav == NAV_OPTIONS[0]:
         if b.button("Clear trend analysis", key="clear_trend"): clear_persisted_trend(); st.rerun()
 
 elif selected_nav == COACH_PAGE:
-    st.markdown("### 🤖 AI Coach & Collaborative Sparring Partner")
+    st.markdown("##### 🤖 AI Coach & Collaborative Sparring Partner")
     if st.session_state.coach_reference_notice:
         st.info(st.session_state.coach_reference_notice)
         st.session_state.coach_reference_notice = None
@@ -549,7 +548,7 @@ elif selected_nav == COACH_PAGE:
         render_coach_reply(question.strip(), display_name)
 
 elif selected_nav == NAV_OPTIONS[2]:
-    st.markdown("### 📅 Training Calendar")
+    st.markdown("##### 📅 Training Calendar")
     today = dt.date.today()
     window_start, window_end = today - dt.timedelta(days=14), today + dt.timedelta(days=14)
     st.caption(f"Showing the previous 14 days and the next 14 days · {window_start:%d %b}–{window_end:%d %b %Y}")
@@ -607,7 +606,7 @@ elif selected_nav == NAV_OPTIONS[2]:
             st.rerun()
 
 elif selected_nav == NAV_OPTIONS[3]:
-    st.markdown("### 🔍 Activity Inspector")
+    st.markdown("##### 🔍 Activity Inspector")
     if not activities_data: st.info("No activities found.")
     else:
         options = {f"{x.get('start_date_local','')[:10]} — {x.get('name','Unnamed')} ({round((x.get('distance') or 0)/1000,1)} km)": x for x in activities_data}
@@ -622,7 +621,7 @@ elif selected_nav == NAV_OPTIONS[3]:
             if st.button("💬 Discuss with Coach", key="activity_discuss"): discuss_with_coach(f"activity debrief for {st.session_state.selected_activity_label}", st.session_state.selected_activity_analysis); st.rerun()
 
 elif selected_nav == "🗺️ Route Strategist":
-    st.markdown("### 🗺️ Route Pacing & Climbing Strategist")
+    st.markdown("##### 🗺️ Route Pacing & Climbing Strategist")
     uploaded = st.file_uploader("Upload GPX", type=["gpx"])
     if uploaded:
         try:
