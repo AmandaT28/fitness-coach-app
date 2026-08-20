@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Pure Dark Mode Architecture)
+"""AI Performance Coach • Elite Suite (Obsidian Professional Dark Theme)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -83,18 +83,21 @@ def init_state():
 
 init_state()
 
-# --- PURE DARK MODE DESIGN SYSTEM ---
-BG_APP = "#0E1117"
+# --- OBSIDIAN PROFESSIONAL DARK DESIGN SYSTEM ---
+BG_APP = "#0D1117"
 BG_SIDEBAR = "#161B22"
-BG_CARD = "#1F2937"
-BORDER_SUBTLE = "#374151"
-TEXT_PRIMARY = "#FAFAFA"
-ACCENT_PRIMARY = "#2563EB"
-NAV_INACTIVE_BG = "#111827"
+BG_CARD = "#161B22"
+BG_SURFACE_ALT = "#21262D"
+BORDER_SUBTLE = "#30363D"
+BORDER_ACCENT = "#8B949E"
+TEXT_PRIMARY = "#F0F6FC"
+TEXT_MUTED = "#8B949E"
+ACCENT_BLUE = "#2563EB"
+ACCENT_GLOW = "rgba(37, 99, 235, 0.35)"
 
 st.markdown(f"""
 <style>
-/* Fix Top Header Overlap */
+/* Streamlit Header Overlay Fix */
 header[data-testid="stHeader"] {{
     background-color: {BG_APP} !important;
     z-index: 99 !important;
@@ -105,16 +108,17 @@ header[data-testid="stHeader"] {{
     padding-bottom: 6rem !important;
     padding-left: 2rem !important;
     padding-right: 2rem !important;
-    max-width: 1400px;
+    max-width: 1440px;
 }}
 
-/* Global Dark Frame */
+/* Base Canvas */
 .stApp {{
     background-color: {BG_APP} !important;
     color: {TEXT_PRIMARY} !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
 }}
 
-/* Sidebar Architecture */
+/* Sidebar Styling */
 section[data-testid="stSidebar"] {{
     background-color: {BG_SIDEBAR} !important;
     border-right: 1px solid {BORDER_SUBTLE} !important;
@@ -124,41 +128,113 @@ section[data-testid="stSidebar"] > div {{
     background-color: {BG_SIDEBAR} !important;
 }}
 
-/* Sidebar Buttons */
+/* Professional Navigation Buttons */
 section[data-testid="stSidebar"] .stButton > button {{
-    background-color: {NAV_INACTIVE_BG} !important;
-    color: {TEXT_PRIMARY} !important;
+    background: {BG_SURFACE_ALT} !important;
+    color: {TEXT_MUTED} !important;
     border: 1px solid {BORDER_SUBTLE} !important;
     border-radius: 8px !important;
-    padding: 0.55rem 1rem !important;
+    padding: 0.6rem 1rem !important;
     font-weight: 500 !important;
+    font-size: 0.88rem !important;
     text-align: left !important;
     width: 100% !important;
-    transition: all 0.15s ease-in-out !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }}
 
 section[data-testid="stSidebar"] .stButton > button:hover {{
-    border-color: {ACCENT_PRIMARY} !important;
+    background: {BORDER_SUBTLE} !important;
+    color: {TEXT_PRIMARY} !important;
+    border-color: {BORDER_ACCENT} !important;
+    transform: translateY(-1px);
 }}
 
 section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
-    background-color: {ACCENT_PRIMARY} !important;
+    background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
     color: #FFFFFF !important;
-    border-color: {ACCENT_PRIMARY} !important;
+    border: 1px solid #3B82F6 !important;
     font-weight: 600 !important;
+    box-shadow: 0 4px 12px {ACCENT_GLOW} !important;
 }}
 
-/* Card Surfaces & Modules */
+/* Main Canvas Buttons */
+.stButton > button[kind="primary"] {{
+    background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
+    color: #FFFFFF !important;
+    border: 1px solid #3B82F6 !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    padding: 0.55rem 1.2rem !important;
+    box-shadow: 0 2px 8px {ACCENT_GLOW} !important;
+    transition: all 0.2s ease !important;
+}}
+
+.stButton > button[kind="primary"]:hover {{
+    box-shadow: 0 4px 16px rgba(37, 99, 235, 0.5) !important;
+    transform: translateY(-1px);
+}}
+
+.stButton > button[kind="secondary"] {{
+    background: {BG_SURFACE_ALT} !important;
+    color: {TEXT_PRIMARY} !important;
+    border: 1px solid {BORDER_SUBTLE} !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    transition: all 0.2s ease !important;
+}}
+
+.stButton > button[kind="secondary"]:hover {{
+    border-color: {BORDER_ACCENT} !important;
+    background: {BORDER_SUBTLE} !important;
+}}
+
+/* Cards, Expander & Metric Containers */
 div[data-testid="stMetric"], 
 div[data-testid="stExpander"], 
 div[data-testid="stChatMessage"] {{
     background-color: {BG_CARD} !important;
     border: 1px solid {BORDER_SUBTLE} !important;
-    border-radius: 12px !important;
+    border-radius: 10px !important;
+    color: {TEXT_PRIMARY} !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important;
+}}
+
+div[data-testid="stMetric"] label {{
+    color: {TEXT_MUTED} !important;
+    font-weight: 500 !important;
+}}
+
+/* Input Fields & Selectboxes */
+div[data-baseweb="select"] > div, 
+div[data-baseweb="input"] > div, 
+textarea {{
+    background-color: {BG_SURFACE_ALT} !important;
+    border: 1px solid {BORDER_SUBTLE} !important;
+    border-radius: 8px !important;
     color: {TEXT_PRIMARY} !important;
 }}
 
-/* Chat Bottom Area */
+div[data-baseweb="select"] > div:hover, 
+div[data-baseweb="input"] > div:hover, 
+textarea:focus {{
+    border-color: {ACCENT_BLUE} !important;
+}}
+
+/* Tabs Styling */
+button[data-baseweb="tab"] {{
+    color: {TEXT_MUTED} !important;
+    font-weight: 500 !important;
+    border-bottom: 2px solid transparent !important;
+}}
+
+button[data-baseweb="tab"][aria-selected="true"] {{
+    color: #58A6FF !important;
+    border-bottom-color: #58A6FF !important;
+    font-weight: 600 !important;
+}}
+
+/* Fixed Bottom Chat Container Alignment */
 div[data-testid="stBottomBlockContainer"] {{
     background-color: {BG_APP} !important;
     border-top: 1px solid {BORDER_SUBTLE} !important;
@@ -168,27 +244,27 @@ div[data-testid="stBottomBlockContainer"] {{
 div[data-testid="stChatInput"] {{
     background-color: {BG_CARD} !important;
     border: 1px solid {BORDER_SUBTLE} !important;
-    border-radius: 12px !important;
+    border-radius: 10px !important;
 }}
 
 div[data-testid="stChatInput"] textarea {{
     color: {TEXT_PRIMARY} !important;
 }}
 
-/* Readiness Cards */
+/* Readiness Banner Cards */
 .readiness-card-red {{ 
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.03)); 
-    border: 1px solid rgba(239, 68, 68, 0.4); 
-    border-radius: 12px; 
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.02)); 
+    border: 1px solid rgba(239, 68, 68, 0.35); 
+    border-radius: 10px; 
     padding: 16px 20px; 
     margin-bottom: 1.5rem; 
     color: {TEXT_PRIMARY};
 }}
 
 .readiness-card-green {{ 
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.03)); 
-    border: 1px solid rgba(16, 185, 129, 0.4); 
-    border-radius: 12px; 
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.02)); 
+    border: 1px solid rgba(16, 185, 129, 0.35); 
+    border-radius: 10px; 
     padding: 16px 20px; 
     margin-bottom: 1.5rem; 
     color: {TEXT_PRIMARY};
@@ -200,7 +276,7 @@ div[data-testid="stChatInput"] textarea {{
     border-radius: 6px; 
     font-size: 0.8rem; 
     font-weight: 600; 
-    background-color: {NAV_INACTIVE_BG}; 
+    background-color: {BG_SURFACE_ALT}; 
     color: {TEXT_PRIMARY};
     border: 1px solid {BORDER_SUBTLE};
     margin-right: 6px; 
