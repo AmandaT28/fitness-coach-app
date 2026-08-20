@@ -1043,49 +1043,79 @@ elif selected_nav == NAV_OPTIONS[5]:
     st.markdown("##### 📈 Power-Duration Curve Profiler")
     st.caption("Visualizing your anaerobic capacity, maximal aerobic power, and threshold limitations from Intervals.icu.")
     
-    if not power_curves_data:
-        st.info("No power-duration curve data returned from Intervals.icu. Ensure your power meter and power curves are synced.")
+    def parse_power_curve_data(raw_data):
+        if not raw_data:
+            return None
+        
+        # Unwrap list wrappers if present
+        if isinstance(raw_data, list) and len(raw_data) > 0:
+            if isinstance(raw_data[0], dict):
+                raw_data = raw_data[0]
+            elif isinstance(raw_data[0], (int, float)):
+                return pd.DataFrame({"seconds": list(range(1, len(raw_data) + 1)), "watts": raw_data})
+        
+        if isinstance(raw_data, dict):
+            # Format A: Direct parallel arrays {"secs": [...], "watts": [...]}
+            if "secs" in raw_data and "watts" in raw_data:
+                return pd.DataFrame({"seconds": raw_data["secs"], "watts": raw_data["watts"]})
+            
+            # Format B: Nested keys like {"curve": {"secs": [...], "watts": [...]}} or {"42d": ...}
+            for key in ["curve", "curves", "watts", "42d", "all"]:
+                if key in raw_data:
+                    sub = raw_data[key]
+                    if isinstance(sub, dict) and "secs" in sub and "watts" in sub:
+                        return pd.DataFrame({"seconds": sub["secs"], "watts": sub["watts"]})
+                    elif isinstance(sub, list) and len(sub) > 0:
+                        if isinstance(sub[0], dict):
+                            secs = [p.get("secs", p.get("seconds", i+1)) for i, p in enumerate(sub)]
+                            watts = [p.get("watts", p.get("power", 0)) for p in sub]
+                            return pd.DataFrame({"seconds": secs, "watts": watts})
+                        elif isinstance(sub[0], (int, float)):
+                            return pd.DataFrame({"seconds": list(range(1, len(sub) + 1)), "watts": sub})
+                            
+        return None
+
+    df_pc = parse_power_curve_data(power_curves_data)
+
+    if df_pc is None or df_pc.empty:
+        st.info("Power curve data structure empty or unrecognized. Ensure your power meter data is synced to Intervals.icu.")
     else:
         try:
-            curve_points = power_curves_data if isinstance(power_curves_data, list) else power_curves_data.get("curve", [])
-            if not curve_points and isinstance(power_curves_data, dict):
-                curve_points = power_curves_data.get("watts", [])
-                
-            if curve_points:
-                if isinstance(curve_points[0], dict):
-                    secs = [float(p.get("secs", p.get("seconds", i)) or i) for i, p in enumerate(curve_points)]
-                    watts = [float(p.get("watts", p.get("power", 0)) or 0) for p in curve_points]
-                else:
-                    secs = [float(i) for i in range(len(curve_points))]
-                    watts = [float(w) for w in curve_points]
-                
-                df_pc = pd.DataFrame({"seconds": secs, "watts": watts})
-                df_pc = df_pc[df_pc["seconds"] > 0].sort_values("seconds")
-                
-                fig_pc = go.Figure()
-                fig_pc.add_trace(go.Scatter(x=df_pc["seconds"], y=df_pc["watts"], mode='lines+markers', name='Power Curve', line=dict(color='#00E676', width=3)))
-                fig_pc.update_layout(
-                    title="Power Duration Curve (Watts vs Seconds)",
-                    xaxis_title="Duration (Seconds, Log Scale)", yaxis_title="Power (Watts)",
-                    xaxis_type="log", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color=TEXT_PRIMARY)
-                )
-                st.plotly_chart(fig_pc, use_container_width=True)
-                
-                if st.button("🧠 Analyze Power Profile with AI Coach", type="primary"):
-                    with st.spinner("Analyzing physiological power profile..."):
-                        try:
-                            peak_5s = max(watts) if watts else 0
-                            peak_1m = df_pc[df_pc["seconds"].between(50, 70)]["watts"].max() if not df_pc.empty else 0
-                            peak_20m = df_pc[df_pc["seconds"].between(1150, 1250)]["watts"].max() if not df_pc.empty else 0
-                            profile_summary = f"Power Curve Metrics — 5s Max: {peak_5s}W, 1m Max: {peak_1m}W, 20m Max: {peak_20m}W."
-                            prompt_text = f"Analyze my power-duration profile: {profile_summary}. Goal: {st.session_state.goals['target_metric']}. Identify my physiological limiters and recommend specific interval workouts to address them."
-                            analysis_res = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
-                            st.markdown("###### 📊 AI Power Profile Analysis")
-                            st.markdown(analysis_res)
-                        except Exception as exc: st.error(str(exc))
-            else:
-                st.info("Power curve data structure empty or unrecognized.")
+            df_pc = df_pc[df_pc["seconds"] > 0].sort_values("seconds")
+            
+            fig_pc = go.Figure()
+            fig_pc.add_trace(go.Scatter(
+                x=df_pc["seconds"], 
+                y=df_pc["watts"], 
+                mode='lines+markers', 
+                name='Power Curve', 
+                line=dict(color='#00E676', width=3)
+            ))
+            fig_pc.update_layout(
+                title="Power Duration Curve (Watts vs Seconds)",
+                xaxis_title="Duration (Seconds, Log Scale)", 
+                yaxis_title="Power (Watts)",
+                xaxis_type="log", 
+                plot_bgcolor='rgba(0,0,0,0)', 
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color=TEXT_PRIMARY)
+            )
+            st.plotly_chart(fig_pc, use_container_width=True)
+            
+            if st.button("🧠 Analyze Power Profile with AI Coach", type="primary"):
+                with st.spinner("Analyzing physiological power profile..."):
+                    try:
+                        peak_5s = df_pc[df_pc["seconds"] <= 5]["watts"].max() if not df_pc.empty else 0
+                        peak_1m = df_pc[df_pc["seconds"].between(50, 70)]["watts"].max() if not df_pc.empty else 0
+                        peak_20m = df_pc[df_pc["seconds"].between(1150, 1250)]["watts"].max() if not df_pc.empty else 0
+                        
+                        profile_summary = f"Power Curve Metrics — 5s Max: {peak_5s}W, 1m Max: {peak_1m}W, 20m Max: {peak_20m}W."
+                        prompt_text = f"Analyze my power-duration profile: {profile_summary}. Goal: {st.session_state.goals['target_metric']}. Identify my physiological limiters and recommend specific interval workouts to address them."
+                        analysis_res = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
+                        st.markdown("###### 📊 AI Power Profile Analysis")
+                        st.markdown(analysis_res)
+                    except Exception as exc: 
+                        st.error(str(exc))
         except Exception as exc:
             st.error(f"Error rendering power curve: {exc}")
 
