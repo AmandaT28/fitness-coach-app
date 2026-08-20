@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Obsidian Professional Dark Theme)
+"""AI Performance Coach • Elite Suite (Production Edition)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -51,9 +51,20 @@ GEMINI_KEYS = [
 GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-2.5-flash")
 AI_TIMEOUT = 15  
 INTERVALS_TIMEOUT = 6
-NAV_OPTIONS = ["📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "🗺️ Route Strategist", "📈 Power Profiler"]
+NAV_OPTIONS = [
+    "📊 Command Center", 
+    "🤖 AI Coach & Sparring", 
+    "📅 Training Calendar", 
+    "🔍 Activity Inspector", 
+    "🗺️ Route Strategist", 
+    "📈 Power Profiler"
+]
 COACH_PAGE = "🤖 AI Coach & Sparring"
-DEFAULT_GOALS = {"event_name": "Bintan Round Island / Multi-Sport", "target_metric": "Balance cycling threshold power and running endurance/pace", "race_date": "2026-10-24"}
+DEFAULT_GOALS = {
+    "event_name": "Bintan Round Island / Multi-Sport", 
+    "target_metric": "Balance cycling threshold power and running endurance/pace", 
+    "race_date": "2026-10-24"
+}
 
 supabase = None
 if SUPABASE_URL and SUPABASE_KEY and create_client:
@@ -97,7 +108,7 @@ ACCENT_GLOW = "rgba(37, 99, 235, 0.35)"
 
 st.markdown(f"""
 <style>
-/* Streamlit Header Overlay Fix */
+/* Header Banner Fix */
 header[data-testid="stHeader"] {{
     background-color: {BG_APP} !important;
     z-index: 99 !important;
@@ -118,7 +129,7 @@ header[data-testid="stHeader"] {{
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
 }}
 
-/* Sidebar Styling */
+/* Sidebar Design */
 section[data-testid="stSidebar"] {{
     background-color: {BG_SIDEBAR} !important;
     border-right: 1px solid {BORDER_SUBTLE} !important;
@@ -128,7 +139,7 @@ section[data-testid="stSidebar"] > div {{
     background-color: {BG_SIDEBAR} !important;
 }}
 
-/* Professional Navigation Buttons */
+/* Navigation Buttons */
 section[data-testid="stSidebar"] .stButton > button {{
     background: {BG_SURFACE_ALT} !important;
     color: {TEXT_MUTED} !important;
@@ -158,7 +169,7 @@ section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
     box-shadow: 0 4px 12px {ACCENT_GLOW} !important;
 }}
 
-/* Main Canvas Buttons */
+/* Main Buttons */
 .stButton > button[kind="primary"] {{
     background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
     color: #FFFFFF !important;
@@ -189,7 +200,7 @@ section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
     background: {BORDER_SUBTLE} !important;
 }}
 
-/* Cards, Expander & Metric Containers */
+/* Metric Cards & Expanders */
 div[data-testid="stMetric"], 
 div[data-testid="stExpander"], 
 div[data-testid="stChatMessage"] {{
@@ -205,7 +216,7 @@ div[data-testid="stMetric"] label {{
     font-weight: 500 !important;
 }}
 
-/* Input Fields & Selectboxes */
+/* Inputs & Form Controls */
 div[data-baseweb="select"] > div, 
 div[data-baseweb="input"] > div, 
 textarea {{
@@ -221,7 +232,7 @@ textarea:focus {{
     border-color: {ACCENT_BLUE} !important;
 }}
 
-/* Tabs Styling */
+/* Tabs */
 button[data-baseweb="tab"] {{
     color: {TEXT_MUTED} !important;
     font-weight: 500 !important;
@@ -234,7 +245,7 @@ button[data-baseweb="tab"][aria-selected="true"] {{
     font-weight: 600 !important;
 }}
 
-/* Fixed Bottom Chat Container Alignment */
+/* Bottom Fixed Chat Area */
 div[data-testid="stBottomBlockContainer"] {{
     background-color: {BG_APP} !important;
     border-top: 1px solid {BORDER_SUBTLE} !important;
@@ -251,7 +262,7 @@ div[data-testid="stChatInput"] textarea {{
     color: {TEXT_PRIMARY} !important;
 }}
 
-/* Readiness Banner Cards */
+/* Readiness Cards */
 .readiness-card-red {{ 
     background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.02)); 
     border: 1px solid rgba(239, 68, 68, 0.35); 
@@ -527,7 +538,7 @@ def fetch_intervals_data(athlete_id, api_key):
             f"{base}/wellness?oldest={(today-dt.timedelta(days=90)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
             f"{base}/activities?oldest={(today-dt.timedelta(days=90)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
             f"{base}/events?oldest={(today-dt.timedelta(days=14)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
-            f"{base}/power-curves?curves=42d&type=Ride",
+            f"{base}/power-curves?curves=42d",
         ]
         result = []
         for url in urls:
@@ -1043,74 +1054,78 @@ elif selected_nav == NAV_OPTIONS[5]:
     st.markdown("##### 📈 Power-Duration Curve Profiler")
     st.caption("Visualizing your anaerobic capacity, maximal aerobic power, and threshold limitations from Intervals.icu.")
     
-    def parse_power_curve_data(raw_data):
-        if not raw_data:
+    def extract_power_dataframe(data):
+        if not data:
             return None
         
-        # Unwrap list wrappers if present
-        if isinstance(raw_data, list) and len(raw_data) > 0:
-            if isinstance(raw_data[0], dict):
-                raw_data = raw_data[0]
-            elif isinstance(raw_data[0], (int, float)):
-                return pd.DataFrame({"seconds": list(range(1, len(raw_data) + 1)), "watts": raw_data})
-        
-        if isinstance(raw_data, dict):
-            # Format A: Direct parallel arrays {"secs": [...], "watts": [...]}
-            if "secs" in raw_data and "watts" in raw_data:
-                return pd.DataFrame({"seconds": raw_data["secs"], "watts": raw_data["watts"]})
+        if isinstance(data, list) and len(data) > 0:
+            data = data[0]
             
-            # Format B: Nested keys like {"curve": {"secs": [...], "watts": [...]}} or {"42d": ...}
-            for key in ["curve", "curves", "watts", "42d", "all"]:
-                if key in raw_data:
-                    sub = raw_data[key]
-                    if isinstance(sub, dict) and "secs" in sub and "watts" in sub:
-                        return pd.DataFrame({"seconds": sub["secs"], "watts": sub["watts"]})
-                    elif isinstance(sub, list) and len(sub) > 0:
-                        if isinstance(sub[0], dict):
-                            secs = [p.get("secs", p.get("seconds", i+1)) for i, p in enumerate(sub)]
-                            watts = [p.get("watts", p.get("power", 0)) for p in sub]
-                            return pd.DataFrame({"seconds": secs, "watts": watts})
-                        elif isinstance(sub[0], (int, float)):
-                            return pd.DataFrame({"seconds": list(range(1, len(sub) + 1)), "watts": sub})
-                            
+        if isinstance(data, dict):
+            if "secs" in data and "watts" in data:
+                return pd.DataFrame({"seconds": data["secs"], "watts": data["watts"]})
+            
+            for key, val in data.items():
+                if isinstance(val, dict) and "secs" in val and "watts" in val:
+                    return pd.DataFrame({"seconds": val["secs"], "watts": val["watts"]})
+                elif isinstance(val, list) and len(val) > 0 and isinstance(val[0], dict):
+                    secs = [p.get("secs", p.get("seconds", i+1)) for i, p in enumerate(val)]
+                    watts = [p.get("watts", p.get("power", 0)) for p in val]
+                    return pd.DataFrame({"seconds": secs, "watts": watts})
+                    
         return None
 
-    df_pc = parse_power_curve_data(power_curves_data)
+    df_pc = extract_power_dataframe(power_curves_data)
 
     if df_pc is None or df_pc.empty:
-        st.info("Power curve data structure empty or unrecognized. Ensure your power meter data is synced to Intervals.icu.")
+        st.warning("⚠️ No power curve data found for the past 42 days.")
+        st.info("If you have uploaded power meter rides recently, log into Intervals.icu, navigate to **Power > Options**, and click **Recalculate Power Curves**.")
+        with st.expander("🔍 Inspect Raw API Response"):
+            st.json(power_curves_data if power_curves_data else {"status": "No data returned"})
     else:
         try:
-            df_pc = df_pc[df_pc["seconds"] > 0].sort_values("seconds")
+            df_pc = df_pc[(df_pc["seconds"] > 0) & (df_pc["watts"] > 0)].sort_values("seconds")
             
             fig_pc = go.Figure()
             fig_pc.add_trace(go.Scatter(
                 x=df_pc["seconds"], 
                 y=df_pc["watts"], 
-                mode='lines+markers', 
-                name='Power Curve', 
-                line=dict(color='#00E676', width=3)
+                mode='lines', 
+                name='42-Day Peak Power', 
+                line=dict(color='#2563EB', width=3),
+                hovertemplate='%{x}s: %{y}W<extra></extra>'
             ))
+            
             fig_pc.update_layout(
-                title="Power Duration Curve (Watts vs Seconds)",
+                title="Power-Duration Curve (Watts vs Time)",
                 xaxis_title="Duration (Seconds, Log Scale)", 
                 yaxis_title="Power (Watts)",
                 xaxis_type="log", 
                 plot_bgcolor='rgba(0,0,0,0)', 
                 paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color=TEXT_PRIMARY)
+                font=dict(color=TEXT_PRIMARY),
+                margin=dict(l=10, r=10, t=40, b=10)
             )
             st.plotly_chart(fig_pc, use_container_width=True)
+            
+            p_5s = df_pc[df_pc["seconds"] <= 5]["watts"].max() if not df_pc.empty else 0
+            p_1m = df_pc[df_pc["seconds"].between(50, 70)]["watts"].max() if not df_pc.empty else 0
+            p_5m = df_pc[df_pc["seconds"].between(280, 320)]["watts"].max() if not df_pc.empty else 0
+            p_20m = df_pc[df_pc["seconds"].between(1150, 1250)]["watts"].max() if not df_pc.empty else 0
+            
+            b1, b2, b3, b4 = st.columns(4)
+            b1.metric("5s Sprint Peak", f"{int(p_5s) if pd.notnull(p_5s) else 0} W")
+            b2.metric("1m Anaerobic Peak", f"{int(p_1m) if pd.notnull(p_1m) else 0} W")
+            b3.metric("5m VO2max Peak", f"{int(p_5m) if pd.notnull(p_5m) else 0} W")
+            b4.metric("20m Threshold Peak", f"{int(p_20m) if pd.notnull(p_20m) else 0} W")
+            
+            st.divider()
             
             if st.button("🧠 Analyze Power Profile with AI Coach", type="primary"):
                 with st.spinner("Analyzing physiological power profile..."):
                     try:
-                        peak_5s = df_pc[df_pc["seconds"] <= 5]["watts"].max() if not df_pc.empty else 0
-                        peak_1m = df_pc[df_pc["seconds"].between(50, 70)]["watts"].max() if not df_pc.empty else 0
-                        peak_20m = df_pc[df_pc["seconds"].between(1150, 1250)]["watts"].max() if not df_pc.empty else 0
-                        
-                        profile_summary = f"Power Curve Metrics — 5s Max: {peak_5s}W, 1m Max: {peak_1m}W, 20m Max: {peak_20m}W."
-                        prompt_text = f"Analyze my power-duration profile: {profile_summary}. Goal: {st.session_state.goals['target_metric']}. Identify my physiological limiters and recommend specific interval workouts to address them."
+                        profile_summary = f"42-Day Power Peaks — 5s Sprint: {p_5s}W, 1m Anaerobic: {p_1m}W, 5m VO2max: {p_5m}W, 20m FTP Test: {p_20m}W."
+                        prompt_text = f"Analyze my power profile: {profile_summary}. Goal: {st.session_state.goals['target_metric']}. Identify my rider phenotype (Sprinter, Puncheur, Climber, Time Trialist), limiters, and key interval workouts."
                         analysis_res = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
                         st.markdown("###### 📊 AI Power Profile Analysis")
                         st.markdown(analysis_res)
