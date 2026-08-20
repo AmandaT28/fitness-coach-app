@@ -94,7 +94,7 @@ def init_state():
         "selected_activity_label": None, "route_analysis": None,
         "pending_coach_prompt": None, "ai_test_result": None,
         "ai_diagnostic": None, "coach_reference_notice": None,
-        "trend_loaded": False,
+        "trend_loaded": False, "calendar_context": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -168,6 +168,23 @@ def execute_ai(prompt, max_tokens=9000):
             errors.append(str(exc))
     st.session_state.ai_diagnostic = "\n\n".join(errors)[:2000] or "No Gemini API keys were found in Streamlit secrets."
     raise RuntimeError("The coach is temporarily unavailable. Please try again shortly.")
+
+def push_workout_to_intervals(athlete_id, api_key, name, description, date_str, workout_type="Ride"):
+    """Pushes a structured workout directly to Intervals.icu calendar (syncs to MyWhoosh)."""
+    if not athlete_id or not api_key:
+        raise RuntimeError("Intervals.icu credentials are required to push workouts.")
+    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events/bulk?upsert=true"
+    payload = [{
+        "category": "WORKOUT",
+        "start_date_local": f"{date_str}T08:00:00",
+        "name": name,
+        "description": description,
+        "type": workout_type,
+    }]
+    response = requests.post(url, auth=("API_KEY", api_key), json=payload, timeout=INTERVALS_TIMEOUT)
+    if response.status_code not in (200, 201):
+        raise RuntimeError(f"Failed to push workout to Intervals.icu (HTTP {response.status_code}): {response.text[:300]}")
+    return True
 
 def trend_storage_key():
     """Names guest-browser storage by athlete, rather than by the current page."""
@@ -296,7 +313,8 @@ def coach_prompt(question, display_name):
         for m in recent_messages
     )
     question = str(question)[-4000:]
-    return f"""You are an elite cycling performance coach.
+    cal_ctx = st.session_state.get("calendar_context", "Not loaded")
+    return f"""You are an elite cycling performance coach with full access to the athlete's training calendar and metrics via Intervals.icu.
 Persona: {st.session_state.coach_persona}
 Athlete: {display_name}
 Goal: {st.session_state.goals['target_metric']}
@@ -304,9 +322,10 @@ Target event: {st.session_state.goals['event_name']} on {st.session_state.goals[
 Gear: {st.session_state.athlete_gear or 'Not provided'}
 Limitations: {st.session_state.athlete_limitations or 'Not provided'}
 Available supplements / fuel: {json.dumps(st.session_state.user_supplements, ensure_ascii=False) or 'Not provided'}
+Athlete's Recent/Upcoming Calendar Context:\n{cal_ctx}
 Recent conversation:\n{history}
 Current question:\n{question}
-Give a direct, practical coaching answer. Do not invent telemetry or claim to alter Intervals.icu."""
+Give a direct, practical coaching answer. You CAN plan and help structure workouts for their calendar. If suggesting a workout to push to Intervals.icu/MyWhoosh, format the workout steps clearly using standard Intervals.icu text syntax (e.g., `- 10m 50%\n- 3x [5m 105%, 5m 50%]`)."""
 
 def render_coach_reply(question, display_name):
     st.session_state.messages.append({"role": "user", "content": question})
@@ -316,7 +335,6 @@ def render_coach_reply(question, display_name):
         placeholder = st.empty()
         placeholder.markdown("🤔 **Coach is thinking...**")
         try:
-            # Sparring replies max tokens set to 9000
             response = execute_ai(coach_prompt(question, display_name), max_tokens=9000)
         except Exception:
             response = "⚠️ **Coach could not respond right now.** Please try again in a moment."
@@ -397,6 +415,10 @@ else:
         st.session_state.goals.update({key: value for key, value in creds["goals"].items() if key in DEFAULT_GOALS and value})
 ensure_initial_message()
 load_persisted_trend()
+
+# Fetch calendar data globally so AI Coach and Calendar page have full access
+wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
+st.session_state.calendar_context = json.dumps([session_summary(ev) for ev in planned_events[:15]], ensure_ascii=False)
 
 # A single source of truth fixes the former two-click navigation bug.
 if st.session_state.active_nav not in NAV_OPTIONS:
@@ -489,10 +511,6 @@ st.radio(
 )
 selected_nav = st.session_state.active_nav
 
-if selected_nav == COACH_PAGE:
-    wellness_list, activities_data, planned_events, intervals_status = [], [], [], "Skipped on coach page for responsiveness."
-else:
-    wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
 latest = wellness_list[-1] if wellness_list else {}
 ctl, atl, tsb = latest.get("ctl", 0) or 0, latest.get("atl", 0) or 0, latest.get("tsb", 0) or 0
 
@@ -518,7 +536,6 @@ if selected_nav == NAV_OPTIONS[0]:
         payload = f"Analyze this cycling athlete's last 90 days. CTL {ctl}; ATL {atl}; TSB {tsb}. Recent activities: {json.dumps(activities_data[:15], default=str)}. Goal: {st.session_state.goals['target_metric']}. Give trajectory, consistency, fatigue, climbing readiness, and practical next steps."
         with st.spinner("Analyzing 90 days of training..."):
             try:
-                # 90-day trend synthesis max tokens increased to 9000
                 st.session_state.cached_trend_analysis = execute_ai(payload, max_tokens=9000)
                 st.session_state.trend_analysis_timestamp = dt.datetime.now().astimezone().strftime("%d %b %Y, %H:%M %Z")
                 persist_trend()
@@ -548,10 +565,25 @@ elif selected_nav == COACH_PAGE:
         render_coach_reply(question.strip(), display_name)
 
 elif selected_nav == NAV_OPTIONS[2]:
-    st.markdown("##### 📅 Training Calendar")
+    st.markdown("##### 📅 Training Calendar & Intervals.icu Sync")
     today = dt.date.today()
     window_start, window_end = today - dt.timedelta(days=14), today + dt.timedelta(days=14)
     st.caption(f"Showing the previous 14 days and the next 14 days · {window_start:%d %b}–{window_end:%d %b %Y}")
+    
+    # Direct Push Workout Form to Intervals.icu -> MyWhoosh
+    with st.expander("➕ Push New Workout to Intervals.icu Calendar (Syncs to MyWhoosh)", expanded=False):
+        with st.form("push_workout_form"):
+            w_name = st.text_input("Workout Name", value="VO2Max Intervals")
+            w_date = st.date_input("Workout Date", value=today)
+            w_type = st.selectbox("Activity Type", ["Ride", "VirtualRide", "Workout"], index=0)
+            w_desc = st.text_area("Workout Steps (Intervals.icu Text Syntax)", value="- 10m 50%\n- 5x [3m 115%, 3m 50%]\n- 10m 50%")
+            if st.form_submit_button("🚀 Push Workout to Intervals.icu", use_container_width=True):
+                try:
+                    push_workout_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, w_name, w_desc, w_date.isoformat(), workout_type=w_type)
+                    st.success(f"Successfully pushed '{w_name}' to Intervals.icu for {w_date.isoformat()}! It will sync to MyWhoosh.")
+                except Exception as exc:
+                    st.error(str(exc))
+
     def calendar_items(records, source, start_date, end_date):
         result = []
         for record in records:
