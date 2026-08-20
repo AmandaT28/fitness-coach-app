@@ -590,7 +590,12 @@ elif selected_nav == "🤖 AI Coach & Sparring":
                         key=f"download_zwo_{idx}"
                     )
 
-    if prompt := st.chat_input("Ask your coach to plan training or bounce an idea..."):
+    # Use a reliable chat form to ensure user prompt capture and instant rendering
+    with st.form(key="chat_form", clear_on_submit=True):
+        prompt = st.text_input("Ask your coach to plan training or bounce an idea...", placeholder="Type your message here...")
+        submitted = st.form_submit_button("Send to Coach", use_container_width=True)
+
+    if submitted and prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
         
         stack_summary = ", ".join([f"{s['name']} ({s['timing']} - {s['notes']})" for s in st.session_state.user_supplements])
