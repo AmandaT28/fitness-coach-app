@@ -777,7 +777,7 @@ elif selected_nav == "🗺️ Route Strategist":
             if st.button("Generate Climbing Strategy", type="primary"):
                 try:
                     prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Goal: {st.session_state.goals['target_metric']}. Give practical pacing and climbing strategies."
-                    st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_notes=3000)
+                    st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
                 except Exception as exc: st.error(str(exc))
             if st.session_state.route_analysis:
                 st.markdown(st.session_state.route_analysis)
