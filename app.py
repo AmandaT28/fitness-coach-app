@@ -1,8 +1,3 @@
-from zoneinfo import ZoneInfo
-# Pin the application to your local timezone
-LOCAL_TZ = ZoneInfo("Asia/Singapore")
-today = dt.datetime.now(LOCAL_TZ).date()
-
 """AI Performance Coach — Streamlit single-file app with Supabase persistence.
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 OpenAI and Anthropic are intentionally not used.
@@ -36,6 +31,10 @@ try:
 except Exception:
     LocalStorage = None
 
+from zoneinfo import ZoneInfo
+# Pin the application to your local timezone
+LOCAL_TZ = ZoneInfo("Asia/Singapore")
+today = dt.datetime.now(LOCAL_TZ).date()
 
 st.set_page_config(page_title="AI Performance Coach • Elite Suite", page_icon="🚴‍♂️", layout="wide")
 
