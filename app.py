@@ -747,6 +747,9 @@ def sync_icu_workouts(response_text: str) -> int:
 # -----------------------------------------------------------------------------
 # VIEW 1: COMMAND CENTER
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# VIEW 1: COMMAND CENTER
+# -----------------------------------------------------------------------------
 if selected_nav == "📊 Command Center":
     st.markdown("### ☀️ Autonomous AI Performance Coach • Command Center")
     st.markdown(
@@ -769,28 +772,34 @@ if selected_nav == "📊 Command Center":
     st.markdown("---")
     st.markdown("#### 📈 Deep 90-Day Training Load & Progression Trend Analysis")
 
-    if st.button("🚀 Run 90-Day Trend Synthesis", type="primary"):
-        trend_payload = "\n".join(
-            [
-                "Perform a rigorous 90-day cycling sports-science trend analysis.",
-                f"CTL={ctl}, ATL={atl}, TSB={tsb}.",
-                f"Recent activities: {json.dumps(activities_data[:25], ensure_ascii=False, default=str)}",
-                f"Target event: {st.session_state.goals['event_name']} in {days_left} days.",
-                f"Objective: {st.session_state.goals['target_metric']}.",
-                "Cover fitness trajectory, consistency, fatigue management, climbing readiness, and next steps.",
-            ]
-        )
-        with st.spinner("Synthesizing 90-day performance trends…"):
-            try:
-                result, _ = execute_multiprovider_generation(trend_payload, selected_provider)
-                st.session_state.cached_trend_analysis = result
-                st.session_state.trend_analysis_timestamp = dt.datetime.now().strftime("%B %d, %Y at %H:%M")
-            except Exception as exc:
-                st.error(f"Trend synthesis failed: {exc}")
+    # Use a form or callback-driven execution to safely handle the generation trigger
+    with st.form("trend_analysis_form"):
+        submitted = st.form_submit_button("🚀 Run 90-Day Trend Synthesis", use_container_width=True, type="primary")
+        if submitted:
+            trend_payload = "\n".join(
+                [
+                    "Perform a rigorous 90-day cycling sports-science trend analysis.",
+                    f"CTL={ctl}, ATL={atl}, TSB={tsb}.",
+                    f"Recent activities: {json.dumps(activities_data[:25], ensure_ascii=False, default=str)}",
+                    f"Target event: {st.session_state.goals['event_name']} in {days_left} days.",
+                    f"Objective: {st.session_state.goals['target_metric']}.",
+                    "Cover fitness trajectory, consistency, fatigue management, climbing readiness, and next steps.",
+                ]
+            )
+            with st.spinner("Synthesizing 90-day performance trends…"):
+                try:
+                    result, _ = execute_multiprovider_generation(trend_payload, selected_provider)
+                    st.session_state.cached_trend_analysis = result
+                    st.session_state.trend_analysis_timestamp = dt.datetime.now().strftime("%B %d, %Y at %H:%M")
+                except Exception as exc:
+                    st.error(f"Trend synthesis failed: {exc}")
 
+    # Render cached analysis independently of the button state
     if st.session_state.cached_trend_analysis:
+        st.markdown("---")
         st.caption(f"🕒 Analysis generated on: **{st.session_state.trend_analysis_timestamp}**")
         st.markdown(st.session_state.cached_trend_analysis)
+        
         a, b = st.columns(2)
         with a:
             if st.button("💬 Discuss These Trends With Coach", use_container_width=True):
