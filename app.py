@@ -339,10 +339,10 @@ else:
 # -----------------------------------------------------------------------------
 # Gemini 3.7 Flash is GA. For reliability we call the Gemini REST endpoint
 # directly instead of depending on a particular google-genai SDK version.
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
-AI_TIMEOUT = (5, 30)
+AI_TIMEOUT = (5, 25)
 
 
 def append_error(errors: List[str], label: str, exc: Exception) -> None:
@@ -353,48 +353,78 @@ def append_error(errors: List[str], label: str, exc: Exception) -> None:
 
 
 def call_gemini(prompt: str, api_key: Optional[str], label: str) -> Tuple[str, str]:
+    """Call Gemini using the documented REST interface.
+
+    The API key is sent in the x-goog-api-key header rather than the URL.
+    We intentionally use a simple generateContent payload to avoid SDK/version
+    incompatibilities.
+    """
     if not api_key:
         raise RuntimeError(f"{label}: Gemini API key is missing.")
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": prompt}],
+            }
+        ],
         "generationConfig": {
-            "maxOutputTokens": 1800,
-            "thinkingConfig": {"thinkingLevel": "low"},
+            "maxOutputTokens": 1200,
         },
     }
 
-    response = requests.post(
-        url,
-        params={"key": api_key},
-        json=payload,
-        headers={"Content-Type": "application/json"},
-        timeout=AI_TIMEOUT,
-    )
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key.strip(),
+            },
+            timeout=AI_TIMEOUT,
+        )
+    except requests.Timeout as exc:
+        raise RuntimeError(f"{label}: Gemini request timed out after 25 seconds.") from exc
+    except requests.RequestException as exc:
+        raise RuntimeError(f"{label}: Gemini network error: {exc}") from exc
 
     if not response.ok:
         try:
             detail = response.json()
         except Exception:
             detail = response.text
-        raise RuntimeError(f"{label} Gemini HTTP {response.status_code}: {str(detail)[:800]}")
+        raise RuntimeError(
+            f"{label}: Gemini HTTP {response.status_code}: {str(detail)[:1000]}"
+        )
 
-    data = response.json()
-    text_parts = []
+    try:
+        data = response.json()
+    except Exception as exc:
+        raise RuntimeError(f"{label}: Gemini returned invalid JSON: {response.text[:500]}") from exc
+
+    parts = []
     for candidate in data.get("candidates", []):
         content = candidate.get("content") or {}
         for part in content.get("parts", []):
-            text = part.get("text")
-            if text:
-                text_parts.append(text)
+            if isinstance(part, dict) and part.get("text"):
+                parts.append(part["text"])
 
-    text = "\n".join(text_parts).strip()
+    text = "\n".join(parts).strip()
     if not text:
-        finish = data.get("candidates", [{}])[0].get("finishReason", "unknown")
-        raise RuntimeError(f"{label} Gemini returned no text (finishReason={finish}).")
+        reason = "unknown"
+        candidates = data.get("candidates") or []
+        if candidates:
+            reason = candidates[0].get("finishReason", "unknown")
+        raise RuntimeError(f"{label}: Gemini returned no text (finishReason={reason}).")
 
     return text, f"Google {GEMINI_MODEL} ({label})"
+
+
+def test_gemini_connection(api_key: Optional[str], label: str) -> str:
+    text, engine = call_gemini("Reply with exactly: AI connection successful.", api_key, label)
+    return f"{engine}: {text}"
 
 
 def call_openai(prompt: str) -> Tuple[str, str]:
@@ -939,16 +969,17 @@ elif selected_nav == "🤖 AI Coach & Sparring":
             f"OpenAI: {'configured' if openai_client else 'not configured'} | "
             f"Anthropic: {'configured' if anthropic_client else 'not configured'}"
         )
-        if st.button("🧪 Test selected AI engine", key="test_ai_engine"):
-            try:
-                with st.spinner("Testing AI connection…"):
-                    test_response, test_engine = execute_multiprovider_generation(
-                        "Reply with exactly: AI connection successful.",
-                        selected_provider,
-                    )
-                st.success(f"{test_engine}: {test_response}")
-            except Exception as exc:
-                st.error(str(exc))
+        st.caption(f"Gemini model: `{GEMINI_MODEL}` | Timeout: 25 seconds")
+        if st.button("🧪 Test Primary Gemini NOW", key="test_primary_gemini", type="primary"):
+            if not PRIMARY_GEMINI_KEY:
+                st.error("Primary Gemini key is not configured.")
+            else:
+                try:
+                    with st.spinner("Connecting directly to Google Gemini…"):
+                        test_result = test_gemini_connection(PRIMARY_GEMINI_KEY, "Primary Key")
+                    st.success(test_result)
+                except Exception as exc:
+                    st.error(f"Gemini test failed: {exc}")
 
     prompt = st.chat_input("Ask your coach to plan training or bounce an idea…", key="coach_chat_input")
 
