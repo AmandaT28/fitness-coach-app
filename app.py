@@ -76,7 +76,7 @@ st.markdown("""
 
 # --- DUAL GOOGLE API KEYS INITIALIZATION ---
 PRIMARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("primary_key") or st.secrets.get("GEMINI_API_KEY") or os.getenv("PRIMARY_KEY") or os.getenv("GEMINI_API_KEY")
-SECONDARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("secondary_key") or os.getenv("SECONDARY_GEMINI_KEY") or os.getenv("SECONDARY_KEY")
+SECONDARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("secondary_key") or st.secrets.get("SECONDARY_GEMINI_KEY") or os.getenv("SECONDARY_KEY")
 
 primary_google_client = genai.Client(api_key=PRIMARY_GEMINI_KEY) if PRIMARY_GEMINI_KEY else None
 secondary_google_client = genai.Client(api_key=SECONDARY_GEMINI_KEY) if SECONDARY_GEMINI_KEY else None
@@ -584,16 +584,16 @@ elif selected_nav == "🤖 AI Coach & Sparring":
                             key=f"download_zwo_{idx}"
                         )
 
+    # Capture chat input and instantly handle state & rerun for responsive UI
     if prompt := st.chat_input("Ask your coach to plan training or bounce an idea..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.rerun()
 
-# --- BACKGROUND AI PROCESSOR WITH CONDITIONAL SYNC & FULL HISTORY ---
+# --- BACKGROUND AI PROCESSOR WITH VISIBLE STATUS & FULL HISTORY ---
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     last_user_prompt = st.session_state.messages[-1]["content"]
     
     stack_summary = ", ".join([f"{s['name']} ({s['timing']} - {s['notes']})" for s in st.session_state.user_supplements])
-    
     formatted_history = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages[:-1]])
     
     payload = "\n".join([
@@ -626,11 +626,12 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         f"USER: {last_user_prompt}"
     ])
     
-    with st.spinner("Coach is analyzing and drafting response..."):
+    with st.status("🤖 AI Coach is analyzing your telemetry and drafting a response...", expanded=True) as status:
         try:
+            st.write("Reading conversation history and active parameters...")
             resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
             
-            # --- HANDLE SUPPLEMENT UPDATES FROM AI ---
+            st.write("Processing coaching recommendations and checking for stack or calendar updates...")
             supp_matches = re.findall(r'<icu_supplement>\s*(.*?)\s*</icu_supplement>', resp, re.DOTALL)
             supp_updated = False
             if supp_matches:
@@ -724,8 +725,10 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                 full_resp += f"\n\n💊 **Success:** Your supplement stack has been dynamically updated by your coach!"
 
             st.session_state.messages.append({"role": "model", "content": full_resp})
+            status.update(label="✅ Response ready!", state="complete", expanded=False)
             st.rerun()
         except Exception as e:
+            status.update(label="❌ Generation failed", state="error", expanded=True)
             st.error(f"AI Generation Failed: {str(e)}")
 
 # ================= VIEW 3: TRAINING CALENDAR =================
