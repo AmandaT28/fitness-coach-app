@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Light/Dark Theme Switcher & Mobile Patched)
+"""AI Performance Coach • Elite Suite (F-String Escaping Patched)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -82,7 +82,7 @@ def init_state():
 
 init_state()
 
-# --- DYNAMIC THEME STYLING INJECTION ---
+# --- DYNAMIC THEME STYLING INJECTION (PROPERLY ESCAPED) ---
 current_theme = st.session_state.get("app_theme", "Dark Mode (Default)")
 is_light = "Light" in current_theme
 
@@ -145,10 +145,10 @@ div[data-testid="stRadio"] [role="radiogroup"] {{ flex-wrap: wrap; gap: .25rem 1
 div[data-testid="stRadio"] label {{ font-size: .86rem; white-space: normal !important; }}
 
 /* Mobile Column Stack Protection */
-@media(max-width: 768px) {
-    div[data-testid="stHorizontalBlock"] { flex-direction: column !important; gap: 1rem; }
-    .block-container { padding-top: 2rem; }
-}
+@media(max-width: 768px) {{
+    div[data-testid="stHorizontalBlock"] {{ flex-direction: column !important; gap: 1rem; }}
+    .block-container {{ padding-top: 2rem; }}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -528,7 +528,6 @@ with st.sidebar:
     st.markdown("##### 🚴‍♂️ AI Performance Coach")
     st.caption(f"Athlete: **{display_name}**")
     
-    # --- LIGHT / DARK THEME SELECTOR ---
     new_theme = st.selectbox("App Theme", ["Dark Mode (Default)", "Light Mode (Sunlight View)"], index=0 if "Dark" in st.session_state.get("app_theme", "") else 1)
     if new_theme != st.session_state.get("app_theme"):
         st.session_state.app_theme = new_theme
