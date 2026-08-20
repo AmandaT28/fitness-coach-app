@@ -24,16 +24,6 @@ except ImportError:
     genai = None
     genai_types = None
 
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
-
-try:
-    import anthropic
-except ImportError:
-    anthropic = None
-
 from supabase import Client, create_client
 
 try:
@@ -70,17 +60,12 @@ def secret_or_env(name: str, default: Optional[str] = None) -> Optional[str]:
 
 SUPABASE_URL = secret_or_env("SUPABASE_URL")
 SUPABASE_KEY = secret_or_env("SUPABASE_KEY")
-OPENAI_KEY = secret_or_env("OPENAI_API_KEY")
-ANTHROPIC_KEY = secret_or_env("ANTHROPIC_API_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     st.error("❌ Supabase credentials missing. Add SUPABASE_URL and SUPABASE_KEY to Streamlit Secrets.")
     st.stop()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-openai_client = OpenAI(api_key=OPENAI_KEY, timeout=45.0) if (OPENAI_KEY and OpenAI) else None
-anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY, timeout=45.0) if (ANTHROPIC_KEY and anthropic) else None
 
 
 # -----------------------------------------------------------------------------
@@ -165,8 +150,7 @@ localS = SessionStorage()
 
 
 # -----------------------------------------------------------------------------
-# AI KEY INITIALIZATION
-# Guest users' Gemini key is explicitly supported.
+# AI KEY INITIALIZATION (GEMINI MULTI-KEY FAILOVER)
 # -----------------------------------------------------------------------------
 def get_nested_secret(section: str, key: str) -> Optional[str]:
     try:
@@ -204,8 +188,6 @@ def init_state() -> None:
         "user_credentials": None,
         "user": None,
         "messages": [],
-        "pending_prompt": None,
-        "pending_prompt_started_at": None,
         "selected_activity_analysis": None,
         "auto_debriefed_id": None,
         "cached_trend_analysis": None,
@@ -335,12 +317,16 @@ else:
 
 
 # -----------------------------------------------------------------------------
-# AI PROVIDER ROUTER
+# AI PROVIDER ROUTER (Gemini 3.x Flash Suite)
 # -----------------------------------------------------------------------------
-# Gemini 3.7 Flash is currently documented and available via the new Google GenAI SDK.
-GEMINI_MODEL = "gemini-3.7-flash"
-OPENAI_MODEL = "gpt-4o-mini"
-ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
+def get_model_id_from_selection(selection: str) -> str:
+    if "3.7" in selection:
+        return "gemini-3.7-flash"
+    elif "3.6" in selection:
+        return "gemini-3.6-flash"
+    elif "3.5" in selection:
+        return "gemini-3.5-flash"
+    return "gemini-3.7-flash"
 
 
 def make_gemini_client(api_key: Optional[str]):
@@ -360,80 +346,36 @@ def append_error(errors: List[str], label: str, exc: Exception) -> None:
     errors.append(f"{label}: {message}")
 
 
-def call_gemini(prompt: str, api_key: Optional[str], label: str) -> Tuple[str, str]:
+def call_gemini(prompt: str, api_key: Optional[str], label: str, model_name: str) -> Tuple[str, str]:
     client = make_gemini_client(api_key)
     if not client:
         raise RuntimeError(f"{label} Gemini client is not configured.")
 
     result = client.models.generate_content(
-        model=GEMINI_MODEL,
+        model=model_name,
         contents=prompt,
         config={"max_output_tokens": 1800, "temperature": 0.7},
     )
     text = getattr(result, "text", None)
     if not text:
         raise RuntimeError(f"{label} Gemini returned an empty response.")
-    return text.strip(), f"Google {GEMINI_MODEL} ({label})"
+    return text.strip(), f"Google {model_name} ({label})"
 
 
-def call_openai(prompt: str) -> Tuple[str, str]:
-    if not openai_client:
-        raise RuntimeError("OpenAI client is not configured.")
-    result = openai_client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": "You are an elite cycling performance coach. Give practical, evidence-aware, concise coaching guidance."},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.7,
-        max_tokens=1800,
-    )
-    text = result.choices[0].message.content if result.choices else None
-    if not text:
-        raise RuntimeError("OpenAI returned an empty response.")
-    return text.strip(), f"OpenAI {OPENAI_MODEL}"
-
-
-def call_anthropic(prompt: str) -> Tuple[str, str]:
-    if not anthropic_client:
-        raise RuntimeError("Anthropic client is not configured.")
-    result = anthropic_client.messages.create(
-        model=ANTHROPIC_MODEL,
-        max_tokens=1800,
-        temperature=0.7,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    if not result.content:
-        raise RuntimeError("Anthropic returned an empty response.")
-    text = "".join(getattr(block, "text", "") for block in result.content if getattr(block, "type", "") == "text")
-    if not text.strip():
-        raise RuntimeError("Anthropic returned no text content.")
-    return text.strip(), f"Anthropic {ANTHROPIC_MODEL}"
-
-
-def execute_multiprovider_generation(prompt: str, preferred_provider: str = "⚡ Auto-Fallback Chain") -> Tuple[str, str]:
-    """Bounded fallback chain. Never loops through an unbounded model/key matrix."""
+def execute_multiprovider_generation(prompt: str, preferred_provider: str = "Gemini 3.7 Flash") -> Tuple[str, str]:
+    """Graceful multi-key & multi-model fallback chain."""
     errors: List[str] = []
+    target_model = get_model_id_from_selection(preferred_provider)
 
-    guest_action = lambda: call_gemini(prompt, guest_gemini_key, "Guest Key")
-    primary_action = lambda: call_gemini(prompt, PRIMARY_GEMINI_KEY, "Primary Key")
-    secondary_action = lambda: call_gemini(prompt, SECONDARY_GEMINI_KEY, "Secondary Key")
-    tertiary_action = lambda: call_gemini(prompt, TERTIARY_GEMINI_KEY, "Tertiary Key")
+    guest_action = lambda: call_gemini(prompt, guest_gemini_key, "Guest Key", target_model)
+    primary_action = lambda: call_gemini(prompt, PRIMARY_GEMINI_KEY, "Primary Key", target_model)
+    secondary_action = lambda: call_gemini(prompt, SECONDARY_GEMINI_KEY, "Secondary Key", target_model)
+    tertiary_action = lambda: call_gemini(prompt, TERTIARY_GEMINI_KEY, "Tertiary Key", target_model)
 
-    if "Google" in preferred_provider:
-        actions = []
-        if guest_gemini_key:
-            actions.append(guest_action)
-        actions.extend([primary_action, secondary_action, tertiary_action])
-    elif "OpenAI" in preferred_provider:
-        actions = [call_openai]
-    elif "Anthropic" in preferred_provider:
-        actions = [call_anthropic]
-    else:
-        actions = []
-        if guest_gemini_key:
-            actions.append(guest_action)
-        actions.extend([primary_action, call_openai, call_anthropic])
+    actions = []
+    if guest_gemini_key:
+        actions.append(guest_action)
+    actions.extend([primary_action, secondary_action, tertiary_action])
 
     for action in actions:
         try:
@@ -442,10 +384,8 @@ def execute_multiprovider_generation(prompt: str, preferred_provider: str = "⚡
             append_error(errors, getattr(action, "__name__", "provider"), exc)
             continue
 
-    diagnostic = " | ".join(errors) if errors else "No provider was configured."
-    raise RuntimeError(f"All selected AI providers failed. {diagnostic}")
-
-
+    diagnostic = " | ".join(errors) if errors else "No Gemini API keys were configured."
+    raise RuntimeError(f"All Gemini fallback keys failed for {target_model}. {diagnostic}")
 
 
 # -----------------------------------------------------------------------------
@@ -466,7 +406,6 @@ if not st.session_state.messages:
     ]
 
 
-# Use a separate onboarding chat, but keep the same durable state pattern.
 if not profile_is_onboarded():
     st.markdown("### 🚴‍♂️ Coach's Initial Intake & Onboarding")
     st.markdown("Welcome! Before we dive into your telemetry, let's have a quick introductory chat.")
@@ -477,12 +416,14 @@ if not profile_is_onboarded():
             st.markdown(msg.get("content", ""))
 
     intake_reply = st.chat_input("Tell your coach about yourself...", key="onboarding_chat_input")
+    selected_provider = "Gemini 3.7 Flash"
     if intake_reply and intake_reply.strip():
         text = intake_reply.strip()
         st.session_state.messages.append({"role": "user", "content": text})
         try:
             response, _ = execute_multiprovider_generation(
-                f"You are an elite cycling performance coach. The athlete shared: {text}\nAcknowledge them professionally and ask one useful follow-up question."
+                f"You are an elite cycling performance coach. The athlete shared: {text}\nAcknowledge them professionally and ask one useful follow-up question.",
+                selected_provider
             )
         except Exception:
             response = "Thanks — I have enough context to get started. We can refine your profile as we go."
@@ -682,7 +623,11 @@ with st.sidebar:
     st.markdown("---")
     selected_provider = st.selectbox(
         "⚡ AI Engine Model",
-        ["⚡ Auto-Fallback Chain", "Google Gemini (Flash)", "OpenAI GPT-4o-mini", "Anthropic Claude"],
+        [
+            "Gemini 3.7 Flash (Latest Reasoning & Agentic)",
+            "Gemini 3.6 Flash (Workhorse)",
+            "Gemini 3.5 Flash (Base)",
+        ],
     )
 
     st.markdown("---")
@@ -690,7 +635,6 @@ with st.sidebar:
         st.session_state.messages = [
             {"role": "assistant", "content": "Chat history cleared. What topic or idea would you like to discuss next?"}
         ]
-        st.session_state.pending_prompt = None
         st.rerun()
 
     if st.button("Log Out / Switch Account", use_container_width=True):
@@ -729,7 +673,6 @@ def build_chat_prompt(prompt: str) -> str:
     stack_summary = ", ".join(
         f"{item['name']} ({item['timing']})" for item in st.session_state.user_supplements
     )
-    # Do not dump large raw activity dictionaries into the prompt.
     recent_acts = activities_data[:5] if activities_data else []
     upcoming_events = planned_events[:7] if planned_events else []
 
@@ -867,7 +810,7 @@ if selected_nav == "📊 Command Center":
 
 
 # -----------------------------------------------------------------------------
-# VIEW 2: AI COACH CHAT
+# VIEW 2: AI COACH CHAT (Fixed Streamlit Chat Pattern)
 # -----------------------------------------------------------------------------
 elif selected_nav == "🤖 AI Coach & Sparring":
     st.markdown("### 🤖 AI Coach & Collaborative Sparring Partner")
@@ -875,14 +818,16 @@ elif selected_nav == "🤖 AI Coach & Sparring":
         f"Active Persona: **{coach_persona}** | The coach proposes plans first; Intervals.icu sync only occurs when a structured workout block is explicitly emitted."
     )
 
-    # 1. Render existing chat history first
+    for message in st.session_state.messages:
+        if message.get("role") not in ("user", "assistant"):
+            message["role"] = "assistant"
+
     for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             clean = sanitize_chat_text(message["content"])
             if clean:
                 st.markdown(clean)
 
-            # Check for ZWO downloads in assistant messages
             if message["role"] == "assistant":
                 matches = WORKOUT_BLOCK_RE.findall(message["content"] or "")
                 for xml_index, match in enumerate(matches):
@@ -896,34 +841,26 @@ elif selected_nav == "🤖 AI Coach & Sparring":
                             key=f"zwo_{idx}_{xml_index}",
                         )
 
-    # 2. Capture new input and process immediately in the same run
     if prompt := st.chat_input("Ask your coach to plan training or bounce an idea…"):
-        
-        # Display and save user message
         st.session_state.messages.append({"role": "user", "content": prompt.strip()})
         with st.chat_message("user"):
             st.markdown(prompt.strip())
 
-        # Display and process assistant response
         with st.chat_message("assistant"):
             with st.spinner("🤖 Coach is analyzing and drafting…"):
                 try:
                     payload = build_chat_prompt(prompt.strip())
-                    
-                    # Ensure your GEMINI_MODEL string is set to a valid model like "gemini-2.5-flash"
                     response, engine = execute_multiprovider_generation(payload, selected_provider)
                     synced = sync_icu_workouts(response)
 
                     final_response = response.rstrip()
                     final_response += f"\n\n*Engine: {engine}*"
-                    
                     if synced:
                         final_response += f"\n\n✅ **Success:** {synced} workout(s) synchronized with Intervals.icu."
                         fetch_intervals_data.clear()
 
                     st.markdown(sanitize_chat_text(final_response))
                     st.session_state.messages.append({"role": "assistant", "content": final_response})
-
                 except Exception as exc:
                     error_text = str(exc)
                     error_msg = (
@@ -1016,22 +953,14 @@ elif selected_nav == "📅 Training Calendar":
     left, right = st.columns(2)
     with left:
         if st.button("🚀 Propose 2-Week Block Plan", type="primary", use_container_width=True):
-            st.session_state.messages.append(
-                {
-                    "role": "user",
-                    "content": f"Please propose a complete 2-week training block focused on '{plan_focus}'. I want to review it before syncing.",
-                }
-            )
-            st.session_state.pending_prompt = st.session_state.messages[-1]["content"]
-            st.session_state.pending_prompt_started_at = time.time()
+            prompt_text = f"Please propose a complete 2-week training block focused on '{plan_focus}'. I want to review it before syncing."
+            st.session_state.messages.append({"role": "user", "content": prompt_text})
             st.session_state.active_nav = "🤖 AI Coach & Sparring"
             st.rerun()
     with right:
         if st.button("🔄 Propose Shift Forward 1 Day", use_container_width=True):
-            text = "Please propose shifting all upcoming workouts forward by 1 day so I can review the changes before syncing."
-            st.session_state.messages.append({"role": "user", "content": text})
-            st.session_state.pending_prompt = text
-            st.session_state.pending_prompt_started_at = time.time()
+            prompt_text = "Please propose shifting all upcoming workouts forward by 1 day so I can review the changes before syncing."
+            st.session_state.messages.append({"role": "user", "content": prompt_text})
             st.session_state.active_nav = "🤖 AI Coach & Sparring"
             st.rerun()
 
@@ -1093,8 +1022,6 @@ elif selected_nav == "🔍 Activity Inspector":
             if st.button("💬 Clarify This Debrief with Coach"):
                 text = f"I want clarifications regarding my activity '{name}' on {date_text}."
                 st.session_state.messages.append({"role": "user", "content": text})
-                st.session_state.pending_prompt = text
-                st.session_state.pending_prompt_started_at = time.time()
                 st.session_state.active_nav = "🤖 AI Coach & Sparring"
                 st.rerun()
     else:
@@ -1135,8 +1062,6 @@ elif selected_nav == "💊 Recovery & Supplements":
         stack_desc = ", ".join(f"{s['name']} ({s['timing']})" for s in st.session_state.user_supplements)
         text = f"Let's review my active supplement stack: {stack_desc}."
         st.session_state.messages.append({"role": "user", "content": text})
-        st.session_state.pending_prompt = text
-        st.session_state.pending_prompt_started_at = time.time()
         st.session_state.active_nav = "🤖 AI Coach & Sparring"
         st.rerun()
 
