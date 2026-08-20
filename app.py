@@ -157,30 +157,58 @@ def clean_chat_content(text):
     text = re.sub(r"<icu_weekly_plan>.*?</icu_weekly_plan>", "", text, flags=re.S | re.I)
     return text.strip()
 
-def gemini_generate(prompt, api_key, max_tokens=9000):
+import time
+
+AI_TIMEOUT = 45  # Bumped from 25 to 45 seconds to prevent Read timed out
+
+def gemini_generate(prompt, api_key, max_tokens=9000, max_retries=3):
     if not api_key:
         raise RuntimeError("Gemini API key is not configured.")
-    response = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-        json={
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "maxOutputTokens": max_tokens,
-                "thinkingConfig": {"thinkingLevel": "low"},
-            },
+        
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "thinkingConfig": {"thinkingLevel": "low"},
         },
-        timeout=AI_TIMEOUT,
-    )
-    if response.status_code != 200:
-        raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:500]}")
-    parts = (response.json().get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-    text = "\n".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
-    if not text:
-        raise RuntimeError("Gemini returned no usable text.")
-    return text
+    }
+
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=AI_TIMEOUT)
+            
+            # Handle 429 Rate Limit cleanly with dynamic wait time
+            if response.status_code == 429:
+                err_text = response.text
+                # Parse retry delay from error message if available (e.g. "Please retry in 3.9s")
+                match = re.search(r"retry in (\d+\.?\d*)s", err_text, re.IGNORECASE)
+                wait_time = float(match.group(1)) + 0.5 if match else (2 ** attempt + 2)
+                
+                if attempt < max_retries - 1:
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    raise RuntimeError(f"Rate limit exceeded (HTTP 429). Please wait a few seconds and try again.")
+
+            if response.status_code != 200:
+                raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:500]}")
+
+            parts = (response.json().get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+            text = "\n".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+            if not text:
+                raise RuntimeError("Gemini returned no usable text.")
+            return text
+
+        except requests.Timeout:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+                continue
+            raise RuntimeError(f"Gemini API timed out after {AI_TIMEOUT}s. Please retry your prompt.")
 
 def execute_ai(prompt, max_tokens=9000):
+    """Gemini failover system with automatic backoff retry."""
     errors, seen = [], set()
     for _, key in GEMINI_KEYS:
         if not key or key in seen:
@@ -190,8 +218,9 @@ def execute_ai(prompt, max_tokens=9000):
             return gemini_generate(prompt, key, max_tokens=max_tokens)
         except Exception as exc:
             errors.append(str(exc))
-    st.session_state.ai_diagnostic = "\n\n".join(errors)[:2000] or "No Gemini API keys were found in Streamlit secrets."
-    raise RuntimeError("The coach is temporarily unavailable. Please try again shortly.")
+            
+    st.session_state.ai_diagnostic = "\n\n".join(errors)[:2000] or "No Gemini API keys configured."
+    raise RuntimeError("The coach is temporarily rate-limited or busy. Please wait 5 seconds and try again.")
 
 def push_bulk_workouts_to_intervals(athlete_id, api_key, workout_list):
     """Pushes a list of structured workouts directly to Intervals.icu calendar (syncs to MyWhoosh)."""
