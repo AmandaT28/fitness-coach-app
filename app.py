@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Advanced Functional Upgrade)
+"""AI Performance Coach • Elite Suite (Mobile-Optimized & Fully Patched)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -63,22 +63,54 @@ if SUPABASE_URL and SUPABASE_KEY and create_client:
         pass
 localS = LocalStorage() if LocalStorage else None
 
+# --- UI/UX MOBILE-RESPONSIVE CSS INJECTION ---
 st.markdown("""
 <style>
-.block-container { max-width: 1480px; padding-top: 3.5rem; padding-bottom: 3rem; }
+/* Global Mobile Resizing & Overflow Fixes */
+.block-container { max-width: 1480px; padding-top: 3.5rem; padding-bottom: 3rem; padding-left: 1rem; padding-right: 1rem; }
 .top-nav-spacer { height: 2rem; }
-section[data-testid="stSidebar"] { border-right: 1px solid rgba(128,128,128,.18); background-color: var(--secondary-background-color); }
-div[data-testid="stMetric"] { background: var(--secondary-background-color); border: 1px solid rgba(128,128,128,.20); border-radius: 14px; padding: 14px 16px; box-shadow: 0 4px 18px rgba(0,0,0,.05); }
+
+/* Sidebar Mobile Overlap & Scrolling Fix */
+section[data-testid="stSidebar"] { 
+    border-right: 1px solid rgba(128,128,128,.18); 
+    background-color: var(--secondary-background-color); 
+    z-index: 100;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Metric Card Responsiveness */
+div[data-testid="stMetric"] { 
+    background: var(--secondary-background-color); 
+    border: 1px solid rgba(128,128,128,.20); 
+    border-radius: 14px; 
+    padding: 12px 14px; 
+    box-shadow: 0 4px 18px rgba(0,0,0,.05);
+    word-break: break-word;
+}
+
 div[data-testid="stExpander"] { border: 1px solid rgba(128,128,128,.22); border-radius: 12px; overflow: hidden; }
 div[data-testid="stExpander"] details summary { font-weight: 600; }
-.stButton > button { border-radius: 10px; font-weight: 600; transition: transform .15s ease, box-shadow .15s ease; }
+
+.stButton > button { border-radius: 10px; font-weight: 600; transition: transform .15s ease, box-shadow .15s ease; width: 100%; }
 .stButton > button:hover { transform: translateY(-1px); box-shadow: 0 5px 14px rgba(0,0,0,.10); }
-div[data-testid="stChatMessage"] { border-radius: 14px; }
-.readiness-card-red { background: linear-gradient(135deg, rgba(255, 64, 129, 0.15), rgba(255, 23, 68, 0.05)); border: 1px solid rgba(255, 64, 129, 0.4); border-radius: 14px; padding: 18px 20px; margin-bottom: 1.5rem; }
-.readiness-card-green { background: linear-gradient(135deg, rgba(0, 230, 118, 0.15), rgba(0, 200, 83, 0.05)); border: 1px solid rgba(0, 230, 118, 0.4); border-radius: 14px; padding: 18px 20px; margin-bottom: 1.5rem; }
+
+div[data-testid="stChatMessage"] { border-radius: 14px; word-break: break-word; }
+
+/* Status Cards */
+.readiness-card-red { background: linear-gradient(135deg, rgba(255, 64, 129, 0.15), rgba(255, 23, 68, 0.05)); border: 1px solid rgba(255, 64, 129, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; }
+.readiness-card-green { background: linear-gradient(135deg, rgba(0, 230, 118, 0.15), rgba(0, 200, 83, 0.05)); border: 1px solid rgba(0, 230, 118, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; }
 .workout-pill { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; background: rgba(128,128,128,0.15); margin-right: 6px; margin-bottom: 6px; }
+
+/* Responsive Radio Buttons Layout */
 div[data-testid="stRadio"] [role="radiogroup"] { flex-wrap: wrap; gap: .25rem 1rem; }
-div[data-testid="stRadio"] label { font-size: .86rem; white-space: nowrap; }
+div[data-testid="stRadio"] label { font-size: .86rem; white-space: normal !important; }
+
+/* Mobile Column Stack Protection */
+@media(max-width: 768px) {
+    div[data-testid="stHorizontalBlock"] { flex-direction: column !important; gap: 1rem; }
+    .block-container { padding-top: 2rem; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -134,7 +166,6 @@ def calculate_compliance_score(activity):
         score -= int((vi - 1.08) * 100)
     return f"{max(50, min(100, score))}% (VI: {vi})"
 
-# --- FUNCTION 1 & 2: Ramp Rate (ACWR) & Background Compliance Engine ---
 def check_for_new_rides_on_startup(activities_data):
     if not activities_data:
         return
@@ -143,11 +174,10 @@ def check_for_new_rides_on_startup(activities_data):
     current_top_id = str(latest_activity.get("id"))
     if last_checked_id and last_checked_id != current_top_id:
         compliance = calculate_compliance_score(latest_activity)
-        st.toast(f"🚴‍♂️ New Ride Synced: '{latest_activity.get('name')}'! Execution Score: {compliance}", icon="🎯")
+        st.toast(f"🚴‍♂️ New Ride Synced: '{latest_activity.get('name')}'! Score: {compliance}", icon="🎯")
     st.session_state["last_seen_activity_id"] = current_top_id
 
 def calculate_acwr(wellness_list):
-    """Calculates Acute-to-Chronic Workload Ratio to catch overreaching risks."""
     if not wellness_list or len(wellness_list) < 28:
         return 1.0, "Stable"
     try:
@@ -160,7 +190,7 @@ def calculate_acwr(wellness_list):
         if acwr > 1.35:
             return acwr, "🚨 Danger: Overreaching / Spike Risk (>1.35)"
         elif acwr < 0.8:
-            return acwr, "⚠️ Detraining / Undertraining Risk (<0.8)"
+            return acwr, "⚠️ Detraining Risk (<0.8)"
         return acwr, "✅ Optimal Ramp Rate (0.8–1.35)"
     except Exception:
         return 1.0, "Stable"
@@ -739,7 +769,6 @@ elif selected_nav == NAV_OPTIONS[2]:
             st.rerun()
 
     st.divider()
-    # --- FUNCTION 5: Multi-Week Macrocycle Builder Wizard ---
     with st.expander("🏗️ Multi-Week Macrocycle Periodization Builder", expanded=False):
         st.caption("Generate an automated multi-week skeleton block leading directly into your target race date.")
         macro_weeks = st.slider("Macrocycle Duration (Weeks)", min_value=4, max_value=16, value=8, step=2)
@@ -848,7 +877,6 @@ elif selected_nav == NAV_OPTIONS[4]:
         else:
             st.error("Could not parse GPX file. Ensure it contains valid track points and elevation data.")
 
-# --- FUNCTION 4: Interactive Power Duration Curve Profiler ---
 elif selected_nav == NAV_OPTIONS[5]:
     st.markdown("##### 📈 Power-Duration Curve Profiler")
     st.caption("Visualizing your anaerobic capacity, maximal aerobic power, and threshold limitations from Intervals.icu.")
@@ -857,10 +885,8 @@ elif selected_nav == NAV_OPTIONS[5]:
         st.info("No power-duration curve data returned from Intervals.icu. Ensure your power meter and power curves are synced.")
     else:
         try:
-            # Handle list or dict response format from Intervals.icu power-curves endpoint
             curve_points = power_curves_data if isinstance(power_curves_data, list) else power_curves_data.get("curve", [])
             if not curve_points and isinstance(power_curves_data, dict):
-                # Fallback key check
                 curve_points = power_curves_data.get("watts", [])
                 
             if curve_points:
