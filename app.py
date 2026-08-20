@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Light Mode Color Fix Patched)
+"""AI Performance Coach • Elite Suite (Navigation & Light Mode Contrast Patched)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -83,7 +83,7 @@ def init_state():
 
 init_state()
 
-# --- ROBUST THEME & WIDGET STYLING INJECTION ---
+# --- PRECISE UI & THEME CSS INJECTION ---
 current_theme = st.session_state.get("app_theme", "Dark Mode (Default)")
 is_light = "Light" in current_theme
 
@@ -121,7 +121,7 @@ section[data-testid="stSidebar"] > div {{
     color: {text_color} !important;
 }}
 
-/* Force Text Readability across Sidebar and Widgets */
+/* Universal Text Readability for Sidebar and General Content */
 section[data-testid="stSidebar"] p, 
 section[data-testid="stSidebar"] span, 
 section[data-testid="stSidebar"] label,
@@ -129,14 +129,36 @@ section[data-testid="stSidebar"] div {{
     color: {text_color} !important;
 }}
 
-/* Form Inputs, Text Areas & Selectboxes Theme Adaptability */
+/* Navigation Radio Buttons - Explicit High-Contrast Fix for Both Light & Dark Modes */
+div[data-testid="stRadio"] {{
+    color: {text_color} !important;
+}}
+
+div[data-testid="stRadio"] [role="radiogroup"] {{
+    background-color: {card_bg};
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid {border_color};
+    flex-wrap: wrap;
+    gap: .25rem 1rem;
+}}
+
+div[data-testid="stRadio"] label p,
+div[data-testid="stRadio"] label span,
+div[data-testid="stRadio"] div[data-baseweb="radio"] div {{
+    color: {text_color} !important;
+    font-weight: 600 !important;
+    font-size: 0.92rem !important;
+}}
+
+/* Form Inputs, Text Areas & Selectboxes */
 div[data-baseweb="select"] > div, input[type="text"], input[type="password"], textarea {{
     background-color: {input_bg} !important;
     color: {text_color} !important;
     border-color: {input_border} !important;
 }}
 
-/* Metric Card Responsiveness & Theme Adaptability */
+/* Metric Cards */
 div[data-testid="stMetric"] {{ 
     background: {card_bg}; 
     border: 1px solid {border_color}; 
@@ -152,16 +174,12 @@ div[data-testid="stExpander"] details summary {{ font-weight: 600; color: {text_
 .stButton > button {{ border-radius: 10px; font-weight: 600; transition: transform .15s ease, box-shadow .15s ease; width: 100%; }}
 .stButton > button:hover {{ transform: translateY(-1px); box-shadow: 0 5px 14px rgba(0,0,0,.10); }}
 
-div[data-testid="stChatMessage"] {{ border-radius: 14px; word-break: break-word; }}
+div[data-testid="stChatMessage"] {{ border-radius: 14px; word-break: break-word; color: {text_color}; }}
 
 /* Status Cards */
-.readiness-card-red {{ background: linear-gradient(135deg, rgba(255, 64, 129, 0.12), rgba(255, 23, 68, 0.03)); border: 1px solid rgba(255, 64, 129, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; }}
-.readiness-card-green {{ background: linear-gradient(135deg, rgba(0, 230, 118, 0.12), rgba(0, 200, 83, 0.03)); border: 1px solid rgba(0, 230, 118, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; }}
+.readiness-card-red {{ background: linear-gradient(135deg, rgba(255, 64, 129, 0.12), rgba(255, 23, 68, 0.03)); border: 1px solid rgba(255, 64, 129, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; color: {text_color}; }}
+.readiness-card-green {{ background: linear-gradient(135deg, rgba(0, 230, 118, 0.12), rgba(0, 200, 83, 0.03)); border: 1px solid rgba(0, 230, 118, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; color: {text_color}; }}
 .workout-pill {{ display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; background: rgba(128,128,128,0.15); margin-right: 6px; margin-bottom: 6px; color: {text_color}; }}
-
-/* Responsive Radio Buttons Layout */
-div[data-testid="stRadio"] [role="radiogroup"] {{ flex-wrap: wrap; gap: .25rem 1rem; }}
-div[data-testid="stRadio"] label {{ font-size: .86rem; white-space: normal !important; color: {text_color} !important; }}
 
 @media(max-width: 768px) {{
     div[data-testid="stHorizontalBlock"] {{ flex-direction: column !important; gap: 1rem; }}
@@ -1095,6 +1113,6 @@ def render_coach_reply(question, display_name):
                                 except Exception as exc: st.error(f"Sync failed: {exc}")
                         
                 st.session_state.messages.append({"role": "assistant", "content": response})
-                persist_chat_to_db()
+                persist_chat_to_test = persist_chat_to_db()
             except Exception as exc:
                 placeholder.error(f"⚠️ {exc}")
