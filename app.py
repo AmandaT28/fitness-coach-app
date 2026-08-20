@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Definitive Sidebar & Theme Fix)
+"""AI Performance Coach • Elite Suite (Top-Tier Architecture & Design System)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -83,106 +83,142 @@ def init_state():
 
 init_state()
 
-# --- HARMONIZED THEME VARIABLES ---
+# --- TOP-TIER DESIGN SYSTEM & TOKENS ---
 current_theme = st.session_state.get("app_theme", "Dark Mode (Default)")
 is_light = "Light" in current_theme
 
-bg_color = "#FFFFFF" if is_light else "#0E1117"
-sidebar_bg = "#F4F6F8" if is_light else "#161B22"
-text_color = "#1F2328" if is_light else "#FAFAFA"
-card_bg = "#FFFFFF" if is_light else "#1E2530"
-border_color = "#D0D7DE" if is_light else "rgba(128,128,128,0.25)"
-
-# Harmonized button styling variables based on theme
-btn_bg_inactive = "#E1E4E8" if is_light else "#21262D"
-btn_text_inactive = "#24292E" if is_light else "#C9D1D9"
-btn_bg_active = "#0366D6" if is_light else "#1F6FEB"
-btn_text_active = "#FFFFFF"
+# Architectural Color Tokens
+if is_light:
+    bg_app = "#F8FAFC"
+    bg_sidebar = "#FFFFFF"
+    bg_card = "#FFFFFF"
+    text_primary = "#0F172A"
+    text_muted = "#64748B"
+    border_subtle = "#E2E8F0"
+    accent_primary = "#2563EB"
+    accent_hover = "#1D4ED8"
+    nav_bg_inactive = "#F1F5F9"
+    nav_text_inactive = "#334155"
+    nav_bg_active = "#2563EB"
+    nav_text_active = "#FFFFFF"
+else:
+    bg_app = "#090D16"
+    bg_sidebar = "#111827"
+    bg_card = "#1F2937"
+    text_primary = "#F9FAFB"
+    text_muted = "#9CA3AF"
+    border_subtle = "#374151"
+    accent_primary = "#3B82F6"
+    accent_hover = "#60A5FA"
+    nav_bg_inactive = "#1F2937"
+    nav_text_inactive = "#D1D5DB"
+    nav_bg_active = "#3B82F6"
+    nav_text_active = "#FFFFFF"
 
 st.markdown(f"""
 <style>
+/* Global Application Frame */
 .stApp {{
-    background-color: {bg_color};
-    color: {text_color};
+    background-color: {bg_app};
+    color: {text_primary};
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }}
 
 .block-container {{ 
     max-width: 1480px; 
-    padding-top: 2rem; 
+    padding-top: 2.5rem; 
     padding-bottom: 3rem; 
-    padding-left: 1.5rem; 
-    padding-right: 1.5rem; 
+    padding-left: 2rem; 
+    padding-right: 2rem; 
 }}
 
+/* Sidebar Architecture */
 section[data-testid="stSidebar"] {{ 
-    border-right: 1px solid {border_color}; 
-    background-color: {sidebar_bg} !important; 
+    border-right: 1px solid {border_subtle}; 
+    background-color: {bg_sidebar} !important; 
     z-index: 999999 !important;
 }}
 
 section[data-testid="stSidebar"] > div {{
-    background-color: {sidebar_bg} !important;
+    background-color: {bg_sidebar} !important;
+    color: {text_primary} !important;
 }}
 
-/* Harmonized Sidebar Navigation Buttons */
-section[data-testid="stSidebar"] button {{
-    background-color: {btn_bg_inactive} !important;
-    color: {btn_text_inactive} !important;
-    border: 1px solid {border_color} !important;
-    border-radius: 8px;
-    font-weight: 600;
-    width: 100%;
-    text-align: left;
-    transition: all 0.15s ease;
-}}
-
-section[data-testid="stSidebar"] button:hover {{
-    border-color: #0366D6 !important;
-}}
-
-/* Active Navigation Button Override */
-section[data-testid="stSidebar"] button[kind="primary"] {{
-    background-color: {btn_bg_active} !important;
-    color: {btn_text_active} !important;
-    border-color: {btn_bg_active} !important;
-}}
-
+/* Unified Component Surfaces: Metrics & Expanders */
 div[data-testid="stMetric"] {{ 
-    background: {card_bg}; 
-    border: 1px solid {border_color}; 
+    background-color: {bg_card}; 
+    border: 1px solid {border_subtle}; 
     border-radius: 12px; 
-    padding: 14px 16px; 
+    padding: 16px; 
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }}
 
 div[data-testid="stExpander"] {{ 
-    border: 1px solid {border_color}; 
+    border: 1px solid {border_subtle}; 
     border-radius: 12px; 
-    background: {card_bg}; 
+    background-color: {bg_card}; 
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }}
 
+/* Navigation & Standard Action Buttons */
+section[data-testid="stSidebar"] .stButton > button {{
+    background-color: {nav_bg_inactive} !important;
+    color: {nav_text_inactive} !important;
+    border: 1px solid {border_subtle} !important;
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    width: 100%;
+    text-align: left;
+    padding: 0.55rem 1rem;
+    transition: all 0.2s ease;
+}}
+
+section[data-testid="stSidebar"] .stButton > button:hover {{
+    border-color: {accent_primary} !important;
+    color: {text_primary} !important;
+}}
+
+/* Active Navigation State */
+section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
+    background-color: {nav_bg_active} !important;
+    color: {nav_text_active} !important;
+    border-color: {nav_bg_active} !important;
+    font-weight: 600;
+}}
+
+/* General Buttons */
+.stButton > button {{
+    border-radius: 8px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}}
+
+/* Status & Readiness Cards */
 .readiness-card-red {{ 
-    background: linear-gradient(135deg, rgba(255, 64, 129, 0.12), rgba(255, 23, 68, 0.03)); 
-    border: 1px solid rgba(255, 64, 129, 0.4); 
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.02)); 
+    border: 1px solid rgba(239, 68, 68, 0.3); 
     border-radius: 12px; 
-    padding: 16px; 
+    padding: 18px; 
     margin-bottom: 1.5rem; 
 }}
 
 .readiness-card-green {{ 
-    background: linear-gradient(135deg, rgba(0, 230, 118, 0.12), rgba(0, 200, 83, 0.03)); 
-    border: 1px solid rgba(0, 230, 118, 0.4); 
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.02)); 
+    border: 1px solid rgba(16, 185, 129, 0.3); 
     border-radius: 12px; 
-    padding: 16px; 
+    padding: 18px; 
     margin-bottom: 1.5rem; 
 }}
 
 .workout-pill {{ 
     display: inline-block; 
     padding: 4px 10px; 
-    border-radius: 8px; 
-    font-size: 0.8rem; 
+    border-radius: 6px; 
+    font-size: 0.78rem; 
     font-weight: 600; 
-    background: rgba(128,128,128,0.15); 
+    background-color: {border_subtle}; 
+    color: {text_primary};
     margin-right: 6px; 
     margin-bottom: 6px; 
 }}
@@ -714,10 +750,10 @@ if selected_nav == NAV_OPTIONS[0]:
                 fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['atl_clean'], mode='lines', name='Fatigue (ATL)', line=dict(color='#FF4081', width=2)))
                 fig.add_trace(go.Bar(x=df['date_parsed'], y=df['tsb_clean'], name='Form (TSB)', marker_color=['#00E676' if val >= 0 else '#FF4081' for val in df['tsb_clean']]))
                 fig.update_layout(
-                    title="90-Day Multi-Sport Performance Management Chart", title_font=dict(size=14, color=text_color),
+                    title="90-Day Multi-Sport Performance Management Chart", title_font=dict(size=14, color=text_primary),
                     margin=dict(l=0, r=0, t=40, b=0), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color=text_color)),
-                    xaxis=dict(showgrid=False, color=text_color), yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)", color=text_color)
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color=text_primary)),
+                    xaxis=dict(showgrid=False, color=text_primary), yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)", color=text_primary)
                 )
                 st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
@@ -977,7 +1013,7 @@ elif selected_nav == NAV_OPTIONS[5]:
                     title="Power Duration Curve (Watts vs Seconds)",
                     xaxis_title="Duration (Seconds, Log Scale)", yaxis_title="Power (Watts)",
                     xaxis_type="log", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color=text_color)
+                    font=dict(color=text_primary)
                 )
                 st.plotly_chart(fig_pc, use_container_width=True)
                 
