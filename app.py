@@ -47,7 +47,8 @@ GEMINI_KEYS = [
     ("Secondary Gemini", secret("SECONDARY_GEMINI_KEY")),
     ("Tertiary Gemini", secret("TERTIARY_GEMINI_KEY")),
 ]
-GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-2.5-
+")
 AI_TIMEOUT = 25
 INTERVALS_TIMEOUT = 6
 NAV_OPTIONS = ["📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "💊 Recovery & Supplements", "🗺️ Route Strategist"]
@@ -81,6 +82,7 @@ def init_state():
         "trend_analysis_timestamp": None, "selected_activity_analysis": None,
         "selected_activity_label": None, "route_analysis": None,
         "pending_coach_prompt": None, "ai_test_result": None,
+        "ai_diagnostic": None,
         "trend_loaded": False,
     }
     for key, value in defaults.items():
@@ -135,6 +137,7 @@ def execute_ai(prompt):
             return gemini_generate(prompt, key)
         except Exception as exc:
             errors.append(str(exc))
+    st.session_state.ai_diagnostic = "\n\n".join(errors)[:2000] or "No Gemini API keys were found in Streamlit secrets."
     raise RuntimeError("The coach is temporarily unavailable. Please try again shortly.")
 
 def trend_storage_key():
@@ -358,9 +361,13 @@ with st.sidebar:
         if st.button("Test AI connection", key="test_gemini", use_container_width=True):
             try:
                 execute_ai("Reply exactly: AI connection successful.")
+                st.session_state.ai_diagnostic = None
                 st.success("AI connection successful.")
             except Exception:
-                st.error("AI connection failed. Check the Gemini secrets and model name.")
+                st.error("AI connection failed. Details are shown below.")
+        if st.session_state.ai_diagnostic:
+            st.caption("Diagnostic (does not include API keys)")
+            st.code(st.session_state.ai_diagnostic, language="text")
     if st.button("Clear chat history", use_container_width=True):
         st.session_state.messages = []
         ensure_initial_message()
