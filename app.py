@@ -339,6 +339,14 @@ def summarize_activities(activities: List[Dict[str, Any]], limit: int = 20) -> L
         })
     return summarized
 
+def get_model_id_from_selection(selection: str) -> str:
+    if "3.7" in selection:
+        return "gemini-3.7-flash"
+    elif "3.6" in selection:
+        return "gemini-3.6-flash"
+    elif "3.5" in selection:
+        return "gemini-3.5-flash"
+    return "gemini-3.7-flash"
 
 def make_gemini_client(api_key: Optional[str]):
     if not api_key or not genai:
