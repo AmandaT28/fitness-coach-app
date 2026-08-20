@@ -1,6 +1,6 @@
-"""AI Performance Coach — Streamlit single-file app.
+"""AI Performance Coach — Streamlit single-file app with Supabase persistence.
 
-Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY.
+Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 OpenAI and Anthropic are intentionally not used.
 """
 import base64
@@ -47,7 +47,7 @@ GEMINI_KEYS = [
     ("Secondary Gemini", secret("SECONDARY_GEMINI_KEY")),
     ("Tertiary Gemini", secret("TERTIARY_GEMINI_KEY")),
 ]
-GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-3.6-flash")
+GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-2.5-flash")
 AI_TIMEOUT = 15  # Fast 15s timeout
 INTERVALS_TIMEOUT = 6
 NAV_OPTIONS = ["📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "🗺️ Route Strategist"]
@@ -152,14 +152,15 @@ def clean_chat_content(text):
     text = re.sub(r"<icu_weekly_plan>.*?</icu_weekly_plan>", "", text, flags=re.S | re.I)
     return text.strip()
 
-def gemini_generate(prompt, api_key, max_tokens=4000):
+def gemini_generate(messages_payload, api_key, max_tokens=4000):
     if not api_key:
         raise RuntimeError("Gemini API key is not configured.")
         
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    
     payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "contents": messages_payload,
         "generationConfig": {
             "maxOutputTokens": max_tokens,
             "temperature": 0.7
@@ -179,13 +180,13 @@ def gemini_generate(prompt, api_key, max_tokens=4000):
         raise RuntimeError("Gemini returned an empty response.")
     return text
 
-def execute_ai(prompt, max_tokens=4000):
+def execute_ai(messages_payload, max_tokens=4000):
     errors = []
     for name, key in GEMINI_KEYS:
         if not key:
             continue
         try:
-            return gemini_generate(prompt, key, max_tokens=max_tokens)
+            return gemini_generate(messages_payload, key, max_tokens=max_tokens)
         except Exception as exc:
             errors.append(f"{name}: {exc}")
             
@@ -228,13 +229,15 @@ def persist_supplements_to_db():
         except Exception: pass
 
 def persist_chat_to_db():
+    # Keep last 30 turns max to prevent database bloat
+    trimmed_messages = st.session_state.messages[-30:]
     if st.session_state.user and supabase:
         try:
-            (supabase.table("profiles").update({"chat_history": st.session_state.messages[-30:]}).eq("id", st.session_state.user.id).execute())
+            (supabase.table("profiles").update({"chat_history": trimmed_messages}).eq("id", st.session_state.user.id).execute())
         except Exception: pass
     elif localS and st.session_state.user_credentials:
         try:
-            st.session_state.user_credentials["chat_history"] = st.session_state.messages[-30:]
+            st.session_state.user_credentials["chat_history"] = trimmed_messages
             localS.setItem("athlete_profile_config", st.session_state.user_credentials)
         except Exception: pass
 
@@ -328,15 +331,8 @@ def activity_summary(activity):
     }
     return {key: value for key, value in fields.items() if value not in (None, "", 0)}
 
-def coach_prompt(question, display_name):
-    recent_messages = st.session_state.messages[-3:]
-    history = "\n".join(f"{m['role'].upper()}: {str(m['content'])[-800:]}" for m in recent_messages)
-    question = str(question)[-2000:]
-    cal_ctx = st.session_state.get("calendar_context", "Not loaded")[:1500]
-    
-    trend_ctx = (st.session_state.get("cached_trend_analysis") or "No Trend Analysis.")[:1200]
-    trend_time = st.session_state.get("trend_analysis_timestamp", "")
-    
+def build_gemini_payload(current_question, display_name):
+    """Constructs message payloads containing history + system context for Gemini v1beta."""
     today = dt.date.today()
     next_monday = today + dt.timedelta(days=(0 - today.weekday()) % 7)
     if next_monday == today: next_monday += dt.timedelta(days=7)
@@ -344,7 +340,7 @@ def coach_prompt(question, display_name):
     next_monday_str = next_monday.isoformat()
     today_str = today.isoformat()
 
-    return f"""You are an elite cycling coach with full calendar integration.
+    system_instructions = f"""You are an elite cycling coach with full calendar integration.
 Persona: {st.session_state.coach_persona}
 Athlete: {display_name}
 Today: {today_str} | Next Monday: {next_monday_str}
@@ -352,17 +348,11 @@ Goal: {st.session_state.goals['target_metric']} ({st.session_state.goals['event_
 Gear: {st.session_state.athlete_gear or 'N/A'} | Limitations: {st.session_state.athlete_limitations or 'N/A'}
 Supplements: {json.dumps(st.session_state.user_supplements, ensure_ascii=False) or 'N/A'}
 
-90-DAY TREND SYNTHESIS ({trend_time}):
-{trend_ctx}
+90-DAY TREND SYNTHESIS ({st.session_state.get('trend_analysis_timestamp', '')}):
+{(st.session_state.get('cached_trend_analysis') or 'No Trend Analysis.')[:1200]}
 
 Calendar Context:
-{cal_ctx}
-
-Recent Chat:
-{history}
-
-Question:
-{question}
+{st.session_state.get('calendar_context', 'Not loaded')[:1500]}
 
 INSTRUCTIONS & FORMATTING RULES:
 1. Explain your reasoning concisely to the athlete based on their goals and recent load.
@@ -378,9 +368,37 @@ Format:
   }}
 ]
 </icu_weekly_plan>
+3. IF PRESCRIBING A SINGLE WORKOUT, enclose a JSON object in `<icu_workout>` tags instead."""
 
-3. IF PRESCRIBING A SINGLE WORKOUT, enclose a JSON object in `<icu_workout>` tags instead.
-Always write structured workout steps in plain text inside `description` so MyWhoosh renders targets correctly in ERG mode."""
+    # Map previous chat messages into the structure Gemini expects
+    contents = []
+    
+    # Inject system instructions as part of a context-setting prefix or initial user prompt turn if needed, 
+    # or pass standard conversational array roles.
+    contents.append({
+        "role": "user",
+        "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]
+    })
+    contents.append({
+        "role": "model",
+        "parts": [{"text": "Understood. I am ready to act as your elite cycling coach based on your parameters and live data."}]
+    })
+
+    # Append recent chat history
+    for m in st.session_state.messages[-15:]:
+        role = "user" if m["role"] == "user" else "model"
+        contents.append({
+            "role": role,
+            "parts": [{"text": str(m["content"])}]
+        })
+
+    # Append current question
+    contents.append({
+        "role": "user",
+        "parts": [{"text": str(current_question)}]
+    })
+
+    return contents
 
 def render_coach_reply(question, display_name):
     st.session_state.messages.append({"role": "user", "content": question})
@@ -390,7 +408,8 @@ def render_coach_reply(question, display_name):
         placeholder = st.empty()
         placeholder.markdown("🤔 **Coach is thinking...**")
         try:
-            response = execute_ai(coach_prompt(question, display_name), max_tokens=3000)
+            payload = build_gemini_payload(question, display_name)
+            response = execute_ai(payload, max_tokens=3000)
             placeholder.markdown(clean_chat_content(response))
             
             icu_payload = extract_icu_workout(response)
@@ -405,7 +424,7 @@ def render_coach_reply(question, display_name):
                         push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, icu_payload)
                         st.success("✅ Proposed plan successfully synced to your Intervals.icu calendar!")
                     except Exception as exc: st.error(f"Sync failed: {exc}")
-                        
+                    
             st.session_state.messages.append({"role": "assistant", "content": response})
             persist_chat_to_db()
         except Exception as exc:
@@ -558,7 +577,7 @@ with st.sidebar:
     with st.expander("AI connection", expanded=False):
         if st.button("Test AI connection", key="test_gemini", use_container_width=True):
             try:
-                execute_ai("Reply exactly: AI connection successful.")
+                execute_ai([{"role": "user", "parts": [{"text": "Reply exactly: AI connection successful."}]}], max_tokens=20)
                 st.success("AI connection successful.")
             except Exception as exc: st.error(str(exc))
         if st.session_state.ai_diagnostic:
@@ -604,10 +623,10 @@ if selected_nav == NAV_OPTIONS[0]:
     c3.metric("Form (TSB)", round(tsb, 1))
     
     if st.button("🚀 Run 90-Day Trend Synthesis", type="primary"):
-        payload = f"Analyze this athlete's last 90 days. CTL {ctl}; ATL {atl}; TSB {tsb}. Goal: {st.session_state.goals['target_metric']}."
+        payload_text = f"Analyze this athlete's last 90 days. CTL {ctl}; ATL {atl}; TSB {tsb}. Goal: {st.session_state.goals['target_metric']}."
         with st.spinner("Analyzing 90 days of training..."):
             try:
-                st.session_state.cached_trend_analysis = execute_ai(payload, max_tokens=3000)
+                st.session_state.cached_trend_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=3000)
                 st.session_state.trend_analysis_timestamp = dt.datetime.now().astimezone().strftime("%d %b %Y, %H:%M %Z")
                 persist_trend()
             except Exception as exc: st.error(str(exc))
@@ -745,7 +764,8 @@ elif selected_nav == NAV_OPTIONS[3]:
         if st.button("Run AI Debrief", type="primary"):
             compact_activity = activity_summary(activity)
             try:
-                st.session_state.selected_activity_analysis = execute_ai(f"Give a concise cycling performance debrief for this activity: {json.dumps(compact_activity)}. Goal: {st.session_state.goals['target_metric']}.")
+                prompt_text = f"Give a concise cycling performance debrief for this activity: {json.dumps(compact_activity)}. Goal: {st.session_state.goals['target_metric']}."
+                st.session_state.selected_activity_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
                 st.session_state.selected_activity_label = label
             except Exception as exc: st.error(str(exc))
         if st.session_state.selected_activity_analysis:
@@ -763,7 +783,8 @@ elif selected_nav == "🗺️ Route Strategist":
             st.json(metrics)
             if st.button("Generate Climbing Strategy", type="primary"):
                 try:
-                    st.session_state.route_analysis = execute_ai(f"Analyze this route profile: {json.dumps(metrics)}. Goal: {st.session_state.goals['target_metric']}. Give practical pacing and climbing strategies.")
+                    prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Goal: {st.session_state.goals['target_metric']}. Give practical pacing and climbing strategies."
+                    st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_notes=3000)
                 except Exception as exc: st.error(str(exc))
             if st.session_state.route_analysis:
                 st.markdown(st.session_state.route_analysis)
