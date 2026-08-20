@@ -94,7 +94,7 @@ def init_state():
         "selected_activity_label": None, "route_analysis": None,
         "pending_coach_prompt": None, "ai_test_result": None,
         "ai_diagnostic": None, "coach_reference_notice": None,
-        "trend_loaded": False, "calendar_context": "",
+        "trend_loaded": False, "calendar_context": "", "profile_loaded": False
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -195,6 +195,40 @@ def push_workout_to_intervals(athlete_id, api_key, name, description, date_str, 
     if response.status_code not in (200, 201):
         raise RuntimeError(f"Failed to push workout to Intervals.icu (HTTP {response.status_code}): {response.text[:300]}")
     return True
+
+def persist_supplements_to_db():
+    """Saves current supplements to Supabase / LocalStorage."""
+    if st.session_state.user and supabase:
+        try:
+            (supabase.table("profiles")
+             .update({"supplements": st.session_state.user_supplements})
+             .eq("id", st.session_state.user.id)
+             .execute())
+        except Exception:
+            pass
+    elif localS and st.session_state.user_credentials:
+        try:
+            st.session_state.user_credentials["supplements"] = st.session_state.user_supplements
+            localS.setItem("athlete_profile_config", st.session_state.user_credentials)
+        except Exception:
+            pass
+
+def persist_chat_to_db():
+    """Saves conversation history to Supabase or browser LocalStorage."""
+    if st.session_state.user and supabase:
+        try:
+            (supabase.table("profiles")
+             .update({"chat_history": st.session_state.messages[-50:]}) # keep last 50
+             .eq("id", st.session_state.user.id)
+             .execute())
+        except Exception:
+            pass
+    elif localS and st.session_state.user_credentials:
+        try:
+            st.session_state.user_credentials["chat_history"] = st.session_state.messages[-50:]
+            localS.setItem("athlete_profile_config", st.session_state.user_credentials)
+        except Exception:
+            pass
 
 def trend_storage_key():
     """Names guest-browser storage by athlete, rather than by the current page."""
@@ -382,6 +416,7 @@ def render_coach_reply(question, display_name):
                     st.error(f"Sync failed: {exc}")
                     
         st.session_state.messages.append({"role": "assistant", "content": response})
+        persist_chat_to_db()
 
 def parse_gpx(raw):
     root = ET.fromstring(raw.decode("utf-8", errors="ignore")); points, elevations = [], []
@@ -448,6 +483,14 @@ if st.session_state.user:
     st.session_state.athlete_limitations = st.session_state.athlete_limitations or profile.get("limitations_notes", "")
     for key in DEFAULT_GOALS:
         st.session_state.goals[key] = profile.get(key) or st.session_state.goals[key]
+    
+    # Restore persisted supplements & chat history on initial startup
+    if not st.session_state.profile_loaded:
+        if isinstance(profile.get("supplements"), list):
+            st.session_state.user_supplements = profile["supplements"]
+        if isinstance(profile.get("chat_history"), list) and profile["chat_history"]:
+            st.session_state.messages = profile["chat_history"]
+        st.session_state.profile_loaded = True
 else:
     creds = st.session_state.user_credentials or {}
     INTERVALS_API_KEY, ATHLETE_ID, display_name = creds.get("icu_key", ""), creds.get("icu_id", ""), creds.get("name", "Athlete")
@@ -455,6 +498,13 @@ else:
     st.session_state.athlete_limitations = st.session_state.athlete_limitations or creds.get("limitations", "")
     if isinstance(creds.get("goals"), dict):
         st.session_state.goals.update({key: value for key, value in creds["goals"].items() if key in DEFAULT_GOALS and value})
+    if not st.session_state.profile_loaded:
+        if isinstance(creds.get("supplements"), list):
+            st.session_state.user_supplements = creds["supplements"]
+        if isinstance(creds.get("chat_history"), list) and creds["chat_history"]:
+            st.session_state.messages = creds["chat_history"]
+        st.session_state.profile_loaded = True
+
 ensure_initial_message()
 load_persisted_trend()
 
@@ -472,6 +522,7 @@ with st.sidebar:
     st.radio("Navigate", NAV_OPTIONS, key="sidebar_nav", on_change=sidebar_changed)
     st.divider()
     st.session_state.coach_persona = st.selectbox("Coaching Persona", ["Collaborative Peer (Balanced & Brainstorming)", "Sports Scientist (Data & Periodization Focus)", "Drill Sergeant (Strict & Direct Accountability)"], index=["Collaborative Peer (Balanced & Brainstorming)", "Sports Scientist (Data & Periodization Focus)", "Drill Sergeant (Strict & Direct Accountability)"].index(st.session_state.coach_persona))
+    
     with st.expander("Recovery, fuel & supplements", expanded=False):
         st.caption("For your coach's reference when discussing recovery and ride fueling.")
         with st.form("sidebar_supplement_form", clear_on_submit=True):
@@ -479,15 +530,23 @@ with st.sidebar:
             supplement_timing = st.text_input("When to use it")
             supplement_notes = st.text_input("Purpose or notes")
             if st.form_submit_button("Add to coach reference", use_container_width=True) and supplement_name.strip():
-                st.session_state.user_supplements.append({"name": supplement_name.strip(), "timing": supplement_timing.strip() or "As needed", "notes": supplement_notes.strip() or ""})
+                st.session_state.user_supplements.append({
+                    "name": supplement_name.strip(),
+                    "timing": supplement_timing.strip() or "As needed",
+                    "notes": supplement_notes.strip() or ""
+                })
+                persist_supplements_to_db()
                 st.rerun()
+                
         if st.session_state.user_supplements:
             for item in st.session_state.user_supplements:
                 st.write(f"• **{item['name']}** — {item['timing']}{(': ' + item['notes']) if item['notes'] else ''}")
             remove_name = st.selectbox("Remove from coach reference", ["Keep all"] + [item["name"] for item in st.session_state.user_supplements], key="remove_supplement")
             if remove_name != "Keep all" and st.button("Remove selected", key="remove_supplement_button", use_container_width=True):
                 st.session_state.user_supplements = [item for item in st.session_state.user_supplements if item["name"] != remove_name]
+                persist_supplements_to_db()
                 st.rerun()
+
     with st.expander("Athlete profile & goal", expanded=False):
         with st.form("sidebar_profile_form"):
             event_name = st.text_input("Target event", value=st.session_state.goals["event_name"])
@@ -500,16 +559,25 @@ with st.sidebar:
                 st.session_state.athlete_gear, st.session_state.athlete_limitations = gear, limitations
                 if st.session_state.user and supabase:
                     try:
-                        (supabase.table("profiles").update({"event_name": st.session_state.goals["event_name"], "target_metric": st.session_state.goals["target_metric"], "race_date": st.session_state.goals["race_date"], "gear_notes": gear, "limitations_notes": limitations}).eq("id", st.session_state.user.id).execute())
+                        (supabase.table("profiles").update({
+                            "event_name": st.session_state.goals["event_name"],
+                            "target_metric": st.session_state.goals["target_metric"],
+                            "race_date": st.session_state.goals["race_date"],
+                            "gear_notes": gear,
+                            "limitations_notes": limitations,
+                            "supplements": st.session_state.user_supplements,
+                            "chat_history": st.session_state.messages[-50:]
+                        }).eq("id", st.session_state.user.id).execute())
                     except Exception as exc:
-                        st.warning(f"Profile is saved for this session, but Supabase could not be updated: {exc}")
+                        st.warning(f"Profile saved for session, but Supabase could not be updated: {exc}")
                 elif localS:
                     try:
-                        st.session_state.user_credentials.update({"gear": gear, "limitations": limitations, "goals": st.session_state.goals})
+                        st.session_state.user_credentials.update({"gear": gear, "limitations": limitations, "goals": st.session_state.goals, "supplements": st.session_state.user_supplements, "chat_history": st.session_state.messages[-50:]})
                         localS.setItem("athlete_profile_config", st.session_state.user_credentials)
                     except Exception:
                         pass
                 st.success("Profile saved.")
+                
     with st.expander("AI connection", expanded=False):
         configured = sum(bool(key) for _, key in GEMINI_KEYS)
         st.write(f"Gemini keys configured: {configured}/3")
@@ -524,15 +592,18 @@ with st.sidebar:
         if st.session_state.ai_diagnostic:
             st.caption("Diagnostic (does not include API keys)")
             st.code(st.session_state.ai_diagnostic, language="text")
+            
     if st.button("Clear chat history", use_container_width=True):
         st.session_state.messages = []
         ensure_initial_message()
+        persist_chat_to_db()
         st.rerun()
     if st.button("Log out / switch account", use_container_width=True):
         if st.session_state.user and supabase:
             try: supabase.auth.sign_out()
             except Exception: pass
         st.session_state.user, st.session_state.user_credentials = None, None
+        st.session_state.profile_loaded = False
         if localS:
             try: localS.deleteItem("athlete_profile_config")
             except Exception: pass
