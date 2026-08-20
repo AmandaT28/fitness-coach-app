@@ -317,27 +317,38 @@ else:
 
 
 # -----------------------------------------------------------------------------
-# AI PROVIDER ROUTER (Gemini 3.x Flash Suite)
+# AI PROVIDER ROUTER HELPERS
 # -----------------------------------------------------------------------------
-def get_model_id_from_selection(selection: str) -> str:
-    if "3.7" in selection:
-        return "gemini-3.7-flash"
-    elif "3.6" in selection:
-        return "gemini-3.6-flash"
-    elif "3.5" in selection:
-        return "gemini-3.5-flash"
-    return "gemini-3.7-flash"
+def summarize_activities(activities: List[Dict[str, Any]], limit: int = 20) -> List[Dict[str, Any]]:
+    """Strips raw JSON noise and returns clean, compact metrics to avoid prompt bloat."""
+    summarized = []
+    for act in (activities or [])[:limit]:
+        if not isinstance(act, dict):
+            continue
+        dist_km = round((act.get("distance") or 0) / 1000, 1)
+        moving_mins = int((act.get("moving_time") or 0) / 60)
+        summarized.append({
+            "date": str(act.get("start_date_local", ""))[:10],
+            "name": act.get("name", "Activity"),
+            "type": act.get("type", "Ride"),
+            "distance_km": dist_km,
+            "moving_mins": moving_mins,
+            "avg_watts": act.get("average_watts", "N/A"),
+            "icu_training_load": act.get("icu_training_load", act.get("tss", "N/A")),
+            "perceived_exertion": act.get("icu_rpe", "N/A"),
+        })
+    return summarized
 
 
 def make_gemini_client(api_key: Optional[str]):
     if not api_key or not genai:
         return None
     try:
-        http_options = genai_types.HttpOptions(timeout=45000) if genai_types else None
+        # Increased timeout from 45s (45000ms) to 120s (120000ms) for long synthesis reports
+        http_options = genai_types.HttpOptions(timeout=120000) if genai_types else None
         return genai.Client(api_key=api_key, http_options=http_options)
     except Exception:
         return None
-
 
 def append_error(errors: List[str], label: str, exc: Exception) -> None:
     message = str(exc).replace("\n", " ")
@@ -365,15 +376,15 @@ def execute_multiprovider_generation(prompt: str, preferred_provider: str = "Gem
     errors: List[str] = []
     target_model = get_model_id_from_selection(preferred_provider)
 
-    guest_action = lambda: call_gemini(prompt, guest_gemini_key, "Guest Key", target_model)
-    primary_action = lambda: call_gemini(prompt, PRIMARY_GEMINI_KEY, "Primary Key", target_model)
-    secondary_action = lambda: call_gemini(prompt, SECONDARY_GEMINI_KEY, "Secondary Key", target_model)
-    tertiary_action = lambda: call_gemini(prompt, TERTIARY_GEMINI_KEY, "Tertiary Key", target_model)
-
     actions = []
     if guest_gemini_key:
-        actions.append(guest_action)
-    actions.extend([primary_action, secondary_action, tertiary_action])
+        actions.append(lambda: call_gemini(prompt, guest_gemini_key, "Guest Key", target_model))
+    if PRIMARY_GEMINI_KEY:
+        actions.append(lambda: call_gemini(prompt, PRIMARY_GEMINI_KEY, "Primary Key", target_model))
+    if SECONDARY_GEMINI_KEY:
+        actions.append(lambda: call_gemini(prompt, SECONDARY_GEMINI_KEY, "Secondary Key", target_model))
+    if TERTIARY_GEMINI_KEY:
+        actions.append(lambda: call_gemini(prompt, TERTIARY_GEMINI_KEY, "Tertiary Key", target_model))
 
     for action in actions:
         try:
@@ -382,7 +393,7 @@ def execute_multiprovider_generation(prompt: str, preferred_provider: str = "Gem
             append_error(errors, getattr(action, "__name__", "provider"), exc)
             continue
 
-    diagnostic = " | ".join(errors) if errors else "No Gemini API keys were configured."
+    diagnostic = " | ".join(errors) if errors else "No Gemini API keys were configured in secrets."
     raise RuntimeError(f"All Gemini fallback keys failed for {target_model}. {diagnostic}")
 
 
