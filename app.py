@@ -64,10 +64,15 @@ localS = LocalStorage() if LocalStorage else None
 
 st.markdown("""
 <style>
-/* Use Streamlit's active theme variables; no hard-coded white surfaces. */
-.stCard { background: var(--secondary-background-color); border: 1px solid rgba(128,128,128,.24); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
-div[data-testid="stMetric"] { background: color-mix(in srgb, var(--secondary-background-color) 92%, transparent); border: 1px solid rgba(128,128,128,.20); border-radius: 10px; padding: 12px 16px; }
-div[data-testid="stExpander"] { border-color: rgba(128,128,128,.28); }
+/* Theme-aware polish: all surfaces inherit the active Streamlit light/dark palette. */
+.block-container { max-width: 1480px; padding-top: 1.4rem; padding-bottom: 3rem; }
+section[data-testid="stSidebar"] { border-right: 1px solid rgba(128,128,128,.18); }
+div[data-testid="stMetric"] { background: var(--secondary-background-color); border: 1px solid rgba(128,128,128,.20); border-radius: 14px; padding: 14px 16px; box-shadow: 0 4px 18px rgba(0,0,0,.05); }
+div[data-testid="stExpander"] { border: 1px solid rgba(128,128,128,.22); border-radius: 12px; overflow: hidden; }
+div[data-testid="stExpander"] details summary { font-weight: 600; }
+.stButton > button { border-radius: 10px; font-weight: 600; transition: transform .15s ease, box-shadow .15s ease; }
+.stButton > button:hover { transform: translateY(-1px); box-shadow: 0 5px 14px rgba(0,0,0,.10); }
+div[data-testid="stChatMessage"] { border-radius: 14px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -223,7 +228,7 @@ def fetch_intervals_data(athlete_id, api_key):
         urls = [
             f"{base}/wellness?oldest={(today-dt.timedelta(days=90)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
             f"{base}/activities?oldest={(today-dt.timedelta(days=90)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
-            f"{base}/events?oldest={(today-dt.timedelta(days=7)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
+            f"{base}/events?oldest={(today-dt.timedelta(days=14)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
         ]
         result = []
         for url in urls:
@@ -255,6 +260,8 @@ def session_summary(event):
         details.append(f"Training load: {round(float(event['icu_training_load']))}")
     if event.get("type"):
         details.append(f"Type: {event['type']}")
+    if event.get("_calendar_source"):
+        details.append(event["_calendar_source"])
     instructions = event.get("description") or event.get("notes") or event.get("workout_description") or event.get("workout_doc") or "No coach instructions were supplied for this session."
     if isinstance(instructions, dict):
         instructions = instructions.get("description") or instructions.get("notes") or instructions.get("name") or "No coach instructions were supplied for this session."
@@ -509,9 +516,24 @@ elif selected_nav == COACH_PAGE:
 elif selected_nav == NAV_OPTIONS[2]:
     st.markdown("### 📅 Training Calendar")
     today = dt.date.today()
-    window_start, window_end = today - dt.timedelta(days=7), today + dt.timedelta(days=14)
-    calendar_events = [event for event in planned_events if event_date(event) and window_start <= event_date(event) <= window_end]
-    st.caption(f"Showing the previous 7 days and the next 14 days · {window_start:%d %b}–{window_end:%d %b %Y}")
+    window_start, window_end = today - dt.timedelta(days=14), today + dt.timedelta(days=14)
+    # Completed rides come from /activities; calendar entries come from /events.
+    # Combining both makes the past fortnight visible even when Intervals does not
+    # retain completed calendar events.
+    calendar_events, seen_calendar_items = [], set()
+    for source, records in (("Completed ride", activities_data), ("Planned session", planned_events)):
+        for record in records:
+            date_value = event_date(record)
+            if not date_value or not window_start <= date_value <= window_end:
+                continue
+            key = (date_value.isoformat(), (record.get("name") or "").strip().lower())
+            if key in seen_calendar_items:
+                continue
+            seen_calendar_items.add(key)
+            calendar_item = dict(record)
+            calendar_item["_calendar_source"] = source
+            calendar_events.append(calendar_item)
+    st.caption(f"Showing the previous 14 days and the next 14 days · {window_start:%d %b}–{window_end:%d %b %Y}")
     if not calendar_events: st.info("No planned or completed sessions were returned for this 21-day window.")
     grouped = {}
     for event in calendar_events: grouped.setdefault(event_date(event).isoformat(), []).append(event)
