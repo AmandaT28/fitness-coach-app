@@ -527,7 +527,7 @@ def fetch_intervals_data(athlete_id, api_key):
             f"{base}/wellness?oldest={(today-dt.timedelta(days=90)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
             f"{base}/activities?oldest={(today-dt.timedelta(days=90)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
             f"{base}/events?oldest={(today-dt.timedelta(days=14)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
-            f"{base}/power-curves",
+            f"{base}/power-curves?curves=42d&type=Ride",
         ]
         result = []
         for url in urls:
