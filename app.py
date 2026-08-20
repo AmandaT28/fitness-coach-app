@@ -587,11 +587,14 @@ elif selected_nav == "🤖 AI Coach & Sparring":
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.rerun()
 
-# --- BACKGROUND AI PROCESSOR WITH CONDITIONAL SYNC ---
+# --- BACKGROUND AI PROCESSOR WITH CONDITIONAL SYNC & FULL HISTORY ---
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     last_user_prompt = st.session_state.messages[-1]["content"]
     
     stack_summary = ", ".join([f"{s['name']} ({s['timing']})" for s in st.session_state.user_supplements])
+    
+    # Format full rolling conversation history for context memory
+    formatted_history = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages[:-1]])
     
     payload = "\n".join([
         f"You are an elite cycling sports science coach acting with the persona: '{coach_persona}'.",
@@ -600,6 +603,9 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         f"METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.",
         f"ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}",
         f"CURRENT UPCOMING SCHEDULE (NEXT 14 DAYS): {planned_events[:20] if planned_events else 'None'}",
+        "",
+        "PREVIOUS CONVERSATION HISTORY (Maintain memory of this context):",
+        formatted_history if formatted_history else "None yet.",
         "",
         "COACHING RULE - GEAR & LIMITATIONS:",
         f"Athlete Bike Build / Gear: {st.session_state.athlete_gear}",
@@ -614,7 +620,7 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         "CRITICAL CALENDAR CREATION INSTRUCTION: If approved/agreed, output a JSON array wrapped EXACTLY in <icu_workout> ... </icu_workout> tags with fields: 'start_date_local' (YYYY-MM-DD), 'name', 'description', 'type' ('Ride'), 'indoor' (boolean).",
         "CRITICAL CALENDAR RESCHEDULING INSTRUCTION: If approved/agreed, output a JSON object wrapped EXACTLY in <icu_reschedule> ... </icu_reschedule> tags containing: 'delete_event_ids' and 'new_events'.",
         "",
-        last_user_prompt
+        f"USER: {last_user_prompt}"
     ])
     
     with st.spinner("Coach is analyzing and drafting response..."):
