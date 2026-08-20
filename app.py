@@ -247,7 +247,7 @@ def persist_chat_to_db():
         except Exception: pass
 
 def trend_storage_key():
-    return f"coach_trend_analysis:{ATHLETE_ID or display_name}"
+    return f"coach_trend_analyses_history:{ATHLETE_ID or display_name}"
 
 def load_persisted_trend():
     if st.session_state.trend_loaded: return
@@ -255,33 +255,38 @@ def load_persisted_trend():
     saved = None
     if st.session_state.user and supabase:
         try:
-            result = (supabase.table("profiles").select("trend_analysis, trend_analysis_timestamp").eq("id", st.session_state.user.id).execute())
+            result = (supabase.table("profiles").select("trend_analyses_list").eq("id", st.session_state.user.id).execute())
             row = result.data[0] if result.data else {}
-            if row.get("trend_analysis"): saved = {"analysis": row["trend_analysis"], "timestamp": row.get("trend_analysis_timestamp")}
+            if row.get("trend_analyses_list"): saved = row["trend_analyses_list"]
         except Exception: pass
     if not saved and localS:
         try:
             value = localS.getItem(trend_storage_key())
             saved = json.loads(value) if isinstance(value, str) else value
         except Exception: pass
-    if isinstance(saved, dict) and saved.get("analysis"):
-        st.session_state.cached_trend_analysis = saved["analysis"]
-        st.session_state.trend_analysis_timestamp = saved.get("timestamp") or "Saved previously"
+    if isinstance(saved, list) and saved:
+        st.session_state.cached_trend_analyses = saved
+    elif st.session_state.get("cached_trend_analysis"):
+        # Backward compatibility fallback for single cached string
+        st.session_state.cached_trend_analyses = [{
+            "timestamp": st.session_state.get("trend_analysis_timestamp", "Previous"),
+            "analysis": st.session_state.cached_trend_analysis
+        }]
 
 def persist_trend():
-    payload = {"analysis": st.session_state.cached_trend_analysis, "timestamp": st.session_state.trend_analysis_timestamp}
+    payload = st.session_state.cached_trend_analyses
     if st.session_state.user and supabase:
-        try: (supabase.table("profiles").update({"trend_analysis": payload["analysis"], "trend_analysis_timestamp": payload["timestamp"]}).eq("id", st.session_state.user.id).execute())
+        try: 
+            (supabase.table("profiles").update({"trend_analyses_list": payload}).eq("id", st.session_state.user.id).execute())
         except Exception: pass
     if localS:
         try: localS.setItem(trend_storage_key(), json.dumps(payload))
         except Exception: pass
 
 def clear_persisted_trend():
-    st.session_state.cached_trend_analysis = None
-    st.session_state.trend_analysis_timestamp = None
+    st.session_state.cached_trend_analyses = []
     if st.session_state.user and supabase:
-        try: (supabase.table("profiles").update({"trend_analysis": None, "trend_analysis_timestamp": None}).eq("id", st.session_state.user.id).execute())
+        try: (supabase.table("profiles").update({"trend_analyses_list": []}).eq("id", st.session_state.user.id).execute())
         except Exception: pass
     if localS:
         try: localS.deleteItem(trend_storage_key())
@@ -645,9 +650,14 @@ if selected_nav == NAV_OPTIONS[0]:
                 df['date_parsed'] = pd.to_datetime(df[date_col], errors='coerce')
                 df = df.dropna(subset=['date_parsed']).sort_values('date_parsed')
                 
-                df['ctl_clean'] = pd.to_numeric(df.get('ctl', df.get('CTL', 0)), errors='coerce').fillna(0)
-                df['atl_clean'] = pd.to_numeric(df.get('atl', df.get('ATL', 0)), errors='coerce').fillna(0)
-                df['tsb_clean'] = pd.to_numeric(df.get('tsb', df.get('TSB', 0)), errors='coerce').fillna(0)
+               # Robust PMC Graph with explicit Series conversion for fillna safety
+                raw_ctl = df.get('ctl', df.get('CTL', 0))
+                raw_atl = df.get('atl', df.get('ATL', 0))
+                raw_tsb = df.get('tsb', df.get('TSB', 0))
+
+                df['ctl_clean'] = pd.to_numeric(raw_ctl if isinstance(raw_ctl, pd.Series) else pd.Series(raw_ctl), errors='coerce').fillna(0)
+                df['atl_clean'] = pd.to_numeric(raw_atl if isinstance(raw_atl, pd.Series) else pd.Series(raw_atl), errors='coerce').fillna(0)
+                df['tsb_clean'] = pd.to_numeric(raw_tsb if isinstance(raw_tsb, pd.Series) else pd.Series(raw_tsb), errors='coerce').fillna(0)
                 
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['ctl_clean'], mode='lines', name='Fitness (CTL)', line=dict(color='#00E676', width=2)))
@@ -664,27 +674,47 @@ if selected_nav == NAV_OPTIONS[0]:
         except Exception as e:
             st.caption(f"Chart render warning: {e}")
     
+ # Initialize list state key if missing
+    if "cached_trend_analyses" not in st.session_state:
+        st.session_state.cached_trend_analyses = []
+
     if st.button("🚀 Run 90-Day Trend Synthesis", type="primary"):
         payload_text = f"Analyze this athlete's last 90 days. CTL {ctl}; ATL {atl}; TSB {tsb}. Goal: {st.session_state.goals['target_metric']}."
         with st.spinner("Analyzing 90 days of training data..."):
             try:
-                st.session_state.cached_trend_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=3000)
-                st.session_state.trend_analysis_timestamp = dt.datetime.now(LOCAL_TZ).strftime("%d %b %Y, %H:%M %Z")
+                new_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=3000)
+                timestamp_str = dt.datetime.now(LOCAL_TZ).strftime("%d %b %Y, %H:%M %Z")
+                
+                # Prepend the new analysis and keep max 3 items
+                st.session_state.cached_trend_analyses.insert(0, {
+                    "timestamp": timestamp_str,
+                    "analysis": new_analysis
+                })
+                st.session_state.cached_trend_analyses = st.session_state.cached_trend_analyses[:3]
+                
                 persist_trend()
                 st.toast("Trend synthesis complete!", icon="📈")
             except Exception as exc: st.error(str(exc))
             
-    if st.session_state.cached_trend_analysis:
-        with st.expander("📝 Read Coach's Full 90-Day Analysis", expanded=True):
-            st.caption(f"Generated {st.session_state.trend_analysis_timestamp}")
-            st.markdown(st.session_state.cached_trend_analysis)
-            a, b = st.columns(2)
-            if a.button("💬 Discuss with Coach", key="trend_discuss"):
-                open_coach_with_reference("Your dated 90-Day Trend Analysis remains on the Command Center.")
-                st.rerun()
-            if b.button("Clear trend analysis", key="clear_trend"):
+    if st.session_state.cached_trend_analyses:
+        st.markdown("###### 📈 Saved 90-Day Trend Analyses (Last 3)")
+        
+        for idx, item in enumerate(st.session_state.cached_trend_analyses):
+            with st.expander(f"📌 Trend Report #{len(st.session_state.cached_trend_analyses) - idx} · Generated {item['timestamp']}", expanded=(idx == 0)):
+                st.markdown(item['analysis'])
+                a, b = st.columns(2)
+                if a.button("💬 Discuss with Coach", key=f"trend_discuss_{idx}"):
+                    open_coach_with_reference(f"Your dated 90-Day Trend Analysis from {item['timestamp']} remains on record.")
+                    st.rerun()
+                if b.button("Delete this report", key=f"clear_single_trend_{idx}"):
+                    st.session_state.cached_trend_analyses.pop(idx)
+                    persist_trend()
+                    st.rerun()
+                    
+        if len(st.session_state.cached_trend_analyses) > 0:
+            if st.button("🗑️ Clear All Saved Trend Reports", use_container_width=True):
                 clear_persisted_trend()
-                st.rerun()
+                st.rerun()   
 
 elif selected_nav == COACH_PAGE:
     st.markdown("##### 🤖 AI Coach & Collaborative Sparring Partner")
