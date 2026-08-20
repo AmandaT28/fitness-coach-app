@@ -1,8 +1,8 @@
 """AI Performance Coach — Streamlit single-file app with Supabase persistence.
+
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 OpenAI and Anthropic are intentionally not used.
 """
-
 import base64
 import datetime as dt
 import json
@@ -10,8 +10,10 @@ import math
 import os
 import re
 import xml.etree.ElementTree as ET
+from zoneinfo import ZoneInfo
 
 import pandas as pd
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 
@@ -31,12 +33,11 @@ try:
 except Exception:
     LocalStorage = None
 
-from zoneinfo import ZoneInfo
-# Pin the application to your local timezone
-LOCAL_TZ = ZoneInfo("Asia/Singapore")
-today = dt.datetime.now(LOCAL_TZ).date()
 
 st.set_page_config(page_title="AI Performance Coach • Elite Suite", page_icon="🚴‍♂️", layout="wide")
+
+# Pin application logic to local timezone to prevent UTC drift
+LOCAL_TZ = ZoneInfo("Asia/Singapore")
 
 def secret(name, default=None):
     try:
@@ -52,7 +53,7 @@ GEMINI_KEYS = [
     ("Tertiary Gemini", secret("TERTIARY_GEMINI_KEY")),
 ]
 GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-2.5-flash")
-AI_TIMEOUT = 15  # Fast 15s timeout
+AI_TIMEOUT = 15  
 INTERVALS_TIMEOUT = 6
 NAV_OPTIONS = ["📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "🗺️ Route Strategist"]
 COACH_PAGE = "🤖 AI Coach & Sparring"
@@ -130,7 +131,6 @@ def open_coach_with_reference(notice):
 def extract_icu_workout(text):
     text_content = text or ""
     
-    # Helper to strip accidental markdown formatting around the JSON output
     def clean_json_string(s):
         return re.sub(r"```(?:json)?\s*(.*?)\s*```", r"\1", s, flags=re.DOTALL | re.IGNORECASE).strip()
 
@@ -212,7 +212,7 @@ def push_bulk_workouts_to_intervals(athlete_id, api_key, workout_list):
     payload = []
     
     for item in workout_list:
-        date_str = item.get("start_date_local", dt.date.today().isoformat())
+        date_str = item.get("start_date_local", dt.datetime.now(LOCAL_TZ).date().isoformat())
         payload.append({
             "category": "WORKOUT",
             "start_date_local": f"{date_str}T08:00:00" if "T" not in date_str else date_str,
@@ -295,7 +295,7 @@ def fetch_intervals_data(athlete_id, api_key):
     if not athlete_id or not api_key:
         return [], [], [], "Intervals.icu credentials are missing."
     try:
-        today = dt.date.today()
+        today = dt.datetime.now(LOCAL_TZ).date()
         base = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
         urls = [
             f"{base}/wellness?oldest={(today-dt.timedelta(days=90)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
@@ -340,19 +340,16 @@ def activity_summary(activity):
     return {key: value for key, value in fields.items() if value not in (None, "", 0)}
 
 def build_gemini_payload(current_question, display_name):
-    """Constructs message payloads containing history + system context safely bounded for tokens."""
-    today = dt.date.today()
+    today = dt.datetime.now(LOCAL_TZ).date()
     next_monday = today + dt.timedelta(days=(0 - today.weekday()) % 7)
     if next_monday == today: next_monday += dt.timedelta(days=7)
         
     next_monday_str = next_monday.isoformat()
     today_str = today.isoformat()
 
-    # Safely bound large context blocks to prevent token bloat
     trend_ctx = (st.session_state.get('cached_trend_analysis') or 'No Trend Analysis.')[:1200]
     calendar_ctx = (st.session_state.get('calendar_context') or 'Not loaded')[:1500]
     
-    # Safely fetch personal athlete configurations
     supplements_str = json.dumps(st.session_state.user_supplements, ensure_ascii=False) if st.session_state.user_supplements else 'N/A'
     gear_str = st.session_state.athlete_gear or 'N/A'
     limits_str = st.session_state.athlete_limitations or 'N/A'
@@ -397,18 +394,15 @@ def build_gemini_payload(current_question, display_name):
         }
     ]
 
-    # Append recent chat history safely by stripping out bulky JSON/XML tags
     for m in st.session_state.messages[-15:]:
         role = "user" if m["role"] == "user" else "model"
         
-        # If it's the model's past reply, strip the bulky sync data out so it 
-        # doesn't eat tokens or cause broken JSON string slicing
+        # Strip out the bulky XML/JSON tags from the model's past replies to prevent token inflation & corruption
         if role == "model":
             msg_text = clean_chat_content(str(m["content"]))
         else:
             msg_text = str(m["content"])
             
-        # Cap at 2500 chars just in case, but after the dangerous JSON is removed
         contents.append({
             "role": role,
             "parts": [{"text": msg_text[:2500]}]
@@ -427,30 +421,30 @@ def render_coach_reply(question, display_name):
         st.markdown(question)
     with st.chat_message("assistant"):
         placeholder = st.empty()
-        placeholder.markdown("🤔 **Coach is thinking...**")
-        try:
-            payload = build_gemini_payload(question, display_name)
-            response = execute_ai(payload, max_tokens=3000)
-            placeholder.markdown(clean_chat_content(response))
-            
-            icu_payload = extract_icu_workout(response)
-            if isinstance(icu_payload, list) and len(icu_payload) > 0:
-                st.divider()
-                st.markdown(f"📋 **Proposed Plan ({len(icu_payload)} sessions):**")
-                for session in icu_payload:
-                    st.write(f"• **{session.get('start_date_local')}**: `{session.get('name', 'Workout')}` ({session.get('type', 'Ride')})")
-                    
-                if st.button("🚀 Approve & Sync Plan to Intervals.icu & MyWhoosh", key=f"sync_chat_{len(st.session_state.messages)}", type="primary"):
-                    with st.spinner("⏳ Syncing proposed plan to Intervals.icu..."):
-                        try:
-                            push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, icu_payload)
-                            st.success("✅ Proposed plan successfully synced to your Intervals.icu calendar!")
-                        except Exception as exc: st.error(f"Sync failed: {exc}")
-                    
-            st.session_state.messages.append({"role": "assistant", "content": response})
-            persist_chat_to_db()
-        except Exception as exc:
-            placeholder.error(f"⚠️ {exc}")
+        with st.spinner("🤔 **Coach is thinking...**"):
+            try:
+                payload = build_gemini_payload(question, display_name)
+                response = execute_ai(payload, max_tokens=3000)
+                placeholder.markdown(clean_chat_content(response))
+                
+                icu_payload = extract_icu_workout(response)
+                if isinstance(icu_payload, list) and len(icu_payload) > 0:
+                    st.divider()
+                    st.markdown(f"📋 **Proposed Plan ({len(icu_payload)} sessions):**")
+                    for session in icu_payload:
+                        st.write(f"• **{session.get('start_date_local')}**: `{session.get('name', 'Workout')}` ({session.get('type', 'Ride')})")
+                        
+                    if st.button("🚀 Approve & Sync Plan to Intervals.icu & MyWhoosh", key=f"sync_chat_{len(st.session_state.messages)}", type="primary"):
+                        with st.spinner("⏳ Syncing proposed plan to Intervals.icu..."):
+                            try:
+                                push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, icu_payload)
+                                st.toast("✅ Proposed plan successfully synced!", icon="✅")
+                            except Exception as exc: st.error(f"Sync failed: {exc}")
+                        
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                persist_chat_to_db()
+            except Exception as exc:
+                placeholder.error(f"⚠️ {exc}")
 
 def parse_gpx(raw):
     try:
@@ -594,14 +588,15 @@ with st.sidebar:
                             "chat_history": st.session_state.messages[-30:]
                         }).eq("id", st.session_state.user.id).execute())
                     except Exception as exc: st.warning(f"Profile saved locally: {exc}")
-                st.success("Profile saved.")
+                st.toast("Profile saved successfully!", icon="💾")
                 
     with st.expander("AI connection", expanded=False):
         if st.button("Test AI connection", key="test_gemini", use_container_width=True):
-            try:
-                execute_ai([{"role": "user", "parts": [{"text": "Reply exactly: AI connection successful."}]}], max_tokens=20)
-                st.success("AI connection successful.")
-            except Exception as exc: st.error(str(exc))
+            with st.spinner("Pinging coach..."):
+                try:
+                    execute_ai([{"role": "user", "parts": [{"text": "Reply exactly: AI connection successful."}]}], max_tokens=20)
+                    st.success("AI connection successful.")
+                except Exception as exc: st.error(str(exc))
         if st.session_state.ai_diagnostic:
             st.caption("Diagnostic")
             st.code(st.session_state.ai_diagnostic, language="text")
@@ -637,33 +632,58 @@ if selected_nav == NAV_OPTIONS[0]:
         readiness, focus, watch = "Fresh", "A quality session can fit if it is on the plan.", f"You are carrying low fatigue (TSB {tsb:.0f})."
         
     sleep_note = f" Sleep score: {sleep_score}/100." if sleep_score else ""
-    st.markdown("###### Today at a glance")
     st.info(f"**{readiness}.** {focus} **Note:** {watch}{sleep_note}")
+    
     c1, c2, c3 = st.columns(3)
     c1.metric("Fitness (CTL)", round(ctl, 1))
     c2.metric("Fatigue (ATL)", round(atl, 1))
     c3.metric("Form (TSB)", round(tsb, 1))
+
+    # High-Performance Data Visualization (PMC Chart)
+    if wellness_list:
+        try:
+            df = pd.DataFrame(wellness_list)
+            date_col = 'id' if 'id' in df.columns else 'date' if 'date' in df.columns else None
+            if date_col and not df.empty:
+                df['date_parsed'] = pd.to_datetime(df[date_col])
+                df = df.sort_values('date_parsed')
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['ctl'], mode='lines', name='Fitness (CTL)', line=dict(color='#00E676', width=2)))
+                fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['atl'], mode='lines', name='Fatigue (ATL)', line=dict(color='#FF4081', width=2)))
+                fig.add_trace(go.Bar(x=df['date_parsed'], y=df['tsb'], name='Form (TSB)', marker_color=['#00E676' if val >= 0 else '#FF4081' for val in df['tsb']]))
+                
+                fig.update_layout(
+                    title="90-Day Performance Management Chart", title_font=dict(size=14, color="#E0E0E0"),
+                    margin=dict(l=0, r=0, t=40, b=0), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#E0E0E0")),
+                    xaxis=dict(showgrid=False, color="#E0E0E0"), yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)", color="#E0E0E0")
+                )
+                st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.caption(f"Chart render failed: {e}")
     
     if st.button("🚀 Run 90-Day Trend Synthesis", type="primary"):
         payload_text = f"Analyze this athlete's last 90 days. CTL {ctl}; ATL {atl}; TSB {tsb}. Goal: {st.session_state.goals['target_metric']}."
-        with st.spinner("Analyzing 90 days of training..."):
+        with st.spinner("Analyzing 90 days of training data..."):
             try:
                 st.session_state.cached_trend_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=3000)
-                st.session_state.trend_analysis_timestamp = dt.datetime.now().astimezone().strftime("%d %b %Y, %H:%M %Z")
+                st.session_state.trend_analysis_timestamp = dt.datetime.now(LOCAL_TZ).strftime("%d %b %Y, %H:%M %Z")
                 persist_trend()
+                st.toast("Trend synthesis complete!", icon="📈")
             except Exception as exc: st.error(str(exc))
             
     if st.session_state.cached_trend_analysis:
-        st.markdown("###### 90-Day Trend Analysis")
-        st.caption(f"Generated {st.session_state.trend_analysis_timestamp}")
-        st.markdown(st.session_state.cached_trend_analysis)
-        a, b = st.columns(2)
-        if a.button("💬 Discuss with Coach", key="trend_discuss"):
-            open_coach_with_reference("Your dated 90-Day Trend Analysis remains on the Command Center.")
-            st.rerun()
-        if b.button("Clear trend analysis", key="clear_trend"):
-            clear_persisted_trend()
-            st.rerun()
+        with st.expander("📝 Read Coach's Full 90-Day Analysis", expanded=True):
+            st.caption(f"Generated {st.session_state.trend_analysis_timestamp}")
+            st.markdown(st.session_state.cached_trend_analysis)
+            a, b = st.columns(2)
+            if a.button("💬 Discuss with Coach", key="trend_discuss"):
+                open_coach_with_reference("Your dated 90-Day Trend Analysis remains on the Command Center.")
+                st.rerun()
+            if b.button("Clear trend analysis", key="clear_trend"):
+                clear_persisted_trend()
+                st.rerun()
 
 elif selected_nav == COACH_PAGE:
     st.markdown("##### 🤖 AI Coach & Collaborative Sparring Partner")
@@ -685,7 +705,7 @@ elif selected_nav == COACH_PAGE:
                         with st.spinner("⏳ Syncing workouts to Intervals.icu..."):
                             try:
                                 push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, icu_payload)
-                                st.success("✅ Workouts successfully synced!")
+                                st.toast("✅ Proposed plan successfully synced!", icon="✅")
                             except Exception as exc: st.error(f"Sync failed: {exc}")
 
     pending = st.session_state.pending_coach_prompt
@@ -697,7 +717,7 @@ elif selected_nav == COACH_PAGE:
 
 elif selected_nav == NAV_OPTIONS[2]:
     st.markdown("##### 📅 Training Calendar & Intervals.icu Sync")
-    today = dt.date.today()
+    today = dt.datetime.now(LOCAL_TZ).date()
     window_start, window_end = today - dt.timedelta(days=14), today + dt.timedelta(days=14)
     st.caption(f"Showing previous 14 days and next 14 days · {window_start:%d %b}–{window_end:%d %b %Y}")
 
@@ -756,7 +776,6 @@ elif selected_nav == NAV_OPTIONS[2]:
 
     st.divider()
     
-    # Moved to the bottom of the page
     with st.expander("➕ Push New Workout to Intervals.icu Calendar (Syncs to MyWhoosh)", expanded=False):
         with st.form("push_workout_form"):
             w_name = st.text_input("Workout Name", value="VO2Max Intervals")
@@ -772,7 +791,7 @@ elif selected_nav == NAV_OPTIONS[2]:
                             "type": w_type,
                             "description": w_desc
                         }])
-                        st.success(f"Pushed '{w_name}' to Intervals.icu for {w_date.isoformat()}!")
+                        st.toast(f"Pushed '{w_name}' to Intervals.icu for {w_date.isoformat()}!", icon="🚀")
                     except Exception as exc:
                         st.error(str(exc))
 
@@ -788,18 +807,23 @@ elif selected_nav == NAV_OPTIONS[3]:
         c1.metric("Distance", f"{round((activity.get('distance') or 0)/1000,2)} km")
         c2.metric("Moving Time", f"{int((activity.get('moving_time') or 0)/60)} min")
         c3.metric("Average Power", f"{activity.get('average_watts','N/A')} W")
+        
         if st.button("Run AI Debrief", type="primary"):
             compact_activity = activity_summary(activity)
-            try:
-                prompt_text = f"Give a concise cycling performance debrief for this activity: {json.dumps(compact_activity)}. Goal: {st.session_state.goals['target_metric']}."
-                st.session_state.selected_activity_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
-                st.session_state.selected_activity_label = label
-            except Exception as exc: st.error(str(exc))
+            with st.spinner("Analyzing performance data..."):
+                try:
+                    prompt_text = f"Give a concise cycling performance debrief for this activity: {json.dumps(compact_activity)}. Goal: {st.session_state.goals['target_metric']}."
+                    st.session_state.selected_activity_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
+                    st.session_state.selected_activity_label = label
+                    st.toast("Debrief generated successfully!", icon="✅")
+                except Exception as exc: st.error(str(exc))
+                
         if st.session_state.selected_activity_analysis:
-            st.markdown(st.session_state.selected_activity_analysis)
-            if st.button("💬 Discuss with Coach", key="activity_discuss"):
-                discuss_with_coach(f"activity debrief for {st.session_state.selected_activity_label}", st.session_state.selected_activity_analysis)
-                st.rerun()
+            with st.expander("📝 Read Full Debrief", expanded=True):
+                st.markdown(st.session_state.selected_activity_analysis)
+                if st.button("💬 Discuss with Coach", key="activity_discuss"):
+                    discuss_with_coach(f"activity debrief for {st.session_state.selected_activity_label}", st.session_state.selected_activity_analysis)
+                    st.rerun()
 
 elif selected_nav == "🗺️ Route Strategist":
     st.markdown("##### 🗺️ Route Pacing & Climbing Strategist")
@@ -809,15 +833,18 @@ elif selected_nav == "🗺️ Route Strategist":
         if metrics:
             st.json(metrics)
             if st.button("Generate Climbing Strategy", type="primary"):
-                try:
-                    prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Goal: {st.session_state.goals['target_metric']}. Give practical pacing and climbing strategies."
-                    # Fixed max_notes typo to max_tokens
-                    st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
-                except Exception as exc: st.error(str(exc))
+                with st.spinner("Analyzing elevation profile..."):
+                    try:
+                        prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Goal: {st.session_state.goals['target_metric']}. Give practical pacing and climbing strategies."
+                        st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
+                        st.toast("Climbing strategy generated!", icon="🏔️")
+                    except Exception as exc: st.error(str(exc))
+                    
             if st.session_state.route_analysis:
-                st.markdown(st.session_state.route_analysis)
-                if st.button("💬 Discuss with Coach", key="route_discuss"):
-                    discuss_with_coach("my route strategy", st.session_state.route_analysis)
-                    st.rerun()
+                with st.expander("🗺️ Read Climbing Strategy", expanded=True):
+                    st.markdown(st.session_state.route_analysis)
+                    if st.button("💬 Discuss with Coach", key="route_discuss"):
+                        discuss_with_coach("my route strategy", st.session_state.route_analysis)
+                        st.rerun()
         else:
             st.error("Could not parse GPX file. Ensure it contains valid track points and elevation data.")
