@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Design System & Theme Architecture Overhaul)
+"""AI Performance Coach • Elite Suite (Multi-Sport & Theme Patched)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -83,143 +83,66 @@ def init_state():
 
 init_state()
 
-# --- RE-ENGINEERED DESIGN SYSTEM & COLOR TOKENS ---
+# --- DYNAMIC THEME STYLING INJECTION ---
 current_theme = st.session_state.get("app_theme", "Dark Mode (Default)")
 is_light = "Light" in current_theme
 
-if is_light:
-    bg_app = "#F8FAFC"          # Slate 50
-    bg_sidebar = "#FFFFFF"      # Pure White
-    card_bg = "#FFFFFF"         # Pure White
-    card_border = "#E2E8F0"     # Slate 200
-    text_primary = "#0F172A"    # Slate 900
-    accent_color = "#2563EB"    # Blue 600
-    nav_inactive_bg = "#F1F5F9" # Slate 100
-    nav_inactive_text = "#334155" # Slate 700
-else:
-    bg_app = "#090D16"          # Deep Slate/Black
-    bg_sidebar = "#111827"      # Gray 900
-    card_bg = "#1F2937"         # Gray 800
-    card_border = "#374151"     # Gray 700
-    text_primary = "#F9FAFB"    # Gray 50
-    accent_color = "#3B82F6"    # Blue 500
-    nav_inactive_bg = "#1F2937" # Gray 800
-    nav_inactive_text = "#D1D5DB" # Gray 300
+bg_color = "#FFFFFF" if is_light else "#0E1117"
+sidebar_bg = "#F8F9FA" if is_light else "#161B22"
+text_color = "#262730" if is_light else "#FAFAFA"
+card_bg = "#F1F3F5" if is_light else "#1E2530"
+border_color = "rgba(128,128,128,0.25)"
 
 st.markdown(f"""
 <style>
-/* Fix Top Banner Overlap Defect */
-header[data-testid="stHeader"] {{
-    background-color: {bg_app} !important;
-    z-index: 99 !important;
-}}
-
-.main .block-container {{
-    padding-top: 5rem !important;
-    padding-bottom: 6rem !important;
-    padding-left: 2rem !important;
-    padding-right: 2rem !important;
-    max-width: 1400px;
-}}
-
-/* Global Application Background & Text */
 .stApp {{
-    background-color: {bg_app} !important;
-    color: {text_primary} !important;
+    background-color: {bg_color};
+    color: {text_color};
 }}
 
-/* Sidebar Design Architecture */
-section[data-testid="stSidebar"] {{
-    background-color: {bg_sidebar} !important;
-    border-right: 1px solid {card_border} !important;
+.block-container {{ max-width: 1480px; padding-top: 3.5rem; padding-bottom: 3rem; padding-left: 1rem; padding-right: 1rem; }}
+.top-nav-spacer {{ height: 2rem; }}
+
+section[data-testid="stSidebar"] {{ 
+    border-right: 1px solid {border_color}; 
+    background-color: {sidebar_bg} !important; 
+    z-index: 999999 !important;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    box-shadow: 5px 0 25px rgba(0,0,0,0.25);
 }}
 
 section[data-testid="stSidebar"] > div {{
-    background-color: {bg_sidebar} !important;
+    background-color: {sidebar_bg} !important;
 }}
 
-/* Sidebar Navigation Buttons */
-section[data-testid="stSidebar"] .stButton > button {{
-    background-color: {nav_inactive_bg} !important;
-    color: {nav_inactive_text} !important;
-    border: 1px solid {card_border} !important;
-    border-radius: 8px !important;
-    padding: 0.55rem 1rem !important;
-    font-weight: 500 !important;
-    text-align: left !important;
-    width: 100% !important;
-    transition: all 0.15s ease-in-out !important;
+div[data-testid="stMetric"] {{ 
+    background: {card_bg}; 
+    border: 1px solid {border_color}; 
+    border-radius: 14px; 
+    padding: 12px 14px; 
+    box-shadow: 0 4px 18px rgba(0,0,0,.05);
+    word-break: break-word;
 }}
 
-section[data-testid="stSidebar"] .stButton > button:hover {{
-    border-color: {accent_color} !important;
-    color: {text_primary} !important;
-}}
+div[data-testid="stExpander"] {{ border: 1px solid {border_color}; border-radius: 12px; overflow: hidden; background: {card_bg}; }}
+div[data-testid="stExpander"] details summary {{ font-weight: 600; color: {text_color}; }}
 
-section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
-    background-color: {accent_color} !important;
-    color: #FFFFFF !important;
-    border-color: {accent_color} !important;
-    font-weight: 600 !important;
-}}
+.stButton > button {{ border-radius: 10px; font-weight: 600; transition: transform .15s ease, box-shadow .15s ease; width: 100%; }}
+.stButton > button:hover {{ transform: translateY(-1px); box-shadow: 0 5px 14px rgba(0,0,0,.10); }}
 
-/* Containers, Metric Cards & Expanders */
-div[data-testid="stMetric"], 
-div[data-testid="stExpander"], 
-div[data-testid="stChatMessage"] {{
-    background-color: {card_bg} !important;
-    border: 1px solid {card_border} !important;
-    border-radius: 12px !important;
-    color: {text_primary} !important;
-}}
+div[data-testid="stChatMessage"] {{ border-radius: 14px; word-break: break-word; }}
 
-/* Fixed Bottom Chat Container Alignment */
-div[data-testid="stBottomBlockContainer"] {{
-    background-color: {bg_app} !important;
-    border-top: 1px solid {card_border} !important;
-    padding-bottom: 1rem !important;
-}}
+.readiness-card-red {{ background: linear-gradient(135deg, rgba(255, 64, 129, 0.15), rgba(255, 23, 68, 0.05)); border: 1px solid rgba(255, 64, 129, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; }}
+.readiness-card-green {{ background: linear-gradient(135deg, rgba(0, 230, 118, 0.15), rgba(0, 200, 83, 0.05)); border: 1px solid rgba(0, 230, 118, 0.4); border-radius: 14px; padding: 16px 18px; margin-bottom: 1.5rem; }}
+.workout-pill {{ display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; background: rgba(128,128,128,0.15); margin-right: 6px; margin-bottom: 6px; }}
 
-div[data-testid="stChatInput"] {{
-    background-color: {card_bg} !important;
-    border: 1px solid {card_border} !important;
-    border-radius: 12px !important;
-}}
+div[data-testid="stRadio"] [role="radiogroup"] {{ flex-wrap: wrap; gap: .25rem 1rem; }}
+div[data-testid="stRadio"] label {{ font-size: .86rem; white-space: normal !important; }}
 
-div[data-testid="stChatInput"] textarea {{
-    color: {text_primary} !important;
-}}
-
-/* Readiness Cards */
-.readiness-card-red {{ 
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.02)); 
-    border: 1px solid rgba(239, 68, 68, 0.35); 
-    border-radius: 12px; 
-    padding: 16px 20px; 
-    margin-bottom: 1.5rem; 
-    color: {text_primary};
-}}
-
-.readiness-card-green {{ 
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.02)); 
-    border: 1px solid rgba(16, 185, 129, 0.35); 
-    border-radius: 12px; 
-    padding: 16px 20px; 
-    margin-bottom: 1.5rem; 
-    color: {text_primary};
-}}
-
-.workout-pill {{ 
-    display: inline-block; 
-    padding: 4px 10px; 
-    border-radius: 6px; 
-    font-size: 0.8rem; 
-    font-weight: 600; 
-    background-color: {nav_inactive_bg}; 
-    color: {text_primary};
-    border: 1px solid {card_border};
-    margin-right: 6px; 
-    margin-bottom: 6px; 
+@media(max-width: 768px) {{
+    div[data-testid="stHorizontalBlock"] {{ flex-direction: column !important; gap: 1rem; }}
+    .block-container {{ padding-top: 2rem; }}
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -230,6 +153,12 @@ def ensure_initial_message():
 
 def go_to(page):
     st.session_state.active_nav = page
+
+def sidebar_changed():
+    st.session_state.active_nav = st.session_state.sidebar_nav
+
+def top_nav_changed():
+    st.session_state.active_nav = st.session_state.top_nav
 
 def discuss_with_coach(topic, context):
     context = str(context)
@@ -245,6 +174,7 @@ def open_coach_with_reference(notice):
 def calculate_compliance_score(activity):
     activity_type = activity.get("type", "Ride")
     if "Run" in activity_type:
+        # Running compliance based on heart rate stability or pace
         avg_hr = activity.get("average_heartrate")
         max_hr = activity.get("max_heartrate")
         if avg_hr and max_hr and max_hr > 0:
@@ -253,6 +183,7 @@ def calculate_compliance_score(activity):
             return f"{max(50, min(100, score))}% (Avg HR: {avg_hr} bpm)"
         return "92% (Run Target Met)"
     
+    # Cycling compliance logic
     actual_np = activity.get("icu_weighted_avg_watts") or activity.get("average_watts") or 0
     ap = activity.get("average_watts") or actual_np
     if not actual_np or ap <= 0:
@@ -513,7 +444,7 @@ def parse_gpx(raw):
         for elem in root.iter():
             if elem.tag.split("}")[-1].lower() not in ("trkpt", "rtept") or not elem.attrib.get("lat") or not elem.attrib.get("lon"):
                 continue
-            points.append((float(elem.attrib["lat"]), float(elem.attrib["lon"])))
+            points.append((float(elem.attrib["lat"], float(elem.attrib["lon"]))))
             elevations.append(next((float(c.text) for c in elem if c.tag.split("}")[-1].lower() in ("ele", "elevation", "alt") and c.text), 0.0))
         if not points: return None
         distance = sum(6371 * 2 * math.asin(math.sqrt(math.sin(math.radians(points[i][0]-points[i-1][0])/2)**2 + math.cos(math.radians(points[i-1][0]))*math.cos(math.radians(points[i][0]))*math.sin(math.radians(points[i][1]-points[i-1][1])/2)**2)) for i in range(1, len(points)))
@@ -612,14 +543,9 @@ with st.sidebar:
 
     st.session_state.primary_discipline = st.selectbox("Primary Focus", ["Cycling & Running (Multi-Sport)", "Cycling Focus", "Running Focus"], index=0)
 
-    st.markdown("---")
-    st.markdown("**Navigation**")
-    for nav_item in NAV_OPTIONS:
-        if st.button(nav_item, use_container_width=True, type="primary" if st.session_state.active_nav == nav_item else "secondary"):
-            go_to(nav_item)
-            st.rerun()
-
+    st.radio("Navigate", NAV_OPTIONS, key="sidebar_nav", on_change=sidebar_changed)
     st.divider()
+    
     st.session_state.coach_persona = st.selectbox("Coaching Persona", ["Collaborative Peer (Balanced & Brainstorming)", "Sports Scientist (Data & Periodization Focus)", "Drill Sergeant (Strict & Direct Accountability)"], index=0)
     
     with st.expander("Recovery, fuel & supplements", expanded=False):
@@ -691,6 +617,9 @@ with st.sidebar:
         persist_chat_to_db()
         st.rerun()
 
+st.markdown("<div class='top-nav-spacer'></div>", unsafe_allow_html=True)
+if st.session_state.get("top_nav") != st.session_state.active_nav: st.session_state.top_nav = st.session_state.active_nav
+st.radio("Navigate pages", NAV_OPTIONS, horizontal=True, label_visibility="collapsed", key="top_nav", on_change=top_nav_changed)
 selected_nav = st.session_state.active_nav
 
 latest = wellness_list[-1] if wellness_list else {}
@@ -749,10 +678,10 @@ if selected_nav == NAV_OPTIONS[0]:
                 fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['atl_clean'], mode='lines', name='Fatigue (ATL)', line=dict(color='#FF4081', width=2)))
                 fig.add_trace(go.Bar(x=df['date_parsed'], y=df['tsb_clean'], name='Form (TSB)', marker_color=['#00E676' if val >= 0 else '#FF4081' for val in df['tsb_clean']]))
                 fig.update_layout(
-                    title="90-Day Multi-Sport Performance Management Chart", title_font=dict(size=14, color=text_primary),
+                    title="90-Day Multi-Sport Performance Management Chart", title_font=dict(size=14, color=text_color),
                     margin=dict(l=0, r=0, t=40, b=0), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color=text_primary)),
-                    xaxis=dict(showgrid=False, color=text_primary), yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)", color=text_primary)
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color=text_color)),
+                    xaxis=dict(showgrid=False, color=text_color), yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)", color=text_color)
                 )
                 st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
@@ -1012,7 +941,7 @@ elif selected_nav == NAV_OPTIONS[5]:
                     title="Power Duration Curve (Watts vs Seconds)",
                     xaxis_title="Duration (Seconds, Log Scale)", yaxis_title="Power (Watts)",
                     xaxis_type="log", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color=text_primary)
+                    font=dict(color=text_color)
                 )
                 st.plotly_chart(fig_pc, use_container_width=True)
                 
