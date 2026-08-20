@@ -375,7 +375,10 @@ def coach_prompt(question, display_name):
     question = str(question)[-4000:]
     cal_ctx = st.session_state.get("calendar_context", "Not loaded")
     
-    # Calculate upcoming Monday date for explicit prompt guidance
+    # Automatically retrieve the cached 90-Day Trend Analysis if available
+    trend_ctx = st.session_state.get("cached_trend_analysis") or "No 90-Day Trend Analysis generated yet."
+    trend_time = st.session_state.get("trend_analysis_timestamp", "")
+    
     today = dt.date.today()
     next_monday = today + dt.timedelta(days=(0 - today.weekday()) % 7)
     if next_monday == today:
@@ -391,13 +394,17 @@ Target event: {st.session_state.goals['event_name']} on {st.session_state.goals[
 Gear: {st.session_state.athlete_gear or 'Not provided'}
 Limitations: {st.session_state.athlete_limitations or 'Not provided'}
 Available supplements / fuel: {json.dumps(st.session_state.user_supplements, ensure_ascii=False) or 'Not provided'}
+
+ATHLETE'S 90-DAY TREND SYNTHESIS ({trend_time}):
+{trend_ctx}
+
 Athlete's Recent/Upcoming Calendar Context:\n{cal_ctx}
 Recent conversation:\n{history}
 Current question:\n{question}
 
 CRITICAL WORKOUT & WEEKLY PLAN GENERATION INSTRUCTIONS:
-1. Explain the rationale for the plan directly to the athlete.
-2. IF YOU ARE PRESCRBING OR UPDATING A MULTI-DAY OR FULL WEEKLY SCHEDULE, YOU MUST append a JSON array enclosed inside `<icu_weekly_plan>` tags at the very end of your message.
+1. Explain the rationale for the plan directly to the athlete based on their trends and form.
+2. IF YOU ARE PRESCRIBING OR UPDATING A MULTI-DAY OR FULL WEEKLY SCHEDULE, YOU MUST append a JSON array enclosed inside `<icu_weekly_plan>` tags at the very end of your message.
 Format example for weekly schedule:
 <icu_weekly_plan>
 [
@@ -406,17 +413,11 @@ Format example for weekly schedule:
     "type": "Ride",
     "start_date_local": "{next_monday.isoformat()}",
     "description": "- Warmup\\n  - 10m 50-65%\\n\\n- Main Set 5x\\n  - 3m 110-120% 95rpm\\n  - 3m 50% 85rpm\\n\\n- Cooldown\\n  - 10m 50-40%"
-  }},
-  {{
-    "name": "Sweet Spot 3x12min",
-    "type": "Ride",
-    "start_date_local": "{(next_monday + dt.timedelta(days=2)).isoformat()}",
-    "description": "- Warmup\\n  - 10m 50-65%\\n\\n- Main Set 3x\\n  - 12m 88-94% 90rpm\\n  - 4m 50% 85rpm\\n\\n- Cooldown\\n  - 10m 50-40%"
   }}
 ]
 </icu_weekly_plan>
 
-3. IF PRESCRBING A SINGLE WORKOUT ONLY, enclose a JSON object in `<icu_workout>` tags instead.
+3. IF PRESCRIBING A SINGLE WORKOUT ONLY, enclose a JSON object in `<icu_workout>` tags instead.
 Always supply valid Intervals.icu plain-text syntax in the `description` field for each workout so MyWhoosh renders ERG mode targets properly."""
 
 def render_coach_reply(question, display_name):
