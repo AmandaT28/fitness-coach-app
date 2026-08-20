@@ -345,7 +345,6 @@ def append_error(errors: List[str], label: str, exc: Exception) -> None:
         message = message[:400] + "…"
     errors.append(f"{label}: {message}")
 
-
 def call_gemini(prompt: str, api_key: Optional[str], label: str, model_name: str) -> Tuple[str, str]:
     client = make_gemini_client(api_key)
     if not client:
@@ -354,13 +353,12 @@ def call_gemini(prompt: str, api_key: Optional[str], label: str, model_name: str
     result = client.models.generate_content(
         model=model_name,
         contents=prompt,
-        config={"max_output_tokens": 1800, "temperature": 0.7},
+        config={"max_output_tokens": 8192, "temperature": 0.7}, # <--- Increased to 8192
     )
     text = getattr(result, "text", None)
     if not text:
         raise RuntimeError(f"{label} Gemini returned an empty response.")
     return text.strip(), f"Google {model_name} ({label})"
-
 
 def execute_multiprovider_generation(prompt: str, preferred_provider: str = "Gemini 3.7 Flash") -> Tuple[str, str]:
     """Graceful multi-key & multi-model fallback chain."""
