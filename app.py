@@ -48,7 +48,7 @@ GEMINI_KEYS = [
     ("Tertiary Gemini", secret("TERTIARY_GEMINI_KEY")),
 ]
 GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-3.6-flash")
-AI_TIMEOUT = 15  # Fast 15-second timeout to prevent chat stalling
+AI_TIMEOUT = 15  # Fast 15s timeout
 INTERVALS_TIMEOUT = 6
 NAV_OPTIONS = ["📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "🗺️ Route Strategist"]
 COACH_PAGE = "🤖 AI Coach & Sparring"
@@ -101,7 +101,7 @@ def init_state():
 
 def ensure_initial_message():
     if not st.session_state.messages:
-        st.session_state.messages = [{"role": "assistant", "content": "Hello! I am your AI Performance Coach. Tell me what you discussed or ask me to propose next week's training block, and I can sync it to your Intervals.icu & MyWhoosh calendar once approved."}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hello! I am your AI Performance Coach. Ask me to propose next week's training block or adjust your current schedule."}]
 
 def go_to(page):
     st.session_state.active_nav = page
@@ -124,10 +124,7 @@ def open_coach_with_reference(notice):
     go_to(COACH_PAGE)
 
 def extract_icu_workout(text):
-    """Extracts proposed workouts or multi-workout weekly plans from AI replies."""
     text_content = text or ""
-    
-    # 1. Check for array weekly plan format
     plan_match = re.search(r"<icu_weekly_plan>(.*?)</icu_weekly_plan>", text_content, re.DOTALL | re.IGNORECASE)
     if plan_match:
         try:
@@ -137,7 +134,6 @@ def extract_icu_workout(text):
         except Exception:
             pass
 
-    # 2. Check for single workout format
     single_match = re.search(r"<icu_workout>(.*?)</icu_workout>", text_content, re.DOTALL | re.IGNORECASE)
     if single_match:
         try:
@@ -150,7 +146,6 @@ def extract_icu_workout(text):
     return None
 
 def clean_chat_content(text):
-    """Removes raw XML tags before rendering markdown text to the user."""
     text = text or ""
     text = re.sub(r"```xml\s*<\?xml.*?</workout_file>\s*```", "", text, flags=re.S | re.I)
     text = re.sub(r"<icu_workout>.*?</icu_workout>", "", text, flags=re.S | re.I)
@@ -198,7 +193,6 @@ def execute_ai(prompt, max_tokens=4000):
     raise RuntimeError("The coach is temporarily rate-limited or busy. Please try again in 5 seconds.")
 
 def push_bulk_workouts_to_intervals(athlete_id, api_key, workout_list):
-    """Pushes single or bulk workout blocks to Intervals.icu calendar (syncs to MyWhoosh)."""
     if not athlete_id or not api_key:
         raise RuntimeError("Intervals.icu credentials are required to push workouts.")
     if not workout_list:
@@ -409,7 +403,7 @@ def render_coach_reply(question, display_name):
                 if st.button("🚀 Approve & Sync Plan to Intervals.icu & MyWhoosh", key=f"sync_chat_{len(st.session_state.messages)}", type="primary"):
                     try:
                         push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, icu_payload)
-                        st.success("✅ Proposed plan successfully synced to your Intervals.icu calendar! Open MyWhoosh to train.")
+                        st.success("✅ Proposed plan successfully synced to your Intervals.icu calendar!")
                     except Exception as exc: st.error(f"Sync failed: {exc}")
                         
             st.session_state.messages.append({"role": "assistant", "content": response})
@@ -436,7 +430,9 @@ def parse_gpx(raw):
     except Exception:
         return None
 
+# Guarantee session state initialization before rendering
 init_state()
+
 try:
     token = st.query_params.get("token")
     if token and not st.session_state.user_credentials:
@@ -644,7 +640,7 @@ elif selected_nav == COACH_PAGE:
                     st.markdown(f"📋 **Proposed Plan ({len(icu_payload)} sessions):**")
                     for session in icu_payload:
                         st.write(f"• **{session.get('start_date_local')}**: `{session.get('name', 'Workout')}` ({session.get('type', 'Ride')})")
-                    if st.button("🚀 Sync Plan to Intervals.icu & MyWhoosh", key=f"sync_hist_{idx}", type="primary"):
+                    if st.button("🚀 Approve & Sync Plan to Intervals.icu & MyWhoosh", key=f"sync_hist_{idx}", type="primary"):
                         try:
                             push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, icu_payload)
                             st.success("✅ Workouts successfully synced!")
