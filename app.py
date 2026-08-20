@@ -829,7 +829,7 @@ if selected_nav == "📊 Command Center":
                 st.rerun()
 
 # -----------------------------------------------------------------------------
-# VIEW 2: AI COACH CHAT (Fixed Streamlit Chat Pattern)
+# VIEW 2: AI COACH CHAT
 # -----------------------------------------------------------------------------
 elif selected_nav == "🤖 AI Coach & Sparring":
     st.markdown("### 🤖 AI Coach & Collaborative Sparring Partner")
@@ -837,10 +837,12 @@ elif selected_nav == "🤖 AI Coach & Sparring":
         f"Active Persona: **{coach_persona}** | The coach proposes plans first; Intervals.icu sync only occurs when a structured workout block is explicitly emitted."
     )
 
+    # 1. Ensure all message roles are valid for Streamlit chat elements
     for message in st.session_state.messages:
         if message.get("role") not in ("user", "assistant"):
             message["role"] = "assistant"
 
+    # 2. Render all past conversation history
     for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             clean = sanitize_chat_text(message["content"])
@@ -860,11 +862,14 @@ elif selected_nav == "🤖 AI Coach & Sparring":
                             key=f"zwo_{idx}_{xml_index}",
                         )
 
+    # 3. Clean, direct chat input handler (no stalling state machines)
     if prompt := st.chat_input("Ask your coach to plan training or bounce an idea…"):
+        # Immediately record and display user prompt
         st.session_state.messages.append({"role": "user", "content": prompt.strip()})
         with st.chat_message("user"):
             st.markdown(prompt.strip())
 
+        # Process and display assistant response
         with st.chat_message("assistant"):
             with st.spinner("🤖 Coach is analyzing and drafting…"):
                 try:
@@ -889,7 +894,6 @@ elif selected_nav == "🤖 AI Coach & Sparring":
                     )
                     st.markdown(error_msg)
                     st.session_state.messages.append({"role": "assistant", "content": error_msg})
-
 
 # -----------------------------------------------------------------------------
 # VIEW 3: TRAINING CALENDAR
