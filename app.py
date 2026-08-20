@@ -777,10 +777,7 @@ if selected_nav == "📊 Command Center":
     st.markdown("---")
     st.markdown("#### 📈 Deep 90-Day Training Load & Progression Trend Analysis")
 
-    # Use a form or callback-driven execution to safely handle the generation trigger
-    with st.form("trend_analysis_form"):
-        if st.button("🚀 Run 90-Day Trend Synthesis", type="primary", use_container_width=True):
-        # Clean and condense activities before sending to AI
+    if st.button("🚀 Run 90-Day Trend Synthesis", type="primary", use_container_width=True):
         compact_activities = summarize_activities(activities_data, limit=25)
         
         trend_payload = "\n".join(
@@ -801,7 +798,6 @@ if selected_nav == "📊 Command Center":
             except Exception as exc:
                 st.error(f"Trend synthesis failed: {exc}")
 
-    # Render cached analysis independently of the button state
     if st.session_state.cached_trend_analysis:
         st.markdown("---")
         st.caption(f"🕒 Analysis generated on: **{st.session_state.trend_analysis_timestamp}**")
@@ -823,7 +819,6 @@ if selected_nav == "📊 Command Center":
                 st.session_state.cached_trend_analysis = None
                 st.session_state.trend_analysis_timestamp = None
                 st.rerun()
-
 
 # -----------------------------------------------------------------------------
 # VIEW 2: AI COACH CHAT (Fixed Streamlit Chat Pattern)
