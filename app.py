@@ -132,7 +132,7 @@ def gemini_generate(prompt, api_key):
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
         json={
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 900},
+            "generationConfig": {"maxOutputTokens": 1800},
         },
         timeout=AI_TIMEOUT,
     )
@@ -464,10 +464,13 @@ with st.sidebar:
             except Exception: pass
         st.rerun()
 
-top = st.columns(len(NAV_OPTIONS))
-for column, page in zip(top, NAV_OPTIONS):
-    if column.button(page, key=f"top_{page}", use_container_width=True):
-        go_to(page); st.rerun()
+# Keep the top navigation usable on laptop and tablet widths.
+for row_index, pages in enumerate((NAV_OPTIONS[:3], NAV_OPTIONS[3:])):
+    row_columns = st.columns(3)
+    for column, page in zip(row_columns, pages):
+        if column.button(page, key=f"top_{row_index}_{page}", use_container_width=True):
+            go_to(page)
+            st.rerun()
 selected_nav = st.session_state.active_nav
 
 if selected_nav == COACH_PAGE:
@@ -517,42 +520,55 @@ elif selected_nav == NAV_OPTIONS[2]:
     st.markdown("### 📅 Training Calendar")
     today = dt.date.today()
     window_start, window_end = today - dt.timedelta(days=14), today + dt.timedelta(days=14)
-    # Completed rides come from /activities; calendar entries come from /events.
-    # Combining both makes the past fortnight visible even when Intervals does not
-    # retain completed calendar events.
-    calendar_events, seen_calendar_items = [], set()
-    for source, records in (("Completed ride", activities_data), ("Planned session", planned_events)):
+    st.caption(f"Showing the previous 14 days and the next 14 days · {window_start:%d %b}–{window_end:%d %b %Y}")
+    def calendar_items(records, source, start_date, end_date):
+        result = []
         for record in records:
             date_value = event_date(record)
-            if not date_value or not window_start <= date_value <= window_end:
-                continue
-            key = (date_value.isoformat(), (record.get("name") or "").strip().lower())
-            if key in seen_calendar_items:
-                continue
-            seen_calendar_items.add(key)
-            calendar_item = dict(record)
-            calendar_item["_calendar_source"] = source
-            calendar_events.append(calendar_item)
-    st.caption(f"Showing the previous 14 days and the next 14 days · {window_start:%d %b}–{window_end:%d %b %Y}")
-    if not calendar_events: st.info("No planned or completed sessions were returned for this 21-day window.")
-    grouped = {}
-    for event in calendar_events: grouped.setdefault(event_date(event).isoformat(), []).append(event)
-    for date, sessions in sorted(grouped.items()):
-        session_names = [event.get("name") or "Planned workout" for event in sessions]
-        header_names = " + ".join(session_names[:2])
-        if len(session_names) > 2:
-            header_names += f" + {len(session_names) - 2} more"
-        with st.expander(f"{date} · {header_names}", expanded=False):
-            for number, event in enumerate(sessions, 1):
-                session = session_summary(event)
-                st.markdown(f"**Session {number}: {session['name']}**")
-                if session["details"]:
-                    st.caption(" · ".join(session["details"]))
-                st.markdown(f"**Coach instructions:** {session['instructions']}")
-                if number < len(sessions): st.divider()
+            if date_value and start_date <= date_value <= end_date:
+                item = dict(record)
+                item["_calendar_source"] = source
+                result.append(item)
+        return result
+
+    future_sessions = calendar_items(planned_events, "Planned session", today, window_end)
+    past_activities = calendar_items(activities_data, "Completed ride", window_start, today - dt.timedelta(days=1))
+
+    def render_calendar_days(items, empty_message):
+        if not items:
+            st.info(empty_message)
+            return {}
+        grouped_items = {}
+        for item in items:
+            grouped_items.setdefault(event_date(item).isoformat(), []).append(item)
+        for date, sessions in sorted(grouped_items.items()):
+            session_names = [event.get("name") or "Planned workout" for event in sessions]
+            header_names = " + ".join(session_names[:2])
+            if len(session_names) > 2:
+                header_names += f" + {len(session_names) - 2} more"
+            with st.expander(f"{date} · {header_names}", expanded=False):
+                for number, event in enumerate(sessions, 1):
+                    session = session_summary(event)
+                    st.markdown(f"**Session {number}: {session['name']}**")
+                    if session["details"]:
+                        st.caption(" · ".join(session["details"]))
+                    st.markdown(f"**Coach instructions:** {session['instructions']}")
+                    if number < len(sessions):
+                        st.divider()
+        return grouped_items
+
+    current_tab, past_tab = st.tabs(["Current & future sessions", "Past activities"])
+    with current_tab:
+        future_grouped = render_calendar_days(future_sessions, "No calendar sessions were returned for the next 14 days.")
+    with past_tab:
+        past_grouped = render_calendar_days(past_activities, "No completed activities were returned for the previous 14 days.")
+
+    grouped = {**past_grouped}
+    for date, sessions in future_grouped.items():
+        grouped[date] = grouped.get(date, []) + sessions
     if grouped:
         st.divider()
-        discussion_date = st.selectbox("Discuss a training day with Coach", list(sorted(grouped)), format_func=lambda value: f"{value} · " + " + ".join(event.get("name") or "Planned workout" for event in grouped[value]))
+        discussion_date = st.selectbox("Discuss a calendar day with Coach", list(sorted(grouped)), format_func=lambda value: f"{value} · " + " + ".join(event.get("name") or "Planned workout" for event in grouped[value]))
         if st.button("💬 Discuss selected day with Coach", type="primary"):
             readable_sessions = [session_summary(event) for event in grouped[discussion_date]]
             discuss_with_coach(f"my training sessions on {discussion_date}", json.dumps(readable_sessions, ensure_ascii=False))
