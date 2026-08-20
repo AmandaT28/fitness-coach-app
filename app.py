@@ -97,7 +97,8 @@ def init_state():
         "selected_activity_label": None, "route_analysis": None,
         "pending_coach_prompt": None, "ai_test_result": None,
         "ai_diagnostic": None, "coach_reference_notice": None,
-        "trend_loaded": False, "calendar_context": "", "profile_loaded": False
+        "trend_loaded": False, "calendar_context": "", "profile_loaded": False,
+        "coach_memory": ""  # <--- ADDED LONG-TERM MEMORY DEFAULT
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -274,6 +275,18 @@ def persist_chat_to_db():
             localS.setItem("athlete_profile_config", st.session_state.user_credentials)
         except Exception: pass
 
+def persist_memory_to_db():
+    memory_text = st.session_state.get("coach_memory", "")
+    if st.session_state.user and supabase:
+        try:
+            (supabase.table("profiles").update({"coach_memory": memory_text}).eq("id", st.session_state.user.id).execute())
+        except Exception: pass
+    elif localS and st.session_state.user_credentials:
+        try:
+            st.session_state.user_credentials["coach_memory"] = memory_text
+            localS.setItem("athlete_profile_config", st.session_state.user_credentials)
+        except Exception: pass
+            
 def trend_storage_key():
     return f"coach_trend_analyses_history:{ATHLETE_ID or display_name}"
 
@@ -411,6 +424,7 @@ def build_gemini_payload(current_question, display_name):
     trend_ctx = (st.session_state.get('cached_trend_analysis') or 'No Trend Analysis.')[:1200]
     calendar_ctx = (st.session_state.get('calendar_context') or 'Not loaded')[:1500]
     
+    memory_ctx = st.session_state.get('coach_memory') or 'No long-term memory logged yet.'
     supplements_str = json.dumps(st.session_state.user_supplements, ensure_ascii=False) if st.session_state.user_supplements else 'N/A'
     gear_str = st.session_state.athlete_gear or 'N/A'
     limits_str = st.session_state.athlete_limitations or 'N/A'
@@ -423,6 +437,7 @@ def build_gemini_payload(current_question, display_name):
         f"Goal: {st.session_state.goals['target_metric']} ({st.session_state.goals['event_name']} on {st.session_state.goals['race_date']})\n"
         f"Current Periodization Phase: {periodization_phase} ({weeks_to_race} weeks to event)\n"
         f"{gatekeeper_directive}\n"
+        f"LONG-TERM COACHING MEMORY & ATHLETE PROFILE:\n{memory_ctx}\n\n"
         f"Gear: {gear_str} | Limitations: {limits_str}\n"
         f"Supplements & Fueling: {supplements_str}\n"
         f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n\n"
@@ -576,7 +591,9 @@ if st.session_state.user:
     st.session_state.athlete_gear = st.session_state.athlete_gear or profile.get("gear_notes", "")
     st.session_state.athlete_limitations = st.session_state.athlete_limitations or profile.get("limitations_notes", "")
     for key in DEFAULT_GOALS: st.session_state.goals[key] = profile.get(key) or st.session_state.goals[key]
-    
+
+    if profile.get("coach_memory"): st.session_state.coach_memory = profile["coach_memory"]
+        
     if not st.session_state.profile_loaded:
         if isinstance(profile.get("supplements"), list): st.session_state.user_supplements = profile["supplements"]
         if isinstance(profile.get("chat_history"), list) and profile["chat_history"]: st.session_state.messages = profile["chat_history"]
@@ -587,6 +604,7 @@ else:
     st.session_state.athlete_gear = st.session_state.athlete_gear or creds.get("gear", "")
     st.session_state.athlete_limitations = st.session_state.athlete_limitations or creds.get("limitations", "")
     if isinstance(creds.get("goals"), dict): st.session_state.goals.update({key: value for key, value in creds["goals"].items() if key in DEFAULT_GOALS and value})
+    if creds.get("coach_memory"): st.session_state.coach_memory = creds["coach_memory"]
     if not st.session_state.profile_loaded:
         if isinstance(creds.get("supplements"), list): st.session_state.user_supplements = creds["supplements"]
         if isinstance(creds.get("chat_history"), list) and creds["chat_history"]: st.session_state.messages = creds["chat_history"]
@@ -652,7 +670,16 @@ with st.sidebar:
                     except Exception as exc: st.warning(f"Profile saved locally: {exc}")
                 st.toast("Profile saved successfully!", icon="💾")
                 st.rerun()
-                
+
+    with st.expander("🧠 Coach's Long-Term Memory", expanded=False):
+        st.caption("Permanent notes your AI coach keeps about your physiological responses, behavioral quirks, and training style preferences.")
+        updated_memory = st.text_area("Coach's Notebook", value=st.session_state.get("coach_memory", ""), height=150, placeholder="e.g., Athlete responds poorly to consecutive threshold days. Hates micro-bursts. Thrives on long sweet-spot blocks.")
+        if st.button("Save Memory Notes", use_container_width=True):
+            st.session_state.coach_memory = updated_memory
+            persist_memory_to_db()
+            st.toast("Coach's memory updated!", icon="🧠")
+            st.rerun()
+            
     with st.expander("AI connection", expanded=False):
         if st.button("Test AI connection", key="test_gemini", use_container_width=True):
             with st.spinner("Pinging coach..."):
