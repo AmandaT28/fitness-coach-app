@@ -589,6 +589,7 @@ with st.sidebar:
                         }).eq("id", st.session_state.user.id).execute())
                     except Exception as exc: st.warning(f"Profile saved locally: {exc}")
                 st.toast("Profile saved successfully!", icon="💾")
+                st.rerun()
                 
     with st.expander("AI connection", expanded=False):
         if st.button("Test AI connection", key="test_gemini", use_container_width=True):
@@ -837,7 +838,6 @@ elif selected_nav == "🗺️ Route Strategist":
                     try:
                         prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Goal: {st.session_state.goals['target_metric']}. Give practical pacing and climbing strategies."
                         st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
-                        st.toast("Climbing strategy generated!", icon="🏔️")
                     except Exception as exc: st.error(str(exc))
                     
             if st.session_state.route_analysis:
