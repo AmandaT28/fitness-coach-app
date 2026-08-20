@@ -76,7 +76,7 @@ st.markdown("""
 
 # --- DUAL GOOGLE API KEYS INITIALIZATION ---
 PRIMARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("primary_key") or st.secrets.get("GEMINI_API_KEY") or os.getenv("PRIMARY_KEY") or os.getenv("GEMINI_API_KEY")
-SECONDARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("secondary_key") or st.secrets.get("SECONDARY_GEMINI_KEY") or os.getenv("SECONDARY_KEY")
+SECONDARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("secondary_key") or os.getenv("SECONDARY_GEMINI_KEY") or os.getenv("SECONDARY_KEY")
 
 primary_google_client = genai.Client(api_key=PRIMARY_GEMINI_KEY) if PRIMARY_GEMINI_KEY else None
 secondary_google_client = genai.Client(api_key=SECONDARY_GEMINI_KEY) if SECONDARY_GEMINI_KEY else None
@@ -558,178 +558,174 @@ elif selected_nav == "🤖 AI Coach & Sparring":
     st.markdown("### 🤖 AI Coach & Collaborative Sparring Partner")
     st.caption(f"Active Persona: **{coach_persona}** | Proposes plans first, and only syncs to Intervals.icu when you explicitly agree!")
 
-    chat_container = st.container()
-    with chat_container:
-        for idx, msg in enumerate(st.session_state.messages):
-            with st.chat_message(msg["role"]):
-                clean_content = re.sub(r"```xml\s*<\?xml.*?>.*?</\s*workout_file\s*>\s*```", "", msg["content"], flags=re.DOTALL)
-                clean_content = re.sub(r"```\s*<workout_file>.*?</\s*workout_file>\s*```", "", clean_content, flags=re.DOTALL)
-                clean_content = re.sub(r"<icu_workout>.*?</icu_workout>", "", clean_content, flags=re.DOTALL)
-                clean_content = re.sub(r"<icu_reschedule>.*?</icu_reschedule>", "", clean_content, flags=re.DOTALL)
-                clean_content = re.sub(r"<icu_supplement>.*?</icu_supplement>", "", clean_content, flags=re.DOTALL)
-                st.markdown(clean_content.strip())
+    # Render existing chat messages
+    for idx, msg in enumerate(st.session_state.messages):
+        with st.chat_message(msg["role"]):
+            clean_content = re.sub(r"```xml\s*<\?xml.*?>.*?</\s*workout_file\s*>\s*```", "", msg["content"], flags=re.DOTALL)
+            clean_content = re.sub(r"```\s*<workout_file>.*?</\s*workout_file>\s*```", "", clean_content, flags=re.DOTALL)
+            clean_content = re.sub(r"<icu_workout>.*?</icu_workout>", "", clean_content, flags=re.DOTALL)
+            clean_content = re.sub(r"<icu_reschedule>.*?</icu_reschedule>", "", clean_content, flags=re.DOTALL)
+            clean_content = re.sub(r"<icu_supplement>.*?</icu_supplement>", "", clean_content, flags=re.DOTALL)
+            st.markdown(clean_content.strip())
+            
+            if msg["role"] == "model":
+                match = re.search(r"```xml\s*(<\?xml.*?>.*?<\s*/\s*workout_file\s*>|<workout_file>.*?</\s*workout_file>)\s*```", msg["content"], re.DOTALL)
+                if not match:
+                    match = re.search(r"```\s*(<workout_file>.*?</\s*workout_file>)\s*```", msg["content"], re.DOTALL)
                 
-                if msg["role"] == "model":
-                    match = re.search(r"```xml\s*(<\?xml.*?>.*?<\s*/\s*workout_file\s*>|<workout_file>.*?</\s*workout_file>)\s*```", msg["content"], re.DOTALL)
-                    if not match:
-                        match = re.search(r"```\s*(<workout_file>.*?</\s*workout_file>)\s*```", msg["content"], re.DOTALL)
-                    
-                    if match:
-                        zwo_data = match.group(1).strip()
-                        st.download_button(
-                            label="📥 Download MyWhoosh Workout File (.zwo)",
-                            data=zwo_data,
-                            file_name=f"AI_Coach_Workout_{idx}.zwo",
-                            mime="application/xml",
-                            key=f"download_zwo_{idx}"
-                        )
+                if match:
+                    zwo_data = match.group(1).strip()
+                    st.download_button(
+                        label="📥 Download MyWhoosh Workout File (.zwo)",
+                        data=zwo_data,
+                        file_name=f"AI_Coach_Workout_{idx}.zwo",
+                        mime="application/xml",
+                        key=f"download_zwo_{idx}"
+                    )
 
-    # Capture chat input and instantly handle state & rerun for responsive UI
+    # Chat Input Box
     if prompt := st.chat_input("Ask your coach to plan training or bounce an idea..."):
+        # 1. Immediately append user prompt and render/rerun so it appears on screen instantly
         st.session_state.messages.append({"role": "user", "content": prompt})
-        st.rerun()
+        
+        stack_summary = ", ".join([f"{s['name']} ({s['timing']} - {s['notes']})" for s in st.session_state.user_supplements])
+        formatted_history = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages[:-1]])
+        
+        payload = "\n".join([
+            f"You are an elite cycling sports science coach acting with the persona: '{coach_persona}'.",
+            f"CURRENT ACTIVE SUPPLEMENT STACK: {stack_summary}",
+            f"GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
+            f"METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.",
+            f"ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}",
+            f"CURRENT UPCOMING SCHEDULE (NEXT 14 DAYS): {planned_events[:20] if planned_events else 'None'}",
+            "",
+            "PREVIOUS CONVERSATION HISTORY (Maintain memory of this context):",
+            formatted_history if formatted_history else "None yet.",
+            "",
+            "COACHING RULE - GEAR & LIMITATIONS:",
+            f"Athlete Bike Build / Gear: {st.session_state.athlete_gear}",
+            f"Athlete Physical Limitations: {st.session_state.athlete_limitations}",
+            "Do NOT repeat or list the gear or limitation details in your response unless there is a specific mechanical issue, injury risk, or direct performance impact that the user should be aware of.",
+            "",
+            "COACHING RULE - SUPPLEMENT STACK UPDATES:",
+            "If the user asks to add, remove, or optimize supplements, or if you recommend a supplement addition based on training load, you may include a JSON array wrapped EXACTLY in <icu_supplement> ... </icu_supplement> tags with fields: 'name', 'timing', and 'notes'.",
+            "",
+            "COACHING RULE - PLAN FIRST, ASK FOR AGREEMENT:",
+            "1. When the athlete asks for a training plan or calendar adjustments, present the proposal clearly in chat first.",
+            "2. ONLY include <icu_workout> or <icu_reschedule> tags if the user has explicitly confirmed/agreed to the plan in this prompt or prior conversation (e.g., saying 'yes sync it', 'looks good go ahead').",
+            "",
+            "CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside standard markdown xml block formatting.",
+            "CRITICAL CALENDAR CREATION INSTRUCTION: If approved/agreed, output a JSON array wrapped EXACTLY in <icu_workout> ... </icu_workout> tags with fields: 'start_date_local' (YYYY-MM-DD), 'name', 'description', 'type' ('Ride'), 'indoor' (boolean).",
+            "CRITICAL CALENDAR RESCHEDULING INSTRUCTION: If approved/agreed, output a JSON object wrapped EXACTLY in <icu_reschedule> ... </icu_reschedule> tags containing: 'delete_event_ids' and 'new_events'.",
+            "",
+            f"USER: {prompt}"
+        ])
+        
+        # 2. Execute AI call inside a visible status box so the user sees progress
+        with st.status("🤖 AI Coach is analyzing your telemetry and drafting a response...", expanded=True) as status:
+            try:
+                st.write("Reading conversation history and active parameters...")
+                resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
+                
+                st.write("Processing coaching recommendations and checking for stack or calendar updates...")
+                supp_matches = re.findall(r'<icu_supplement>\s*(.*?)\s*</icu_supplement>', resp, re.DOTALL)
+                supp_updated = False
+                if supp_matches:
+                    for match_str in supp_matches:
+                        try:
+                            clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
+                            new_supps = json.loads(clean_json_str)
+                            if not isinstance(new_supps, list):
+                                new_supps = [new_supps]
+                            for ns in new_supps:
+                                if 'name' in ns:
+                                    existing = next((s for s in st.session_state.user_supplements if s['name'].lower() == ns['name'].lower()), None)
+                                    if existing:
+                                        existing['timing'] = ns.get('timing', existing['timing'])
+                                        existing['notes'] = ns.get('notes', existing['notes'])
+                                    else:
+                                        st.session_state.user_supplements.append({
+                                            "name": ns['name'],
+                                            "timing": ns.get('timing', 'As needed'),
+                                            "notes": ns.get('notes', 'Recommended by AI Coach')
+                                        })
+                                    supp_updated = True
+                        except Exception:
+                            pass
 
-# --- BACKGROUND AI PROCESSOR WITH VISIBLE STATUS & FULL HISTORY ---
-if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-    last_user_prompt = st.session_state.messages[-1]["content"]
-    
-    stack_summary = ", ".join([f"{s['name']} ({s['timing']} - {s['notes']})" for s in st.session_state.user_supplements])
-    formatted_history = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages[:-1]])
-    
-    payload = "\n".join([
-        f"You are an elite cycling sports science coach acting with the persona: '{coach_persona}'.",
-        f"CURRENT ACTIVE SUPPLEMENT STACK: {stack_summary}",
-        f"GOAL: {st.session_state.goals['event_name']} ({st.session_state.goals['target_metric']})",
-        f"METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}.",
-        f"ACTIVITIES HISTORY: {activities_data[:15] if activities_data else 'None'}",
-        f"CURRENT UPCOMING SCHEDULE (NEXT 14 DAYS): {planned_events[:20] if planned_events else 'None'}",
-        "",
-        "PREVIOUS CONVERSATION HISTORY (Maintain memory of this context):",
-        formatted_history if formatted_history else "None yet.",
-        "",
-        "COACHING RULE - GEAR & LIMITATIONS:",
-        f"Athlete Bike Build / Gear: {st.session_state.athlete_gear}",
-        f"Athlete Physical Limitations: {st.session_state.athlete_limitations}",
-        "Do NOT repeat or list the gear or limitation details in your response unless there is a specific mechanical issue, injury risk, or direct performance impact that the user should be aware of.",
-        "",
-        "COACHING RULE - SUPPLEMENT STACK UPDATES:",
-        "If the user asks to add, remove, or optimize supplements, or if you recommend a supplement addition based on training load, you may include a JSON array wrapped EXACTLY in <icu_supplement> ... </icu_supplement> tags with fields: 'name', 'timing', and 'notes'.",
-        "",
-        "COACHING RULE - PLAN FIRST, ASK FOR AGREEMENT:",
-        "1. When the athlete asks for a training plan or calendar adjustments, present the proposal clearly in chat first.",
-        "2. ONLY include <icu_workout> or <icu_reschedule> tags if the user has explicitly confirmed/agreed to the plan in this prompt or prior conversation (e.g., saying 'yes sync it', 'looks good go ahead').",
-        "",
-        "CRITICAL WORKOUT INSTRUCTION: If an indoor workout is requested, include a valid .zwo XML workout block enclosed inside standard markdown xml block formatting.",
-        "CRITICAL CALENDAR CREATION INSTRUCTION: If approved/agreed, output a JSON array wrapped EXACTLY in <icu_workout> ... </icu_workout> tags with fields: 'start_date_local' (YYYY-MM-DD), 'name', 'description', 'type' ('Ride'), 'indoor' (boolean).",
-        "CRITICAL CALENDAR RESCHEDULING INSTRUCTION: If approved/agreed, output a JSON object wrapped EXACTLY in <icu_reschedule> ... </icu_reschedule> tags containing: 'delete_event_ids' and 'new_events'.",
-        "",
-        f"USER: {last_user_prompt}"
-    ])
-    
-    with st.status("🤖 AI Coach is analyzing your telemetry and drafting a response...", expanded=True) as status:
-        try:
-            st.write("Reading conversation history and active parameters...")
-            resp, engine = execute_multiprovider_generation(payload, preferred_provider=selected_provider)
-            
-            st.write("Processing coaching recommendations and checking for stack or calendar updates...")
-            supp_matches = re.findall(r'<icu_supplement>\s*(.*?)\s*</icu_supplement>', resp, re.DOTALL)
-            supp_updated = False
-            if supp_matches:
-                for match_str in supp_matches:
-                    try:
-                        clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
-                        new_supps = json.loads(clean_json_str)
-                        if not isinstance(new_supps, list):
-                            new_supps = [new_supps]
-                        for ns in new_supps:
-                            if 'name' in ns:
-                                existing = next((s for s in st.session_state.user_supplements if s['name'].lower() == ns['name'].lower()), None)
-                                if existing:
-                                    existing['timing'] = ns.get('timing', existing['timing'])
-                                    existing['notes'] = ns.get('notes', existing['notes'])
-                                else:
-                                    st.session_state.user_supplements.append({
-                                        "name": ns['name'],
-                                        "timing": ns.get('timing', 'As needed'),
-                                        "notes": ns.get('notes', 'Recommended by AI Coach')
-                                    })
-                                supp_updated = True
-                    except Exception:
-                        pass
-
-            icu_matches = re.findall(r'<icu_workout>\s*(.*?)\s*</icu_workout>', resp, re.DOTALL)
-            parsed_workouts = 0
-            
-            if icu_matches and ATHLETE_ID and INTERVALS_API_KEY:
-                for match_str in icu_matches:
-                    try:
-                        clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
-                        workouts = json.loads(clean_json_str)
-                        if not isinstance(workouts, list):
-                            workouts = [workouts]
-                        
-                        for w in workouts:
-                            w['category'] = 'WORKOUT'
-                            if 'start_date_local' in w and len(w['start_date_local']) == 10:
-                                w['start_date_local'] += "T00:00:00"
+                icu_matches = re.findall(r'<icu_workout>\s*(.*?)\s*</icu_workout>', resp, re.DOTALL)
+                parsed_workouts = 0
+                
+                if icu_matches and ATHLETE_ID and INTERVALS_API_KEY:
+                    for match_str in icu_matches:
+                        try:
+                            clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
+                            workouts = json.loads(clean_json_str)
+                            if not isinstance(workouts, list):
+                                workouts = [workouts]
                             
-                            api_resp = requests.post(
-                                f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events", 
-                                json=w, 
-                                auth=("API_KEY", INTERVALS_API_KEY),
-                                timeout=10
-                            )
-                            if api_resp.status_code == 200:
-                                parsed_workouts += 1
-                    except Exception:
-                        pass 
+                            for w in workouts:
+                                w['category'] = 'WORKOUT'
+                                if 'start_date_local' in w and len(w['start_date_local']) == 10:
+                                    w['start_date_local'] += "T00:00:00"
+                                
+                                api_resp = requests.post(
+                                    f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events", 
+                                    json=w, 
+                                    auth=("API_KEY", INTERVALS_API_KEY),
+                                    timeout=10
+                                )
+                                if api_resp.status_code == 200:
+                                    parsed_workouts += 1
+                        except Exception:
+                            pass 
 
-            resched_matches = re.findall(r'<icu_reschedule>\s*(.*?)\s*</icu_reschedule>', resp, re.DOTALL)
-            resched_count = 0
-            
-            if resched_matches and ATHLETE_ID and INTERVALS_API_KEY:
-                for match_str in resched_matches:
-                    try:
-                        clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
-                        data = json.loads(clean_json_str)
-                        
-                        for ev_id in data.get("delete_event_ids", []):
-                            requests.delete(
-                                f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events/{ev_id}",
-                                auth=("API_KEY", INTERVALS_API_KEY),
-                                timeout=10
-                            )
-                            resched_count += 1
-                        
-                        for w in data.get("new_events", []):
-                            w['category'] = 'WORKOUT'
-                            if 'start_date_local' in w and len(w['start_date_local']) == 10:
-                                w['start_date_local'] += "T00:00:00"
+                resched_matches = re.findall(r'<icu_reschedule>\s*(.*?)\s*</icu_reschedule>', resp, re.DOTALL)
+                resched_count = 0
+                
+                if resched_matches and ATHLETE_ID and INTERVALS_API_KEY:
+                    for match_str in resched_matches:
+                        try:
+                            clean_json_str = match_str.replace("```json", "").replace("```", "").strip()
+                            data = json.loads(clean_json_str)
                             
-                            requests.post(
-                                f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events",
-                                json=w,
-                                auth=("API_KEY", INTERVALS_API_KEY),
-                                timeout=10
-                            )
-                    except Exception:
-                        pass
+                            for ev_id in data.get("delete_event_ids", []):
+                                requests.delete(
+                                    f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events/{ev_id}",
+                                    auth=("API_KEY", INTERVALS_API_KEY),
+                                    timeout=10
+                                )
+                                resched_count += 1
+                            
+                            for w in data.get("new_events", []):
+                                w['category'] = 'WORKOUT'
+                                if 'start_date_local' in w and len(w['start_date_local']) == 10:
+                                    w['start_date_local'] += "T00:00:00"
+                                
+                                requests.post(
+                                    f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events",
+                                    json=w,
+                                    auth=("API_KEY", INTERVALS_API_KEY),
+                                    timeout=10
+                                )
+                        except Exception:
+                            pass
 
-            full_resp = f"{resp}\n\n*(Engine: {engine})*"
-            
-            if parsed_workouts > 0 or resched_count > 0:
-                full_resp += f"\n\n✅ **Success:** Plan approved and synchronized automatically with Intervals.icu!"
-                fetch_intervals_data.clear() 
+                full_resp = f"{resp}\n\n*(Engine: {engine})*"
+                
+                if parsed_workouts > 0 or resched_count > 0:
+                    full_resp += f"\n\n✅ **Success:** Plan approved and synchronized automatically with Intervals.icu!"
+                    fetch_intervals_data.clear() 
 
-            if supp_updated:
-                full_resp += f"\n\n💊 **Success:** Your supplement stack has been dynamically updated by your coach!"
+                if supp_updated:
+                    full_resp += f"\n\n💊 **Success:** Your supplement stack has been dynamically updated by your coach!"
 
-            st.session_state.messages.append({"role": "model", "content": full_resp})
-            status.update(label="✅ Response ready!", state="complete", expanded=False)
-            st.rerun()
-        except Exception as e:
-            status.update(label="❌ Generation failed", state="error", expanded=True)
-            st.error(f"AI Generation Failed: {str(e)}")
+                st.session_state.messages.append({"role": "model", "content": full_resp})
+                status.update(label="✅ Response ready!", state="complete", expanded=False)
+                st.rerun()
+            except Exception as e:
+                status.update(label="❌ Generation failed", state="error", expanded=True)
+                st.error(f"AI Generation Failed: {str(e)}")
 
 # ================= VIEW 3: TRAINING CALENDAR =================
 elif selected_nav == "📅 Training Calendar":
