@@ -102,7 +102,7 @@ def init_state():
 
 def ensure_initial_message():
     if not st.session_state.messages:
-        st.session_state.messages = [{"role": "assistant", "content": "Hello! I am your AI Performance Coach. Ask about training, recovery, climbing, threshold work, or your upcoming event."}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hello! I am your AI Performance Coach. Ask about training, recovery, climbing, threshold work, or updating your workout schedule on Intervals.icu and MyWhoosh."}]
 
 def go_to(page):
     """Change the route without mutating an already-created radio widget."""
@@ -126,6 +126,16 @@ def open_coach_with_reference(notice):
     """Navigate without copying a saved report into chat or triggering an AI call."""
     st.session_state.coach_reference_notice = notice
     go_to(COACH_PAGE)
+
+def extract_icu_workout(text):
+    """Parses <icu_workout> XML tag from AI responses if present."""
+    match = re.search(r"<icu_workout>(.*?)</icu_workout>", text or "", re.DOTALL | re.IGNORECASE)
+    if match:
+        try:
+            return json.loads(match.group(1).strip())
+        except Exception:
+            return None
+    return None
 
 def clean_chat_content(text):
     text = text or ""
@@ -176,7 +186,7 @@ def push_workout_to_intervals(athlete_id, api_key, name, description, date_str, 
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events/bulk?upsert=true"
     payload = [{
         "category": "WORKOUT",
-        "start_date_local": f"{date_str}T08:00:00",
+        "start_date_local": f"{date_str}T08:00:00" if "T" not in date_str else date_str,
         "name": name,
         "description": description,
         "type": workout_type,
@@ -294,7 +304,7 @@ def session_summary(event):
         instructions = instructions.get("description") or instructions.get("notes") or instructions.get("name") or "No coach instructions were supplied for this session."
     elif isinstance(instructions, list):
         instructions = " ".join(str(item) for item in instructions if item)
-    return {"name": event.get("name") or "Planned workout", "details": details, "instructions": instructions}
+    return {"name": event.get("name") or "Planned workout", "date": str(event.get("start_date_local", ""))[:10], "details": details, "instructions": instructions}
 
 def activity_summary(activity):
     fields = {
@@ -314,9 +324,10 @@ def coach_prompt(question, display_name):
     )
     question = str(question)[-4000:]
     cal_ctx = st.session_state.get("calendar_context", "Not loaded")
-    return f"""You are an elite cycling performance coach with full access to the athlete's training calendar and metrics via Intervals.icu.
+    return f"""You are an elite cycling performance coach with full read/write capability to the athlete's training calendar on Intervals.icu (which automatically syncs to MyWhoosh).
 Persona: {st.session_state.coach_persona}
 Athlete: {display_name}
+Today's Date: {dt.date.today().isoformat()}
 Goal: {st.session_state.goals['target_metric']}
 Target event: {st.session_state.goals['event_name']} on {st.session_state.goals['race_date']}
 Gear: {st.session_state.athlete_gear or 'Not provided'}
@@ -325,7 +336,20 @@ Available supplements / fuel: {json.dumps(st.session_state.user_supplements, ens
 Athlete's Recent/Upcoming Calendar Context:\n{cal_ctx}
 Recent conversation:\n{history}
 Current question:\n{question}
-Give a direct, practical coaching answer. You CAN plan and help structure workouts for their calendar. If suggesting a workout to push to Intervals.icu/MyWhoosh, format the workout steps clearly using standard Intervals.icu text syntax (e.g., `- 10m 50%\n- 3x [5m 105%, 5m 50%]`)."""
+
+CRITICAL WORKOUT GENERATION INSTRUCTIONS:
+If you are recommending or updating a specific workout for the athlete to perform on MyWhoosh/Intervals.icu, YOU MUST include a structured JSON block enclosed in `<icu_workout>` tags at the very end of your response.
+Format example:
+<icu_workout>
+{{
+  "name": "VO2 Max 5x3min",
+  "type": "Ride",
+  "start_date_local": "{dt.date.today().isoformat()}",
+  "description": "- Warmup\\n  - 10m 50-65%\\n\\n- Main Set 5x\\n  - 3m 110-120% 95rpm\\n  - 3m 50% 85rpm\\n\\n- Cooldown\\n  - 10m 50-40%"
+}}
+</icu_workout>
+
+Always supply clear Intervals.icu plain-text syntax in the `description` field so MyWhoosh can render the workout blocks automatically."""
 
 def render_coach_reply(question, display_name):
     st.session_state.messages.append({"role": "user", "content": question})
@@ -338,7 +362,25 @@ def render_coach_reply(question, display_name):
             response = execute_ai(coach_prompt(question, display_name), max_tokens=9000)
         except Exception:
             response = "⚠️ **Coach could not respond right now.** Please try again in a moment."
-        placeholder.markdown(response)
+        placeholder.markdown(clean_chat_content(response))
+        
+        icu_payload = extract_icu_workout(response)
+        if icu_payload:
+            st.info(f"📅 **Workout Proposed by Coach:** `{icu_payload.get('name')}` for **{icu_payload.get('start_date_local')}**")
+            if st.button("🚀 Sync Workout to Intervals.icu & MyWhoosh", key=f"sync_chat_{len(st.session_state.messages)}"):
+                try:
+                    push_workout_to_intervals(
+                        ATHLETE_ID,
+                        INTERVALS_API_KEY,
+                        icu_payload.get("name", "AI Workout"),
+                        icu_payload.get("description", ""),
+                        icu_payload.get("start_date_local", dt.date.today().isoformat()),
+                        workout_type=icu_payload.get("type", "Ride")
+                    )
+                    st.success("✅ Workout synced to Intervals.icu calendar! Open MyWhoosh to start the session.")
+                except Exception as exc:
+                    st.error(f"Sync failed: {exc}")
+                    
         st.session_state.messages.append({"role": "assistant", "content": response})
 
 def parse_gpx(raw):
@@ -420,7 +462,6 @@ load_persisted_trend()
 wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
 st.session_state.calendar_context = json.dumps([session_summary(ev) for ev in planned_events[:15]], ensure_ascii=False)
 
-# A single source of truth fixes the former two-click navigation bug.
 if st.session_state.active_nav not in NAV_OPTIONS:
     st.session_state.active_nav = NAV_OPTIONS[0]
     st.session_state.sidebar_nav = NAV_OPTIONS[0]
@@ -497,7 +538,6 @@ with st.sidebar:
             except Exception: pass
         st.rerun()
 
-# Compact top navigation wraps only when the screen is too narrow.
 st.markdown("<div class='top-nav-spacer'></div>", unsafe_allow_html=True)
 if st.session_state.get("top_nav") != st.session_state.active_nav:
     st.session_state.top_nav = st.session_state.active_nav
@@ -555,8 +595,28 @@ elif selected_nav == COACH_PAGE:
     if st.session_state.coach_reference_notice:
         st.info(st.session_state.coach_reference_notice)
         st.session_state.coach_reference_notice = None
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]): st.markdown(clean_chat_content(message["content"]))
+        
+    for idx, message in enumerate(st.session_state.messages):
+        with st.chat_message(message["role"]):
+            st.markdown(clean_chat_content(message["content"]))
+            if message["role"] == "assistant":
+                icu_payload = extract_icu_workout(message["content"])
+                if icu_payload:
+                    st.info(f"📅 **Workout Proposed by Coach:** `{icu_payload.get('name')}` for **{icu_payload.get('start_date_local')}**")
+                    if st.button("🚀 Sync Workout to Intervals.icu & MyWhoosh", key=f"sync_hist_{idx}"):
+                        try:
+                            push_workout_to_intervals(
+                                ATHLETE_ID,
+                                INTERVALS_API_KEY,
+                                icu_payload.get("name", "AI Workout"),
+                                icu_payload.get("description", ""),
+                                icu_payload.get("start_date_local", dt.date.today().isoformat()),
+                                workout_type=icu_payload.get("type", "Ride")
+                            )
+                            st.success("✅ Workout synced to Intervals.icu calendar! Open MyWhoosh to start the session.")
+                        except Exception as exc:
+                            st.error(f"Sync failed: {exc}")
+
     pending = st.session_state.pending_coach_prompt
     if pending:
         st.session_state.pending_coach_prompt = None
@@ -570,7 +630,6 @@ elif selected_nav == NAV_OPTIONS[2]:
     window_start, window_end = today - dt.timedelta(days=14), today + dt.timedelta(days=14)
     st.caption(f"Showing the previous 14 days and the next 14 days · {window_start:%d %b}–{window_end:%d %b %Y}")
     
-    # Direct Push Workout Form to Intervals.icu -> MyWhoosh
     with st.expander("➕ Push New Workout to Intervals.icu Calendar (Syncs to MyWhoosh)", expanded=False):
         with st.form("push_workout_form"):
             w_name = st.text_input("Workout Name", value="VO2Max Intervals")
