@@ -337,56 +337,80 @@ else:
 # -----------------------------------------------------------------------------
 # AI PROVIDER ROUTER
 # -----------------------------------------------------------------------------
-# Gemini 3.7 Flash is currently documented and available via the new Google GenAI SDK.
-GEMINI_MODEL = "gemini-3.7-flash"
-OPENAI_MODEL = "gpt-4o-mini"
-ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
-
-
-def make_gemini_client(api_key: Optional[str]):
-    if not api_key or not genai:
-        return None
-    try:
-        http_options = genai_types.HttpOptions(timeout=45000) if genai_types else None
-        return genai.Client(api_key=api_key, http_options=http_options)
-    except Exception:
-        return None
+# Gemini 3.7 Flash is GA. For reliability we call the Gemini REST endpoint
+# directly instead of depending on a particular google-genai SDK version.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+AI_TIMEOUT = (5, 30)
 
 
 def append_error(errors: List[str], label: str, exc: Exception) -> None:
     message = str(exc).replace("\n", " ")
-    if len(message) > 400:
-        message = message[:400] + "…"
+    if len(message) > 500:
+        message = message[:500] + "…"
     errors.append(f"{label}: {message}")
 
 
 def call_gemini(prompt: str, api_key: Optional[str], label: str) -> Tuple[str, str]:
-    client = make_gemini_client(api_key)
-    if not client:
-        raise RuntimeError(f"{label} Gemini client is not configured.")
+    if not api_key:
+        raise RuntimeError(f"{label}: Gemini API key is missing.")
 
-    result = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config={"max_output_tokens": 1800, "temperature": 0.7},
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "maxOutputTokens": 1800,
+            "thinkingConfig": {"thinkingLevel": "low"},
+        },
+    }
+
+    response = requests.post(
+        url,
+        params={"key": api_key},
+        json=payload,
+        headers={"Content-Type": "application/json"},
+        timeout=AI_TIMEOUT,
     )
-    text = getattr(result, "text", None)
+
+    if not response.ok:
+        try:
+            detail = response.json()
+        except Exception:
+            detail = response.text
+        raise RuntimeError(f"{label} Gemini HTTP {response.status_code}: {str(detail)[:800]}")
+
+    data = response.json()
+    text_parts = []
+    for candidate in data.get("candidates", []):
+        content = candidate.get("content") or {}
+        for part in content.get("parts", []):
+            text = part.get("text")
+            if text:
+                text_parts.append(text)
+
+    text = "\n".join(text_parts).strip()
     if not text:
-        raise RuntimeError(f"{label} Gemini returned an empty response.")
-    return text.strip(), f"Google {GEMINI_MODEL} ({label})"
+        finish = data.get("candidates", [{}])[0].get("finishReason", "unknown")
+        raise RuntimeError(f"{label} Gemini returned no text (finishReason={finish}).")
+
+    return text, f"Google {GEMINI_MODEL} ({label})"
 
 
 def call_openai(prompt: str) -> Tuple[str, str]:
     if not openai_client:
-        raise RuntimeError("OpenAI client is not configured.")
+        raise RuntimeError("OpenAI API key is missing or client is unavailable.")
     result = openai_client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
-            {"role": "system", "content": "You are an elite cycling performance coach. Give practical, evidence-aware, concise coaching guidance."},
+            {
+                "role": "system",
+                "content": "You are an elite cycling performance coach. Give practical, evidence-aware, concise coaching guidance.",
+            },
             {"role": "user", "content": prompt},
         ],
-        temperature=0.7,
         max_tokens=1800,
+        timeout=30,
     )
     text = result.choices[0].message.content if result.choices else None
     if not text:
@@ -396,56 +420,63 @@ def call_openai(prompt: str) -> Tuple[str, str]:
 
 def call_anthropic(prompt: str) -> Tuple[str, str]:
     if not anthropic_client:
-        raise RuntimeError("Anthropic client is not configured.")
+        raise RuntimeError("Anthropic API key is missing or client is unavailable.")
     result = anthropic_client.messages.create(
         model=ANTHROPIC_MODEL,
         max_tokens=1800,
-        temperature=0.7,
         messages=[{"role": "user", "content": prompt}],
+        timeout=30,
     )
-    if not result.content:
-        raise RuntimeError("Anthropic returned an empty response.")
-    text = "".join(getattr(block, "text", "") for block in result.content if getattr(block, "type", "") == "text")
-    if not text.strip():
+    text = "".join(
+        getattr(block, "text", "")
+        for block in result.content
+        if getattr(block, "type", "") == "text"
+    ).strip()
+    if not text:
         raise RuntimeError("Anthropic returned no text content.")
-    return text.strip(), f"Anthropic {ANTHROPIC_MODEL}"
+    return text, f"Anthropic {ANTHROPIC_MODEL}"
 
 
 def execute_multiprovider_generation(prompt: str, preferred_provider: str = "⚡ Auto-Fallback Chain") -> Tuple[str, str]:
-    """Bounded fallback chain. Never loops through an unbounded model/key matrix."""
     errors: List[str] = []
 
-    guest_action = lambda: call_gemini(prompt, guest_gemini_key, "Guest Key")
-    primary_action = lambda: call_gemini(prompt, PRIMARY_GEMINI_KEY, "Primary Key")
-    secondary_action = lambda: call_gemini(prompt, SECONDARY_GEMINI_KEY, "Secondary Key")
-    tertiary_action = lambda: call_gemini(prompt, TERTIARY_GEMINI_KEY, "Tertiary Key")
-
+    actions: List[Tuple[str, Any]] = []
     if "Google" in preferred_provider:
-        actions = []
         if guest_gemini_key:
-            actions.append(guest_action)
-        actions.extend([primary_action, secondary_action, tertiary_action])
+            actions.append(("Guest Gemini", lambda: call_gemini(prompt, guest_gemini_key, "Guest Key")))
+        if PRIMARY_GEMINI_KEY:
+            actions.append(("Primary Gemini", lambda: call_gemini(prompt, PRIMARY_GEMINI_KEY, "Primary Key")))
+        if SECONDARY_GEMINI_KEY:
+            actions.append(("Secondary Gemini", lambda: call_gemini(prompt, SECONDARY_GEMINI_KEY, "Secondary Key")))
+        if TERTIARY_GEMINI_KEY:
+            actions.append(("Tertiary Gemini", lambda: call_gemini(prompt, TERTIARY_GEMINI_KEY, "Tertiary Key")))
     elif "OpenAI" in preferred_provider:
-        actions = [call_openai]
+        actions = [("OpenAI", call_openai)]
     elif "Anthropic" in preferred_provider:
-        actions = [call_anthropic]
+        actions = [("Anthropic", call_anthropic)]
     else:
-        actions = []
         if guest_gemini_key:
-            actions.append(guest_action)
-        actions.extend([primary_action, call_openai, call_anthropic])
+            actions.append(("Guest Gemini", lambda: call_gemini(prompt, guest_gemini_key, "Guest Key")))
+        if PRIMARY_GEMINI_KEY:
+            actions.append(("Primary Gemini", lambda: call_gemini(prompt, PRIMARY_GEMINI_KEY, "Primary Key")))
+        if openai_client:
+            actions.append(("OpenAI", call_openai))
+        if anthropic_client:
+            actions.append(("Anthropic", call_anthropic))
 
-    for action in actions:
+    if not actions:
+        raise RuntimeError(
+            "No AI provider is configured. Add GEMINI_API_KEY (or google_keys.primary_key), "
+            "or OPENAI_API_KEY / ANTHROPIC_API_KEY to Streamlit Secrets."
+        )
+
+    for label, action in actions:
         try:
             return action()
         except Exception as exc:
-            append_error(errors, getattr(action, "__name__", "provider"), exc)
-            continue
+            append_error(errors, label, exc)
 
-    diagnostic = " | ".join(errors) if errors else "No provider was configured."
-    raise RuntimeError(f"All selected AI providers failed. {diagnostic}")
-
-
+    raise RuntimeError("All selected AI providers failed. " + " | ".join(errors))
 
 
 # -----------------------------------------------------------------------------
@@ -545,7 +576,12 @@ def fetch_intervals_data(aid: str, key: str):
     return wellness, activities, events
 
 
-wellness_list, activities_data, planned_events = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
+
+# Never let telemetry block the AI chat.
+if st.session_state.active_nav == "🤖 AI Coach & Sparring":
+    wellness_list, activities_data, planned_events = [], [], []
+else:
+    wellness_list, activities_data, planned_events = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
 
 ctl = atl = tsb = sleep_score = 0.0
 if wellness_list:
@@ -872,90 +908,83 @@ if selected_nav == "📊 Command Center":
 elif selected_nav == "🤖 AI Coach & Sparring":
     st.markdown("### 🤖 AI Coach & Collaborative Sparring Partner")
     st.caption(
-        f"Active Persona: **{coach_persona}** | The coach proposes plans first; Intervals.icu sync only occurs when a structured workout block is explicitly emitted."
+        f"Active Persona: **{coach_persona}** | AI engine: **{selected_provider}** | Training sync only happens when explicitly requested."
     )
 
-    # IMPORTANT: normalize legacy 'model' roles to 'assistant' for Streamlit chat.
-    normalized_messages = []
-    for message in st.session_state.messages:
-        normalized_messages.append(
-            {
-                "role": "user" if message.get("role") == "user" else "assistant",
-                "content": message.get("content", ""),
-            }
-        )
-    st.session_state.messages = normalized_messages
-
-    # Render stored history FIRST.
+    # Render existing history first.
     for idx, message in enumerate(st.session_state.messages):
-        with st.chat_message(message["role"]):
-            clean = sanitize_chat_text(message["content"])
-            if clean:
-                st.markdown(clean)
+        role = "user" if message.get("role") == "user" else "assistant"
+        with st.chat_message(role):
+            text = sanitize_chat_text(str(message.get("content", "")))
+            if text:
+                st.markdown(text)
 
-            if message["role"] == "assistant":
-                # Show a download link only for a genuine <workout_file> XML block.
-                matches = WORKOUT_BLOCK_RE.findall(message["content"] or "")
-                for xml_index, match in enumerate(matches):
+            if role == "assistant":
+                for xml_index, match in enumerate(WORKOUT_BLOCK_RE.findall(str(message.get("content", "")))):
                     zwo_data = (match[0] or match[1]).strip()
                     if zwo_data:
                         st.download_button(
-                            label="📥 Download MyWhoosh File (.zwo)",
+                            "📥 Download MyWhoosh File (.zwo)",
                             data=zwo_data,
                             file_name=f"Coach_Workout_{idx}_{xml_index}.zwo",
                             mime="application/xml",
                             key=f"zwo_{idx}_{xml_index}",
                         )
 
-    # STEP 1: collect a prompt and persist it. We DO NOT remove it on failure.
-    if st.session_state.pending_prompt is None:
-        prompt = st.chat_input(
-            "Ask your coach to plan training or bounce an idea…",
-            key="coach_chat_input",
+    # Test AI connection without needing to enter a chat prompt.
+    with st.expander("🔧 AI diagnostics", expanded=False):
+        st.write(
+            f"Guest Gemini key: {'configured' if guest_gemini_key else 'not configured'} | "
+            f"Primary Gemini: {'configured' if PRIMARY_GEMINI_KEY else 'not configured'} | "
+            f"OpenAI: {'configured' if openai_client else 'not configured'} | "
+            f"Anthropic: {'configured' if anthropic_client else 'not configured'}"
         )
-        if prompt and prompt.strip():
-            st.session_state.messages.append({"role": "user", "content": prompt.strip()})
-            st.session_state.pending_prompt = prompt.strip()
-            st.session_state.pending_prompt_started_at = time.time()
-            st.rerun()
-    else:
-        # STEP 2: process the saved prompt on the following rerun.
-        pending = st.session_state.pending_prompt
-        elapsed = time.time() - float(st.session_state.pending_prompt_started_at or time.time())
+        if st.button("🧪 Test selected AI engine", key="test_ai_engine"):
+            try:
+                with st.spinner("Testing AI connection…"):
+                    test_response, test_engine = execute_multiprovider_generation(
+                        "Reply with exactly: AI connection successful.",
+                        selected_provider,
+                    )
+                st.success(f"{test_engine}: {test_response}")
+            except Exception as exc:
+                st.error(str(exc))
+
+    prompt = st.chat_input("Ask your coach to plan training or bounce an idea…", key="coach_chat_input")
+
+    if prompt and prompt.strip():
+        prompt = prompt.strip()
+
+        # Immediately show the user's message AND persist it.
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("🤖 Coach is analyzing and drafting…"):
-                try:
-                    payload = build_chat_prompt(pending)
+            try:
+                with st.spinner("🤖 Coach is responding…"):
+                    payload = build_chat_prompt(prompt)
                     response, engine = execute_multiprovider_generation(payload, selected_provider)
-                    synced = sync_icu_workouts(response)
 
-                    final_response = response.rstrip()
-                    final_response += f"\n\n*Engine: {engine}*"
-                    if synced:
-                        final_response += f"\n\n✅ **Success:** {synced} workout(s) synchronized with Intervals.icu."
-                        fetch_intervals_data.clear()
+                synced = sync_icu_workouts(response)
+                final_response = response.rstrip() + f"\n\n*Engine: {engine}*"
+                if synced:
+                    final_response += f"\n\n✅ **Success:** {synced} workout(s) synchronized with Intervals.icu."
+                    fetch_intervals_data.clear()
 
-                    st.session_state.messages.append({"role": "assistant", "content": final_response})
-                    st.session_state.pending_prompt = None
-                    st.session_state.pending_prompt_started_at = None
-                    st.rerun()
-                except Exception as exc:
-                    # Critical change: KEEP the user's message and show an error response.
-                    error_text = str(exc)
-                    st.session_state.messages.append(
-                        {
-                            "role": "assistant",
-                            "content": (
-                                "⚠️ I couldn't complete that request. Your message is still in the chat, "
-                                "so you can retry without losing it.\n\n"
-                                f"**Technical detail:** `{error_text}`"
-                            ),
-                        }
-                    )
-                    st.session_state.pending_prompt = None
-                    st.session_state.pending_prompt_started_at = None
-                    st.rerun()
+                st.markdown(sanitize_chat_text(final_response))
+                st.session_state.messages.append({"role": "assistant", "content": final_response})
+            except Exception as exc:
+                error_text = str(exc)
+                error_response = (
+                    "⚠️ **The coach could not complete that request.**\n\n"
+                    f"`{error_text}`\n\n"
+                    "Your question has been preserved above. Fix the provider shown in **AI diagnostics** and try again."
+                )
+                st.error(error_response)
+                st.session_state.messages.append({"role": "assistant", "content": error_response})
+
+        st.rerun()
 
 
 # -----------------------------------------------------------------------------
