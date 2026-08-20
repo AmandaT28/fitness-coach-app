@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Production Edition)
+"""AI Performance Coach • Elite Suite (Streamlined Edition)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -56,8 +56,7 @@ NAV_OPTIONS = [
     "🤖 AI Coach & Sparring", 
     "📅 Training Calendar", 
     "🔍 Activity Inspector", 
-    "🗺️ Route Strategist", 
-    "📈 Power Profiler"
+    "🗺️ Route Strategist"
 ]
 COACH_PAGE = "🤖 AI Coach & Sparring"
 DEFAULT_GOALS = {
@@ -530,7 +529,7 @@ def clear_persisted_trend():
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data(athlete_id, api_key):
     if not athlete_id or not api_key:
-        return [], [], [], [], "Intervals.icu credentials are missing."
+        return [], [], [], "Intervals.icu credentials are missing."
     try:
         today = dt.datetime.now(LOCAL_TZ).date()
         base = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
@@ -538,17 +537,16 @@ def fetch_intervals_data(athlete_id, api_key):
             f"{base}/wellness?oldest={(today-dt.timedelta(days=90)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
             f"{base}/activities?oldest={(today-dt.timedelta(days=90)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
             f"{base}/events?oldest={(today-dt.timedelta(days=14)).isoformat()}&newest={(today+dt.timedelta(days=14)).isoformat()}",
-            f"{base}/power-curves?curves=42d",
         ]
         result = []
         for url in urls:
             response = requests.get(url, auth=("API_KEY", api_key), timeout=INTERVALS_TIMEOUT)
-            result.append(response.json() if response.status_code == 200 else ([] if "power-curves" in url else []))
-        return result[0], result[1], result[2], result[3], "Connected."
+            result.append(response.json() if response.status_code == 200 else [])
+        return result[0], result[1], result[2], "Connected."
     except requests.Timeout:
-        return [], [], [], [], "Intervals.icu request timed out."
+        return [], [], [], "Intervals.icu request timed out."
     except Exception as exc:
-        return [], [], [], [], f"Intervals.icu error: {exc}"
+        return [], [], [], f"Intervals.icu error: {exc}"
 
 def event_date(event):
     raw = event.get("start_date_local") or event.get("start_date") or ""
@@ -666,7 +664,7 @@ else:
 ensure_initial_message()
 load_persisted_trend()
 
-wellness_list, activities_data, planned_events, power_curves_data, intervals_status = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
+wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
 st.session_state.calendar_context = json.dumps([session_summary(ev) for ev in planned_events[:10]], ensure_ascii=False)
 check_for_new_rides_on_startup(activities_data)
 
@@ -1049,90 +1047,6 @@ elif selected_nav == NAV_OPTIONS[4]:
                         st.rerun()
         else:
             st.error("Could not parse GPX file. Ensure it contains valid track points and elevation data.")
-
-elif selected_nav == NAV_OPTIONS[5]:
-    st.markdown("##### 📈 Power-Duration Curve Profiler")
-    st.caption("Visualizing your anaerobic capacity, maximal aerobic power, and threshold limitations from Intervals.icu.")
-    
-    def extract_power_dataframe(data):
-        if not data:
-            return None
-        
-        if isinstance(data, list) and len(data) > 0:
-            data = data[0]
-            
-        if isinstance(data, dict):
-            if "secs" in data and "watts" in data:
-                return pd.DataFrame({"seconds": data["secs"], "watts": data["watts"]})
-            
-            for key, val in data.items():
-                if isinstance(val, dict) and "secs" in val and "watts" in val:
-                    return pd.DataFrame({"seconds": val["secs"], "watts": val["watts"]})
-                elif isinstance(val, list) and len(val) > 0 and isinstance(val[0], dict):
-                    secs = [p.get("secs", p.get("seconds", i+1)) for i, p in enumerate(val)]
-                    watts = [p.get("watts", p.get("power", 0)) for p in val]
-                    return pd.DataFrame({"seconds": secs, "watts": watts})
-                    
-        return None
-
-    df_pc = extract_power_dataframe(power_curves_data)
-
-    if df_pc is None or df_pc.empty:
-        st.warning("⚠️ No power curve data found for the past 42 days.")
-        st.info("If you have uploaded power meter rides recently, log into Intervals.icu, navigate to **Power > Options**, and click **Recalculate Power Curves**.")
-        with st.expander("🔍 Inspect Raw API Response"):
-            st.json(power_curves_data if power_curves_data else {"status": "No data returned"})
-    else:
-        try:
-            df_pc = df_pc[(df_pc["seconds"] > 0) & (df_pc["watts"] > 0)].sort_values("seconds")
-            
-            fig_pc = go.Figure()
-            fig_pc.add_trace(go.Scatter(
-                x=df_pc["seconds"], 
-                y=df_pc["watts"], 
-                mode='lines', 
-                name='42-Day Peak Power', 
-                line=dict(color='#2563EB', width=3),
-                hovertemplate='%{x}s: %{y}W<extra></extra>'
-            ))
-            
-            fig_pc.update_layout(
-                title="Power-Duration Curve (Watts vs Time)",
-                xaxis_title="Duration (Seconds, Log Scale)", 
-                yaxis_title="Power (Watts)",
-                xaxis_type="log", 
-                plot_bgcolor='rgba(0,0,0,0)', 
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color=TEXT_PRIMARY),
-                margin=dict(l=10, r=10, t=40, b=10)
-            )
-            st.plotly_chart(fig_pc, use_container_width=True)
-            
-            p_5s = df_pc[df_pc["seconds"] <= 5]["watts"].max() if not df_pc.empty else 0
-            p_1m = df_pc[df_pc["seconds"].between(50, 70)]["watts"].max() if not df_pc.empty else 0
-            p_5m = df_pc[df_pc["seconds"].between(280, 320)]["watts"].max() if not df_pc.empty else 0
-            p_20m = df_pc[df_pc["seconds"].between(1150, 1250)]["watts"].max() if not df_pc.empty else 0
-            
-            b1, b2, b3, b4 = st.columns(4)
-            b1.metric("5s Sprint Peak", f"{int(p_5s) if pd.notnull(p_5s) else 0} W")
-            b2.metric("1m Anaerobic Peak", f"{int(p_1m) if pd.notnull(p_1m) else 0} W")
-            b3.metric("5m VO2max Peak", f"{int(p_5m) if pd.notnull(p_5m) else 0} W")
-            b4.metric("20m Threshold Peak", f"{int(p_20m) if pd.notnull(p_20m) else 0} W")
-            
-            st.divider()
-            
-            if st.button("🧠 Analyze Power Profile with AI Coach", type="primary"):
-                with st.spinner("Analyzing physiological power profile..."):
-                    try:
-                        profile_summary = f"42-Day Power Peaks — 5s Sprint: {p_5s}W, 1m Anaerobic: {p_1m}W, 5m VO2max: {p_5m}W, 20m FTP Test: {p_20m}W."
-                        prompt_text = f"Analyze my power profile: {profile_summary}. Goal: {st.session_state.goals['target_metric']}. Identify my rider phenotype (Sprinter, Puncheur, Climber, Time Trialist), limiters, and key interval workouts."
-                        analysis_res = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
-                        st.markdown("###### 📊 AI Power Profile Analysis")
-                        st.markdown(analysis_res)
-                    except Exception as exc: 
-                        st.error(str(exc))
-        except Exception as exc:
-            st.error(f"Error rendering power curve: {exc}")
 
 def build_gemini_payload(current_question, display_name):
     today = dt.datetime.now(LOCAL_TZ).date()
