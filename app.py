@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Production-Grade Edition)
+"""AI Performance Coach • Elite Suite (Human-Centric Production Edition)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -49,10 +49,10 @@ GEMINI_KEYS = [
     ("Tertiary Gemini", secret("TERTIARY_GEMINI_KEY")),
 ]
 
-AI_TIMEOUT = 15  
+AI_TIMEOUT = 30  
 INTERVALS_TIMEOUT = 6
 NAV_OPTIONS = [
-    "📊 Command Center", 
+    "☀️ Command Center", 
     "🤖 AI Coach & Sparring", 
     "📅 Training Calendar", 
     "🔍 Activity Inspector", 
@@ -226,9 +226,9 @@ div[data-testid="stChatInput"] {{
 div[data-testid="stChatInput"] textarea {{
     color: {TEXT_PRIMARY} !important;
 }}
-.readiness-card-red {{ 
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.02)); 
-    border: 1px solid rgba(239, 68, 68, 0.35); 
+.readiness-card-amber {{ 
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.02)); 
+    border: 1px solid rgba(245, 158, 11, 0.35); 
     border-radius: 10px; 
     padding: 16px 20px; 
     margin-bottom: 1.5rem; 
@@ -257,11 +257,11 @@ div[data-testid="stChatInput"] textarea {{
 </style>
 """, unsafe_allow_html=True)
 
-# --- CORE UTILITIES HOISTED TO TOP ---
+# --- CORE UTILITIES ---
 
 def ensure_initial_message():
     if not st.session_state.messages:
-        st.session_state.messages = [{"role": "assistant", "content": "Hello! I am your AI Multi-Sport Coach. Ask me to balance your cycling and running blocks or review your recent training."}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hey there! I'm your AI multi-sport coach. Let's look over your metrics and map out your path to Bintan. What's on your mind today?"}]
 
 def go_to(page):
     st.session_state.active_nav = page
@@ -320,10 +320,10 @@ def calculate_acwr(wellness_list):
             return 1.0, "Stable"
         acwr = round(acute / chronic, 2)
         if acwr > 1.35:
-            return acwr, "🚨 Danger: Overreaching / Spike Risk (>1.35)"
+            return acwr, "Overreaching / Spike Risk (>1.35)"
         elif acwr < 0.8:
-            return acwr, "⚠️ Detraining Risk (<0.8)"
-        return acwr, "✅ Optimal Ramp Rate (0.8–1.35)"
+            return acwr, "Detraining Risk (<0.8)"
+        return acwr, "Optimal Ramp Rate (0.8–1.35)"
     except Exception:
         return 1.0, "Stable"
 
@@ -401,7 +401,7 @@ def execute_ai(messages_payload, max_tokens=9000):
                 
     st.session_state.ai_diagnostic = "\n".join(errors)
     raise RuntimeError(f"Google Engine Failed. Diagnostics: {' | '.join(errors[:4])}")
-    
+
 def push_bulk_workouts_to_intervals(athlete_id, api_key, workout_list):
     if not athlete_id or not api_key:
         raise RuntimeError("Intervals.icu credentials are required to push workouts.")
@@ -592,13 +592,13 @@ def build_gemini_payload(current_question, display_name, wellness_list):
     gatekeeper_active = (current_tsb < -20) or (current_sleep < 60) or (acwr_val > 1.35)
     if gatekeeper_active:
         gatekeeper_directive = (
-            f"🚨 READINESS GATEKEEPER & ACWR GUARDIAN TRIGGERED 🚨\n"
+            f"⚠️ RECOVERY MENTORSHIP DIRECTIVE ACTIVE ⚠️\n"
             f"Current TSB is {current_tsb:.1f}, Sleep Score is {current_sleep:.0f}/100, and ACWR is {acwr_val} ({acwr_status}).\n"
-            f"MANDATORY RULE: You must VETO any user request for high-intensity running or cycling intervals today. "
-            f"Protect the athlete from overtraining, high impact run stress, and excessive ramp rate spikes. Proactively mandate recovery or rest."
+            f"MANDATORY RULE: Coach must adopt a warm, empathetic mentoring tone to advise against high-intensity intervals today. "
+            f"Protect the athlete from overtraining and excessive load spikes by proactively suggesting an easy recovery session or rest day."
         )
     else:
-        gatekeeper_directive = f"Readiness Gatekeeper Status: CLEAR (TSB: {current_tsb:.1f}, Sleep: {current_sleep:.0f}, ACWR: {acwr_val}). Training approved as planned."
+        gatekeeper_directive = f"Readiness Status: CLEAR (TSB: {current_tsb:.1f}, Sleep: {current_sleep:.0f}, ACWR: {acwr_val}). Training approved as planned."
 
     trend_ctx = (st.session_state.get('cached_trend_analysis') or 'No Trend Analysis.')[:1200]
     calendar_ctx = (st.session_state.get('calendar_context') or 'Not loaded')[:1500]
@@ -608,7 +608,7 @@ def build_gemini_payload(current_question, display_name, wellness_list):
     limits_str = st.session_state.athlete_limitations or 'N/A'
 
     system_instructions = (
-        f"You are an elite multi-sport (cycling and running) coach with full calendar integration.\n"
+        f"You are an empathetic, expert multi-sport (cycling and running) coach with full calendar integration.\n"
         f"Persona: {st.session_state.coach_persona}\n"
         f"Athlete: {display_name} | Discipline Focus: {st.session_state.primary_discipline}\n"
         f"Today: {today_str} | Next Monday: {next_monday_str}\n"
@@ -639,7 +639,7 @@ def build_gemini_payload(current_question, display_name, wellness_list):
 
     contents = [
         {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
-        {"role": "model", "parts": [{"text": "Understood. I am ready to act as your elite multi-sport coach, balancing cycling and running loads safely."}]}
+        {"role": "model", "parts": [{"text": "Understood. I am ready to act as your supportive elite multi-sport coach, keeping communication warm, empathetic, and scientifically sound."}]}
     ]
 
     for m in st.session_state.messages[-15:]:
@@ -656,29 +656,40 @@ def render_coach_reply(question, display_name, wellness_list, athlete_id, interv
         st.markdown(question)
     with st.chat_message("assistant"):
         placeholder = st.empty()
-        with st.spinner("🤔 **Coach is thinking...**"):
-            try:
-                payload = build_gemini_payload(question, display_name, wellness_list)
-                response = execute_ai(payload, max_tokens=9000)
-                placeholder.markdown(clean_chat_content(response))
-                
-                icu_payload = extract_icu_workout(response)
-                if isinstance(icu_payload, list) and len(icu_payload) > 0:
-                    with st.container(border=True):
-                        st.markdown(f"📋 **Proposed Training Block ({len(icu_payload)} sessions):**")
-                        for session in icu_payload:
-                            st.markdown(f"<span class='workout-pill'>{session.get('start_date_local')}</span> **{session.get('name', 'Workout')}** ({session.get('type', 'Ride')})", unsafe_allow_html=True)
-                        if st.button("🚀 Approve & Sync Plan to Intervals.icu", key=f"sync_chat_{len(st.session_state.messages)}", type="primary"):
-                            with st.spinner("⏳ Syncing proposed plan to Intervals.icu..."):
-                                try:
-                                    push_bulk_workouts_to_intervals(athlete_id, intervals_api_key, icu_payload)
-                                    st.toast("✅ Proposed plan successfully synced!", icon="✅")
-                                except Exception as exc: st.error(f"Sync failed: {exc}")
-                        
-                st.session_state.messages.append({"role": "assistant", "content": response})
-                persist_chat_to_db()
-            except Exception as exc:
-                placeholder.error(f"⚠️ {exc}")
+        
+        # Transparent, human thinking states
+        steps = [
+            "Reviewing your recent training blocks and split metrics...",
+            "Cross-referencing your sleep metrics and fatigue ramp rate...",
+            "Synthesizing personalized advice and structuring your plan..."
+        ]
+        for step in steps:
+            placeholder.markdown(f"*(Thinking)* &bull; {step}")
+            
+        try:
+            payload = build_gemini_payload(question, display_name, wellness_list)
+            response = execute_ai(payload, max_tokens=9000)
+            placeholder.markdown(clean_chat_content(response))
+            
+            icu_payload = extract_icu_workout(response)
+            if isinstance(icu_payload, list) and len(icu_payload) > 0:
+                with st.container(border=True):
+                    st.markdown(f"📋 **Proposed Training Block ({len(icu_payload)} sessions):**")
+                    for session in icu_payload:
+                        w_type = session.get('type', 'Ride')
+                        pill_color = "#2563EB" if "Ride" in w_type else "#D97706"
+                        st.markdown(f"<span class='workout-pill' style='border-color: {pill_color};'>{session.get('start_date_local')}</span> **{session.get('name', 'Workout')}** ({w_type})", unsafe_allow_html=True)
+                    if st.button("🚀 Approve & Sync Plan to Intervals.icu", key=f"sync_chat_{len(st.session_state.messages)}", type="primary"):
+                        with st.spinner("⏳ Syncing proposed plan to Intervals.icu..."):
+                            try:
+                                push_bulk_workouts_to_intervals(athlete_id, intervals_api_key, icu_payload)
+                                st.toast("✅ Proposed plan successfully synced!", icon="✅")
+                            except Exception as exc: st.error(f"Sync failed: {exc}")
+                    
+            st.session_state.messages.append({"role": "assistant", "content": response})
+            persist_chat_to_db()
+        except Exception as exc:
+            placeholder.error(f"⚠️ {exc}")
 
 # --- RUNTIME AUTHENTICATION & INITIALIZATION ---
 
@@ -854,8 +865,11 @@ tsb = latest.get("tsb", 0) or latest.get("TSB", 0) or 0
 # --- MAIN ROUTING LOGIC ---
 
 if selected_nav == NAV_OPTIONS[0]:
-    st.markdown("##### ☀️ Command Center")
-    st.caption(f"Intervals.icu: {intervals_status}")
+    # Human-friendly morning briefing header
+    current_hour = dt.datetime.now(LOCAL_TZ).hour
+    time_greeting = "Good morning" if current_hour < 12 else ("Good afternoon" if current_hour < 18 else "Good evening")
+    st.markdown(f"##### ☀️ {time_greeting}, {display_name}! Here is your training briefing.")
+    st.caption(f"Intervals.icu connection status: {intervals_status}")
     
     sleep_score = latest.get("sleep_score") or latest.get("sleepScore")
     acwr_val, acwr_status = calculate_acwr(wellness_list)
@@ -864,54 +878,55 @@ if selected_nav == NAV_OPTIONS[0]:
         readiness, focus, watch = "Readiness unavailable", "Sync Intervals.icu to assess today.", "No current wellness data."
         card_class = "readiness-card-green"
     elif tsb <= -20 or (sleep_score and sleep_score < 60) or acwr_val > 1.35:
-        readiness, focus, watch = "Recovery Gatekeeper Triggered", f"ACWR: {acwr_val} ({acwr_status}). High overreaching risk detected.", f"Accumulated TSB {tsb:.0f}, Sleep {sleep_score or 'N/A'}/100."
-        card_class = "readiness-card-red"
+        readiness, focus, watch = "Recovery & Adaptation Focus", f"ACWR: {acwr_val} ({acwr_status}). Your fatigue metrics indicate a need for recovery.", f"Accumulated TSB {tsb:.0f}, Sleep {sleep_score or 'N/A'}/100."
+        card_class = "readiness-card-amber"
     elif tsb <= -8:
-        readiness, focus, watch = "Manage the load", f"ACWR: {acwr_val}. Train, but avoid adding unplanned intensity.", f"Fatigue is elevated (TSB {tsb:.0f})."
-        card_class = "readiness-card-red"
+        readiness, focus, watch = "Steady & Controlled", f"ACWR: {acwr_val}. Keep your planned session steady and avoid extra intensity.", f"Fatigue is moderately elevated (TSB {tsb:.0f})."
+        card_class = "readiness-card-amber"
     else:
-        readiness, focus, watch = "Ready to train", f"ACWR: {acwr_val} ({acwr_status}). Your planned session is appropriate.", f"Form is balanced (TSB {tsb:.0f})."
+        readiness, focus, watch = "Primed & Ready", f"ACWR: {acwr_val} ({acwr_status}). Your body is balanced and ready for quality work.", f"Form is stable (TSB {tsb:.0f})."
         card_class = "readiness-card-green"
         
     st.markdown(f"""
     <div class="{card_class}">
-        <h4 style="margin:0 0 4px 0; font-size:1.1rem;">⚡ {readiness}</h4>
+        <h4 style="margin:0 0 4px 0; font-size:1.1rem;">💡 {readiness}</h4>
         <p style="margin:0; font-size:.95rem;">{focus} &bull; <em>{watch}</em></p>
     </div>
     """, unsafe_allow_html=True)
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("Fitness (CTL)", round(float(ctl), 1))
-    c2.metric("Fatigue (ATL)", round(float(atl), 1))
-    c3.metric("Form (TSB)", round(float(tsb), 1))
+    c1.metric("Fitness (CTL)", round(float(ctl), 1), delta="Aerobic Base")
+    c2.metric("Fatigue (ATL)", round(float(atl), 1), delta="Recent Load")
+    c3.metric("Form (TSB)", round(float(tsb), 1), delta="Freshness")
 
-    if wellness_list:
-        try:
-            df = pd.DataFrame(wellness_list)
-            date_col = next((col for col in ['id', 'date', 'start_date'] if col in df.columns), None)
-            if date_col and not df.empty:
-                df['date_parsed'] = pd.to_datetime(df[date_col], errors='coerce')
-                df = df.dropna(subset=['date_parsed']).sort_values('date_parsed')
-                raw_ctl = df.get('ctl', df.get('CTL', 0))
-                raw_atl = df.get('atl', df.get('ATL', 0))
-                raw_tsb = df.get('tsb', df.get('TSB', 0))
-                df['ctl_clean'] = pd.to_numeric(raw_ctl if isinstance(raw_ctl, pd.Series) else pd.Series(raw_ctl), errors='coerce').fillna(0)
-                df['atl_clean'] = pd.to_numeric(raw_atl if isinstance(raw_atl, pd.Series) else pd.Series(raw_atl), errors='coerce').fillna(0)
-                df['tsb_clean'] = pd.to_numeric(raw_tsb if isinstance(raw_tsb, pd.Series) else pd.Series(raw_tsb), errors='coerce').fillna(0)
-                
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['ctl_clean'], mode='lines', name='Fitness (CTL)', line=dict(color='#00E676', width=2)))
-                fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['atl_clean'], mode='lines', name='Fatigue (ATL)', line=dict(color='#FF4081', width=2)))
-                fig.add_trace(go.Bar(x=df['date_parsed'], y=df['tsb_clean'], name='Form (TSB)', marker_color=['#00E676' if val >= 0 else '#FF4081' for val in df['tsb_clean']]))
-                fig.update_layout(
-                    title="90-Day Multi-Sport Performance Management Chart", title_font=dict(size=14, color=TEXT_PRIMARY),
-                    margin=dict(l=0, r=0, t=40, b=0), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color=TEXT_PRIMARY)),
-                    xaxis=dict(showgrid=False, color=TEXT_PRIMARY), yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)", color=TEXT_PRIMARY)
-                )
-                st.plotly_chart(fig, use_container_width=True)
-        except Exception as e:
-            st.caption(f"Chart render warning: {e}")
+    with st.expander("📊 View 90-Day Performance Management Chart (CTL / ATL / TSB)", expanded=False):
+        if wellness_list:
+            try:
+                df = pd.DataFrame(wellness_list)
+                date_col = next((col for col in ['id', 'date', 'start_date'] if col in df.columns), None)
+                if date_col and not df.empty:
+                    df['date_parsed'] = pd.to_datetime(df[date_col], errors='coerce')
+                    df = df.dropna(subset=['date_parsed']).sort_values('date_parsed')
+                    raw_ctl = df.get('ctl', df.get('CTL', 0))
+                    raw_atl = df.get('atl', df.get('ATL', 0))
+                    raw_tsb = df.get('tsb', df.get('TSB', 0))
+                    df['ctl_clean'] = pd.to_numeric(raw_ctl if isinstance(raw_ctl, pd.Series) else pd.Series(raw_ctl), errors='coerce').fillna(0)
+                    df['atl_clean'] = pd.to_numeric(raw_atl if isinstance(raw_atl, pd.Series) else pd.Series(raw_atl), errors='coerce').fillna(0)
+                    df['tsb_clean'] = pd.to_numeric(raw_tsb if isinstance(raw_tsb, pd.Series) else pd.Series(raw_tsb), errors='coerce').fillna(0)
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['ctl_clean'], mode='lines', name='Fitness (CTL)', line=dict(color='#00E676', width=2)))
+                    fig.add_trace(go.Scatter(x=df['date_parsed'], y=df['atl_clean'], mode='lines', name='Fatigue (ATL)', line=dict(color='#FF4081', width=2)))
+                    fig.add_trace(go.Bar(x=df['date_parsed'], y=df['tsb_clean'], name='Form (TSB)', marker_color=['#00E676' if val >= 0 else '#FF4081' for val in df['tsb_clean']]))
+                    fig.update_layout(
+                        title="90-Day Multi-Sport Performance Management Chart", title_font=dict(size=14, color=TEXT_PRIMARY),
+                        margin=dict(l=0, r=0, t=40, b=0), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color=TEXT_PRIMARY)),
+                        xaxis=dict(showgrid=False, color=TEXT_PRIMARY), yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)", color=TEXT_PRIMARY)
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.caption(f"Chart render warning: {e}")
     
     if "cached_trend_analyses" not in st.session_state:
         st.session_state.cached_trend_analyses = []
@@ -957,7 +972,9 @@ elif selected_nav == COACH_PAGE:
                     with st.container(border=True):
                         st.markdown(f"📋 **Proposed Training Block ({len(icu_payload)} sessions):**")
                         for session in icu_payload:
-                            st.markdown(f"<span class='workout-pill'>{session.get('start_date_local')}</span> **{session.get('name', 'Workout')}** ({session.get('type', 'Ride')})", unsafe_allow_html=True)
+                            w_type = session.get('type', 'Ride')
+                            pill_color = "#2563EB" if "Ride" in w_type else "#D97706"
+                            st.markdown(f"<span class='workout-pill' style='border-color: {pill_color};'>{session.get('start_date_local')}</span> **{session.get('name', 'Workout')}** ({w_type})", unsafe_allow_html=True)
                         if st.button("🚀 Approve & Sync Plan to Intervals.icu", key=f"sync_hist_{idx}", type="primary"):
                             with st.spinner("⏳ Syncing workouts to Intervals.icu..."):
                                 try:
@@ -1124,7 +1141,7 @@ elif selected_nav == NAV_OPTIONS[4]:
             if st.button("Generate Strategy", type="primary"):
                 with st.spinner("Analyzing profile & fueling requirements..."):
                     try:
-                        prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Est Duration: {est_hours}h. Goal: {st.session_state.goals['target_metric']}. Give practical pacing, climbing, and hourly nutrition guidelines."
+                        prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Est Duration: {est_hours}h. Goal: {st.session_state.goals['target_metric']}. Guide with practical pacing, climbing, and hourly nutrition guidelines."
                         st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=9000)
                         st.toast("Strategy generated!", icon="🏔️")
                     except Exception as exc: st.error(str(exc))
