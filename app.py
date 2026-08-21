@@ -407,17 +407,19 @@ def push_bulk_workouts_to_intervals(athlete_id, api_key, workout_list):
         raise RuntimeError("Intervals.icu credentials are required to push workouts.")
     if not workout_list:
         raise RuntimeError("No workout items to sync.")
+    
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events/bulk?upsert=true"
     payload = []
-    
     date_counts = {}
-    for item in workout_list:
-        date_str = item.get("start_date_local", dt.datetime.now(LOCAL_TZ).date().isoformat())[:10]
+    
+    for idx, item in enumerate(workout_list):
+        raw_date = str(item.get("start_date_local", dt.datetime.now(LOCAL_TZ).date().isoformat()))[:10]
         
-        date_counts[date_str] = date_counts.get(date_str, 0) + 1
-        session_num = date_counts[date_str]
+        # Track daily frequency to handle double sessions / bricks cleanly
+        date_counts[raw_date] = date_counts.get(raw_date, 0) + 1
+        session_num = date_counts[raw_date]
         
-        # Stagger start times for double sessions
+        # Stagger start times: 1st session at 08:00, 2nd at 17:00, subsequent spaced out
         if session_num == 1:
             time_slot = "08:00:00"
         elif session_num == 2:
@@ -425,14 +427,14 @@ def push_bulk_workouts_to_intervals(athlete_id, api_key, workout_list):
         else:
             time_slot = f"{12 + session_num}:00:00"
 
-        # Unique external_id prevents Intervals.icu from overwriting same-day sessions
         w_type = item.get("type", "Ride")
-        ext_id = f"AI_COACH_{date_str}_{w_type.upper()}_{session_num}"
+        # Guarantee a globally unique external_id for every single list item
+        ext_id = f"AI_COACH_{raw_date}_{w_type.upper()}_{session_num}_{idx}"
 
         payload.append({
             "external_id": ext_id,
             "category": "WORKOUT",
-            "start_date_local": f"{date_str}T{time_slot}",
+            "start_date_local": f"{raw_date}T{time_slot}",
             "name": item.get("name", "Planned Session"),
             "description": item.get("description", ""),
             "type": w_type,
