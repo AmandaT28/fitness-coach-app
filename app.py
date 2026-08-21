@@ -48,7 +48,7 @@ GEMINI_KEYS = [
     ("Secondary Gemini", secret("SECONDARY_GEMINI_KEY")),
     ("Tertiary Gemini", secret("TERTIARY_GEMINI_KEY")),
 ]
-GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-2.5-flash")
+
 AI_TIMEOUT = 15  
 INTERVALS_TIMEOUT = 6
 NAV_OPTIONS = [
@@ -107,12 +107,10 @@ ACCENT_GLOW = "rgba(37, 99, 235, 0.35)"
 
 st.markdown(f"""
 <style>
-/* Header Banner Fix */
 header[data-testid="stHeader"] {{
     background-color: {BG_APP} !important;
     z-index: 99 !important;
 }}
-
 .main .block-container {{
     padding-top: 5rem !important;
     padding-bottom: 6rem !important;
@@ -120,25 +118,18 @@ header[data-testid="stHeader"] {{
     padding-right: 2rem !important;
     max-width: 1440px;
 }}
-
-/* Base Canvas */
 .stApp {{
     background-color: {BG_APP} !important;
     color: {TEXT_PRIMARY} !important;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
 }}
-
-/* Sidebar Design */
 section[data-testid="stSidebar"] {{
     background-color: {BG_SIDEBAR} !important;
     border-right: 1px solid {BORDER_SUBTLE} !important;
 }}
-
 section[data-testid="stSidebar"] > div {{
     background-color: {BG_SIDEBAR} !important;
 }}
-
-/* Navigation Buttons */
 section[data-testid="stSidebar"] .stButton > button {{
     background: {BG_SURFACE_ALT} !important;
     color: {TEXT_MUTED} !important;
@@ -152,14 +143,12 @@ section[data-testid="stSidebar"] .stButton > button {{
     box-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }}
-
 section[data-testid="stSidebar"] .stButton > button:hover {{
     background: {BORDER_SUBTLE} !important;
     color: {TEXT_PRIMARY} !important;
     border-color: {BORDER_ACCENT} !important;
     transform: translateY(-1px);
 }}
-
 section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
     background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
     color: #FFFFFF !important;
@@ -167,8 +156,6 @@ section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
     font-weight: 600 !important;
     box-shadow: 0 4px 12px {ACCENT_GLOW} !important;
 }}
-
-/* Main Buttons */
 .stButton > button[kind="primary"] {{
     background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
     color: #FFFFFF !important;
@@ -179,12 +166,10 @@ section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
     box-shadow: 0 2px 8px {ACCENT_GLOW} !important;
     transition: all 0.2s ease !important;
 }}
-
 .stButton > button[kind="primary"]:hover {{
     box-shadow: 0 4px 16px rgba(37, 99, 235, 0.5) !important;
     transform: translateY(-1px);
 }}
-
 .stButton > button[kind="secondary"] {{
     background: {BG_SURFACE_ALT} !important;
     color: {TEXT_PRIMARY} !important;
@@ -193,13 +178,10 @@ section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
     font-weight: 500 !important;
     transition: all 0.2s ease !important;
 }}
-
 .stButton > button[kind="secondary"]:hover {{
     border-color: {BORDER_ACCENT} !important;
     background: {BORDER_SUBTLE} !important;
 }}
-
-/* Metric Cards & Expanders */
 div[data-testid="stMetric"], 
 div[data-testid="stExpander"], 
 div[data-testid="stChatMessage"] {{
@@ -209,13 +191,10 @@ div[data-testid="stChatMessage"] {{
     color: {TEXT_PRIMARY} !important;
     box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important;
 }}
-
 div[data-testid="stMetric"] label {{
     color: {TEXT_MUTED} !important;
     font-weight: 500 !important;
 }}
-
-/* Inputs & Form Controls */
 div[data-baseweb="select"] > div, 
 div[data-baseweb="input"] > div, 
 textarea {{
@@ -224,44 +203,29 @@ textarea {{
     border-radius: 8px !important;
     color: {TEXT_PRIMARY} !important;
 }}
-
-div[data-baseweb="select"] > div:hover, 
-div[data-baseweb="input"] > div:hover, 
-textarea:focus {{
-    border-color: {ACCENT_BLUE} !important;
-}}
-
-/* Tabs */
 button[data-baseweb="tab"] {{
     color: {TEXT_MUTED} !important;
     font-weight: 500 !important;
     border-bottom: 2px solid transparent !important;
 }}
-
 button[data-baseweb="tab"][aria-selected="true"] {{
     color: #58A6FF !important;
     border-bottom-color: #58A6FF !important;
     font-weight: 600 !important;
 }}
-
-/* Bottom Fixed Chat Area */
 div[data-testid="stBottomBlockContainer"] {{
     background-color: {BG_APP} !important;
     border-top: 1px solid {BORDER_SUBTLE} !important;
     padding-bottom: 1rem !important;
 }}
-
 div[data-testid="stChatInput"] {{
     background-color: {BG_CARD} !important;
     border: 1px solid {BORDER_SUBTLE} !important;
     border-radius: 10px !important;
 }}
-
 div[data-testid="stChatInput"] textarea {{
     color: {TEXT_PRIMARY} !important;
 }}
-
-/* Readiness Cards */
 .readiness-card-red {{ 
     background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.02)); 
     border: 1px solid rgba(239, 68, 68, 0.35); 
@@ -270,7 +234,6 @@ div[data-testid="stChatInput"] textarea {{
     margin-bottom: 1.5rem; 
     color: {TEXT_PRIMARY};
 }}
-
 .readiness-card-green {{ 
     background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.02)); 
     border: 1px solid rgba(16, 185, 129, 0.35); 
@@ -279,7 +242,6 @@ div[data-testid="stChatInput"] textarea {{
     margin-bottom: 1.5rem; 
     color: {TEXT_PRIMARY};
 }}
-
 .workout-pill {{ 
     display: inline-block; 
     padding: 4px 10px; 
@@ -393,37 +355,54 @@ def clean_chat_content(text):
     text = re.sub(r"<icu_weekly_plan>.*?</icu_weekly_plan>", "", text, flags=re.S | re.I)
     return text.strip()
 
-def gemini_generate(messages_payload, api_key, max_tokens=4000):
+# --- AI CASCADE GENERATOR & HELPER FUNCTIONS DEFINED UP FRONT ---
+def gemini_generate(messages_payload, api_key, model_name, max_tokens=4000):
     if not api_key:
         raise RuntimeError("Gemini API key is not configured.")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
     payload = {
         "contents": messages_payload,
         "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7},
     }
     response = requests.post(url, headers=headers, json=payload, timeout=AI_TIMEOUT)
+    
     if response.status_code == 429:
-        raise RuntimeError("Quota/Rate Limit exceeded on this API key.")
+        raise RuntimeError(f"Quota/Rate Limit exceeded on {model_name}.")
     if response.status_code != 200:
         raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:300]}")
+        
     parts = (response.json().get("candidates") or [{}])[0].get("content", {}).get("parts", [])
     text = "\n".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+    
     if not text:
-        raise RuntimeError("Gemini returned an empty response.")
+        raise RuntimeError("Empty response (Safety Block / Filtered).")
     return text
 
 def execute_ai(messages_payload, max_tokens=4000):
     errors = []
+    models = [
+        "gemini-3.7-flash", 
+        "gemini-3.6-flash", 
+        "gemini-3.5-flash", 
+        "gemini-2.5-flash", 
+        "gemini-2.0-flash", 
+        "gemini-1.5-flash"
+    ]
+    
     for name, key in GEMINI_KEYS:
         if not key:
             continue
-        try:
-            return gemini_generate(messages_payload, key, max_tokens=max_tokens)
-        except Exception as exc:
-            errors.append(f"{name}: {exc}")
+        for m in models:
+            try:
+                res = gemini_generate(messages_payload, key, m, max_tokens=max_tokens)
+                st.session_state.ai_diagnostic = f"Success: Connected via {name} ({m})"
+                return res
+            except Exception as exc:
+                errors.append(f"{name} ({m}): {exc}")
+                
     st.session_state.ai_diagnostic = "\n".join(errors)
-    raise RuntimeError("The coach is temporarily rate-limited or busy. Please try again in 5 seconds.")
+    raise RuntimeError(f"Google Engine Failed. Diagnostics: {' | '.join(errors[:4])}")
 
 def push_bulk_workouts_to_intervals(athlete_id, api_key, workout_list):
     if not athlete_id or not api_key:
@@ -517,15 +496,6 @@ def persist_trend():
         try: localS.setItem(trend_storage_key(), json.dumps(payload))
         except Exception: pass
 
-def clear_persisted_trend():
-    st.session_state.cached_trend_analyses = []
-    if st.session_state.user and supabase:
-        try: (supabase.table("profiles").update({"trend_analyses_list": []}).eq("id", st.session_state.user.id).execute())
-        except Exception: pass
-    if localS:
-        try: localS.deleteItem(trend_storage_key())
-        except Exception: pass
-
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data(athlete_id, api_key):
     if not athlete_id or not api_key:
@@ -595,6 +565,123 @@ def parse_gpx(raw):
     except Exception:
         return None
 
+def build_gemini_payload(current_question, display_name):
+    today = dt.datetime.now(LOCAL_TZ).date()
+    next_monday = today + dt.timedelta(days=(0 - today.weekday()) % 7)
+    if next_monday == today: next_monday += dt.timedelta(days=7)
+    next_monday_str = next_monday.isoformat()
+    today_str = today.isoformat()
+
+    try:
+        race_dt = dt.date.fromisoformat(st.session_state.goals['race_date'])
+        weeks_to_race = max(0, (race_dt - today).days // 7)
+    except Exception:
+        weeks_to_race = 12
+
+    if weeks_to_race > 12:
+        periodization_phase = "BASE BUILDING (Focus on aerobic endurance, multi-sport volume, and structural resilience)."
+    elif weeks_to_race > 4:
+        periodization_phase = "BUILD PHASE (Focus on threshold intervals, brick sessions, and run/ride progression)."
+    else:
+        periodization_phase = "TAPER & PEAK PHASE (Focus on reducing volume while maintaining intensity, prioritizing recovery and race freshness)."
+
+    latest_wellness = wellness_list[-1] if wellness_list else {}
+    current_tsb = float(latest_wellness.get("tsb", latest_wellness.get("TSB", 0)) or 0)
+    current_sleep = float(latest_wellness.get("sleep_score", latest_wellness.get("sleepScore", 80)) or 80)
+    acwr_val, acwr_status = calculate_acwr(wellness_list)
+    
+    gatekeeper_active = (current_tsb < -20) or (current_sleep < 60) or (acwr_val > 1.35)
+    if gatekeeper_active:
+        gatekeeper_directive = (
+            f"🚨 READINESS GATEKEEPER & ACWR GUARDIAN TRIGGERED 🚨\n"
+            f"Current TSB is {current_tsb:.1f}, Sleep Score is {current_sleep:.0f}/100, and ACWR is {acwr_val} ({acwr_status}).\n"
+            f"MANDATORY RULE: You must VETO any user request for high-intensity running or cycling intervals today. "
+            f"Protect the athlete from overtraining, high impact run stress, and excessive ramp rate spikes. Proactively mandate recovery or rest."
+        )
+    else:
+        gatekeeper_directive = f"Readiness Gatekeeper Status: CLEAR (TSB: {current_tsb:.1f}, Sleep: {current_sleep:.0f}, ACWR: {acwr_val}). Training approved as planned."
+
+    trend_ctx = (st.session_state.get('cached_trend_analysis') or 'No Trend Analysis.')[:1200]
+    calendar_ctx = (st.session_state.get('calendar_context') or 'Not loaded')[:1500]
+    memory_ctx = st.session_state.get('coach_memory') or 'No long-term memory logged yet.'
+    supplements_str = json.dumps(st.session_state.user_supplements, ensure_ascii=False) if st.session_state.user_supplements else 'N/A'
+    gear_str = st.session_state.athlete_gear or 'N/A'
+    limits_str = st.session_state.athlete_limitations or 'N/A'
+
+    system_instructions = (
+        f"You are an elite multi-sport (cycling and running) coach with full calendar integration.\n"
+        f"Persona: {st.session_state.coach_persona}\n"
+        f"Athlete: {display_name} | Discipline Focus: {st.session_state.primary_discipline}\n"
+        f"Today: {today_str} | Next Monday: {next_monday_str}\n"
+        f"Goal: {st.session_state.goals['target_metric']} ({st.session_state.goals['event_name']} on {st.session_state.goals['race_date']})\n"
+        f"Current Periodization Phase: {periodization_phase} ({weeks_to_race} weeks to event)\n"
+        f"{gatekeeper_directive}\n"
+        f"LONG-TERM COACHING MEMORY & ATHLETE PROFILE:\n{memory_ctx}\n\n"
+        f"Gear: {gear_str} | Limitations: {limits_str}\n"
+        f"Supplements & Fueling: {supplements_str}\n"
+        f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n\n"
+        f"CALENDAR CONTEXT:\n{calendar_ctx}\n\n"
+        "CRITICAL WORKOUT FORMATTING RULES FOR INTERVALS.ICU:\n"
+        "When prescribing workouts (rides or runs), the `description` field MUST use strict Markdown syntax:\n"
+        "- Use clear section headers on their own line: Warmup, Main Set, Cooldown.\n"
+        "- Use bullet points starting with '- ' followed by exact duration, intensity (power % for rides, pace/HR for runs), AND cadence/spm.\n\n"
+        "IF PRESCRIBING A WEEKLY SCHEDULE OR MACROCYCLE, APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags:\n"
+        "<icu_weekly_plan>\n"
+        "[\n"
+        "  {\n"
+        f"    \"name\": \"Threshold Run & Bike Brick\",\n"
+        f"    \"type\": \"Run\",\n"
+        f"    \"start_date_local\": \"{next_monday_str}\",\n"
+        f"    \"description\": \"Warmup\\n- 15m Easy Jog\\n\\nMain Set 4x\\n- 1km Threshold Pace\\n- 90s Jog Recovery\\n\\nCooldown\\n- 10m Easy\"\n"
+        "  }\n"
+        "]\n"
+        "</icu_weekly_plan>"
+    )
+
+    contents = [
+        {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
+        {"role": "model", "parts": [{"text": "Understood. I am ready to act as your elite multi-sport coach, balancing cycling and running loads safely."}]}
+    ]
+
+    for m in st.session_state.messages[-15:]:
+        role = "user" if m["role"] == "user" else "model"
+        msg_text = clean_chat_content(str(m["content"])) if role == "model" else str(m["content"])
+        contents.append({"role": role, "parts": [{"text": msg_text[:2500]}]})
+
+    contents.append({"role": "user", "parts": [{"text": str(current_question)[:2000]}]})
+    return contents
+
+def render_coach_reply(question, display_name):
+    st.session_state.messages.append({"role": "user", "content": question})
+    with st.chat_message("user"):
+        st.markdown(question)
+    with st.chat_message("assistant"):
+        placeholder = st.empty()
+        with st.spinner("🤔 **Coach is thinking...**"):
+            try:
+                payload = build_gemini_payload(question, display_name)
+                response = execute_ai(payload, max_tokens=3000)
+                placeholder.markdown(clean_chat_content(response))
+                
+                icu_payload = extract_icu_workout(response)
+                if isinstance(icu_payload, list) and len(icu_payload) > 0:
+                    with st.container(border=True):
+                        st.markdown(f"📋 **Proposed Training Block ({len(icu_payload)} sessions):**")
+                        for session in icu_payload:
+                            st.markdown(f"<span class='workout-pill'>{session.get('start_date_local')}</span> **{session.get('name', 'Workout')}** ({session.get('type', 'Ride')})", unsafe_allow_html=True)
+                        if st.button("🚀 Approve & Sync Plan to Intervals.icu", key=f"sync_chat_{len(st.session_state.messages)}", type="primary"):
+                            with st.spinner("⏳ Syncing proposed plan to Intervals.icu..."):
+                                try:
+                                    push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, icu_payload)
+                                    st.toast("✅ Proposed plan successfully synced!", icon="✅")
+                                except Exception as exc: st.error(f"Sync failed: {exc}")
+                        
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                persist_chat_to_db()
+            except Exception as exc:
+                placeholder.error(f"⚠️ {exc}")
+
+# --- AUTH & SETUP RUNTIME ---
 try:
     token = st.query_params.get("token")
     if token and not st.session_state.user_credentials:
@@ -744,7 +831,7 @@ with st.sidebar:
             with st.spinner("Pinging coach..."):
                 try:
                     execute_ai([{"role": "user", "parts": [{"text": "Reply exactly: AI connection successful."}]}], max_tokens=20)
-                    st.success("AI connection successful.")
+                    st.success(st.session_state.ai_diagnostic)
                 except Exception as exc: st.error(str(exc))
         if st.session_state.ai_diagnostic:
             st.caption("Diagnostic")
@@ -1047,119 +1134,3 @@ elif selected_nav == NAV_OPTIONS[4]:
                         st.rerun()
         else:
             st.error("Could not parse GPX file. Ensure it contains valid track points and elevation data.")
-
-def build_gemini_payload(current_question, display_name):
-    today = dt.datetime.now(LOCAL_TZ).date()
-    next_monday = today + dt.timedelta(days=(0 - today.weekday()) % 7)
-    if next_monday == today: next_monday += dt.timedelta(days=7)
-    next_monday_str = next_monday.isoformat()
-    today_str = today.isoformat()
-
-    try:
-        race_dt = dt.date.fromisoformat(st.session_state.goals['race_date'])
-        weeks_to_race = max(0, (race_dt - today).days // 7)
-    except Exception:
-        weeks_to_race = 12
-
-    if weeks_to_race > 12:
-        periodization_phase = "BASE BUILDING (Focus on aerobic endurance, multi-sport volume, and structural resilience)."
-    elif weeks_to_race > 4:
-        periodization_phase = "BUILD PHASE (Focus on threshold intervals, brick sessions, and run/ride progression)."
-    else:
-        periodization_phase = "TAPER & PEAK PHASE (Focus on reducing volume while maintaining intensity, prioritizing recovery and race freshness)."
-
-    latest_wellness = wellness_list[-1] if wellness_list else {}
-    current_tsb = float(latest_wellness.get("tsb", latest_wellness.get("TSB", 0)) or 0)
-    current_sleep = float(latest_wellness.get("sleep_score", latest_wellness.get("sleepScore", 80)) or 80)
-    acwr_val, acwr_status = calculate_acwr(wellness_list)
-    
-    gatekeeper_active = (current_tsb < -20) or (current_sleep < 60) or (acwr_val > 1.35)
-    if gatekeeper_active:
-        gatekeeper_directive = (
-            f"🚨 READINESS GATEKEEPER & ACWR GUARDIAN TRIGGERED 🚨\n"
-            f"Current TSB is {current_tsb:.1f}, Sleep Score is {current_sleep:.0f}/100, and ACWR is {acwr_val} ({acwr_status}).\n"
-            f"MANDATORY RULE: You must VETO any user request for high-intensity running or cycling intervals today. "
-            f"Protect the athlete from overtraining, high impact run stress, and excessive ramp rate spikes. Proactively mandate recovery or rest."
-        )
-    else:
-        gatekeeper_directive = f"Readiness Gatekeeper Status: CLEAR (TSB: {current_tsb:.1f}, Sleep: {current_sleep:.0f}, ACWR: {acwr_val}). Training approved as planned."
-
-    trend_ctx = (st.session_state.get('cached_trend_analysis') or 'No Trend Analysis.')[:1200]
-    calendar_ctx = (st.session_state.get('calendar_context') or 'Not loaded')[:1500]
-    memory_ctx = st.session_state.get('coach_memory') or 'No long-term memory logged yet.'
-    supplements_str = json.dumps(st.session_state.user_supplements, ensure_ascii=False) if st.session_state.user_supplements else 'N/A'
-    gear_str = st.session_state.athlete_gear or 'N/A'
-    limits_str = st.session_state.athlete_limitations or 'N/A'
-
-    system_instructions = (
-        f"You are an elite multi-sport (cycling and running) coach with full calendar integration.\n"
-        f"Persona: {st.session_state.coach_persona}\n"
-        f"Athlete: {display_name} | Discipline Focus: {st.session_state.primary_discipline}\n"
-        f"Today: {today_str} | Next Monday: {next_monday_str}\n"
-        f"Goal: {st.session_state.goals['target_metric']} ({st.session_state.goals['event_name']} on {st.session_state.goals['race_date']})\n"
-        f"Current Periodization Phase: {periodization_phase} ({weeks_to_race} weeks to event)\n"
-        f"{gatekeeper_directive}\n"
-        f"LONG-TERM COACHING MEMORY & ATHLETE PROFILE:\n{memory_ctx}\n\n"
-        f"Gear: {gear_str} | Limitations: {limits_str}\n"
-        f"Supplements & Fueling: {supplements_str}\n"
-        f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n\n"
-        f"CALENDAR CONTEXT:\n{calendar_ctx}\n\n"
-        "CRITICAL WORKOUT FORMATTING RULES FOR INTERVALS.ICU:\n"
-        "When prescribing workouts (rides or runs), the `description` field MUST use strict Markdown syntax:\n"
-        "- Use clear section headers on their own line: Warmup, Main Set, Cooldown.\n"
-        "- Use bullet points starting with '- ' followed by exact duration, intensity (power % for rides, pace/HR for runs), AND cadence/spm.\n\n"
-        "IF PRESCRIBING A WEEKLY SCHEDULE OR MACROCYCLE, APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags:\n"
-        "<icu_weekly_plan>\n"
-        "[\n"
-        "  {\n"
-        f"    \"name\": \"Threshold Run & Bike Brick\",\n"
-        f"    \"type\": \"Run\",\n"
-        f"    \"start_date_local\": \"{next_monday_str}\",\n"
-        f"    \"description\": \"Warmup\\n- 15m Easy Jog\\n\\nMain Set 4x\\n- 1km Threshold Pace\\n- 90s Jog Recovery\\n\\nCooldown\\n- 10m Easy\"\n"
-        "  }\n"
-        "]\n"
-        "</icu_weekly_plan>"
-    )
-
-    contents = [
-        {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
-        {"role": "model", "parts": [{"text": "Understood. I am ready to act as your elite multi-sport coach, balancing cycling and running loads safely."}]}
-    ]
-
-    for m in st.session_state.messages[-15:]:
-        role = "user" if m["role"] == "user" else "model"
-        msg_text = clean_chat_content(str(m["content"])) if role == "model" else str(m["content"])
-        contents.append({"role": role, "parts": [{"text": msg_text[:2500]}]})
-
-    contents.append({"role": "user", "parts": [{"text": str(current_question)[:2000]}]})
-    return contents
-
-def render_coach_reply(question, display_name):
-    st.session_state.messages.append({"role": "user", "content": question})
-    with st.chat_message("user"):
-        st.markdown(question)
-    with st.chat_message("assistant"):
-        placeholder = st.empty()
-        with st.spinner("🤔 **Coach is thinking...**"):
-            try:
-                payload = build_gemini_payload(question, display_name)
-                response = execute_ai(payload, max_tokens=3000)
-                placeholder.markdown(clean_chat_content(response))
-                
-                icu_payload = extract_icu_workout(response)
-                if isinstance(icu_payload, list) and len(icu_payload) > 0:
-                    with st.container(border=True):
-                        st.markdown(f"📋 **Proposed Training Block ({len(icu_payload)} sessions):**")
-                        for session in icu_payload:
-                            st.markdown(f"<span class='workout-pill'>{session.get('start_date_local')}</span> **{session.get('name', 'Workout')}** ({session.get('type', 'Ride')})", unsafe_allow_html=True)
-                        if st.button("🚀 Approve & Sync Plan to Intervals.icu", key=f"sync_chat_{len(st.session_state.messages)}", type="primary"):
-                            with st.spinner("⏳ Syncing proposed plan to Intervals.icu..."):
-                                try:
-                                    push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, icu_payload)
-                                    st.toast("✅ Proposed plan successfully synced!", icon="✅")
-                                except Exception as exc: st.error(f"Sync failed: {exc}")
-                        
-                st.session_state.messages.append({"role": "assistant", "content": response})
-                persist_chat_to_db()
-            except Exception as exc:
-                placeholder.error(f"⚠️ {exc}")
