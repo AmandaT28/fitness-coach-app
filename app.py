@@ -626,7 +626,7 @@ def build_gemini_payload(current_question, display_name, wellness_list):
     gear_str = st.session_state.athlete_gear or 'N/A'
     limits_str = st.session_state.athlete_limitations or 'N/A'
 
-   system_instructions = (
+    system_instructions = (
         f"You are an elite multi-sport (cycling and running) coach with full calendar integration.\n"
         f"Persona: {st.session_state.coach_persona}\n"
         f"Athlete: {display_name} | Discipline Focus: {st.session_state.primary_discipline}\n"
@@ -670,6 +670,19 @@ def build_gemini_payload(current_question, display_name, wellness_list):
         "]\n"
         "</icu_weekly_plan>"
     )
+
+    contents = [
+        {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
+        {"role": "model", "parts": [{"text": "Understood. I will output precise Intervals.icu syntax so workouts parse cleanly for MyWhoosh cycling and Garmin running sync."}]}
+    ]
+
+    for m in st.session_state.messages[-15:]:
+        role = "user" if m["role"] == "user" else "model"
+        msg_text = clean_chat_content(str(m["content"])) if role == "model" else str(m["content"])
+        contents.append({"role": role, "parts": [{"text": msg_text[:2500]}]})
+
+    contents.append({"role": "user", "parts": [{"text": str(current_question)[:2000]}]})
+    return contents
 
     contents = [
         {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
