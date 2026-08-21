@@ -662,6 +662,7 @@ def render_coach_reply(question, display_name, wellness_list, athlete_id, interv
         with st.spinner("🤔 **Coach is thinking...**"):
             try:
                 payload = build_gemini_payload(question, display_name, wellness_list)
+                # Increased max_tokens to 8000 to prevent long responses from cutting off
                 response = execute_ai(payload, max_tokens=9000)
                 placeholder.markdown(clean_chat_content(response))
                 
@@ -677,6 +678,11 @@ def render_coach_reply(question, display_name, wellness_list, athlete_id, interv
                                     push_bulk_workouts_to_intervals(athlete_id, intervals_api_key, icu_payload)
                                     st.toast("✅ Proposed plan successfully synced!", icon="✅")
                                 except Exception as exc: st.error(f"Sync failed: {exc}")
+                        
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                persist_chat_to_db()
+            except Exception as exc:
+                placeholder.error(f"⚠️ {exc}")
                         
                 st.session_state.messages.append({"role": "assistant", "content": response})
                 persist_chat_to_db()
