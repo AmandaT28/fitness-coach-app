@@ -409,15 +409,32 @@ def push_bulk_workouts_to_intervals(athlete_id, api_key, workout_list):
         raise RuntimeError("No workout items to sync.")
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events/bulk?upsert=true"
     payload = []
+    
+    # Track date frequencies to stagger double sessions automatically
+    date_counts = {}
+    
     for item in workout_list:
-        date_str = item.get("start_date_local", dt.datetime.now(LOCAL_TZ).date().isoformat())
+        date_str = item.get("start_date_local", dt.datetime.now(LOCAL_TZ).date().isoformat())[:10]
+        
+        # If there are multiple sessions on the same day, stagger the times (Morning vs Evening)
+        date_counts[date_str] = date_counts.get(date_str, 0) + 1
+        session_num = date_counts[date_str]
+        
+        if session_num == 1:
+            time_slot = "08:00:00"
+        elif session_num == 2:
+            time_slot = "17:00:00"
+        else:
+            time_slot = f"{12 + session_num}:00:00"
+
         payload.append({
             "category": "WORKOUT",
-            "start_date_local": f"{date_str}T08:00:00" if "T" not in date_str else date_str,
+            "start_date_local": f"{date_str}T{time_slot}",
             "name": item.get("name", "Planned Session"),
             "description": item.get("description", ""),
             "type": item.get("type", "Ride"),
         })
+        
     response = requests.post(url, auth=("API_KEY", api_key), json=payload, timeout=INTERVALS_TIMEOUT)
     if response.status_code not in (200, 201):
         raise RuntimeError(f"Failed to push workouts to Intervals.icu (HTTP {response.status_code}): {response.text[:300]}")
