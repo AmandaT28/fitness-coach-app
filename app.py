@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Human-Centric Production Edition)
+"""AI Performance Coach • Elite Suite (Athlete-Optimized Production Edition)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -49,7 +49,7 @@ GEMINI_KEYS = [
     ("Tertiary Gemini", secret("TERTIARY_GEMINI_KEY")),
 ]
 
-AI_TIMEOUT = 30  
+AI_TIMEOUT = 35  
 INTERVALS_TIMEOUT = 6
 NAV_OPTIONS = [
     "☀️ Command Center", 
@@ -592,13 +592,12 @@ def build_gemini_payload(current_question, display_name, wellness_list):
     gatekeeper_active = (current_tsb < -20) or (current_sleep < 60) or (acwr_val > 1.35)
     if gatekeeper_active:
         gatekeeper_directive = (
-            f"⚠️ RECOVERY MENTORSHIP DIRECTIVE ACTIVE ⚠️\n"
+            f"⚠️ MULTI-SPORT LOAD & IMPACT RECOVERY DIRECTIVE ⚠️\n"
             f"Current TSB is {current_tsb:.1f}, Sleep Score is {current_sleep:.0f}/100, and ACWR is {acwr_val} ({acwr_status}).\n"
-            f"MANDATORY RULE: Coach must adopt a warm, empathetic mentoring tone to advise against high-intensity intervals today. "
-            f"Protect the athlete from overtraining and excessive load spikes by proactively suggesting an easy recovery session or rest day."
+            f"MANDATORY RULE: Differentiate between mechanical running impact fatigue and indoor cycling load. If running volume is high, proactively safeguard orthopedic joints by suggesting low-impact cross-training or rest."
         )
     else:
-        gatekeeper_directive = f"Readiness Status: CLEAR (TSB: {current_tsb:.1f}, Sleep: {current_sleep:.0f}, ACWR: {acwr_val}). Training approved as planned."
+        gatekeeper_directive = f"Readiness Status: CLEAR (TSB: {current_tsb:.1f}, Sleep: {current_sleep:.0f}, ACWR: {acwr_val}). Multi-sport load balanced."
 
     trend_ctx = (st.session_state.get('cached_trend_analysis') or 'No Trend Analysis.')[:1200]
     calendar_ctx = (st.session_state.get('calendar_context') or 'Not loaded')[:1500]
@@ -608,7 +607,7 @@ def build_gemini_payload(current_question, display_name, wellness_list):
     limits_str = st.session_state.athlete_limitations or 'N/A'
 
     system_instructions = (
-        f"You are an empathetic, expert multi-sport (cycling and running) coach with full calendar integration.\n"
+        f"You are an elite multi-sport (cycling and running) coach with full calendar integration.\n"
         f"Persona: {st.session_state.coach_persona}\n"
         f"Athlete: {display_name} | Discipline Focus: {st.session_state.primary_discipline}\n"
         f"Today: {today_str} | Next Monday: {next_monday_str}\n"
@@ -639,7 +638,7 @@ def build_gemini_payload(current_question, display_name, wellness_list):
 
     contents = [
         {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
-        {"role": "model", "parts": [{"text": "Understood. I am ready to act as your supportive elite multi-sport coach, keeping communication warm, empathetic, and scientifically sound."}]}
+        {"role": "model", "parts": [{"text": "Understood. I am ready to balance high-impact running stress and cycling threshold work safely."}]}
     ]
 
     for m in st.session_state.messages[-15:]:
@@ -656,12 +655,10 @@ def render_coach_reply(question, display_name, wellness_list, athlete_id, interv
         st.markdown(question)
     with st.chat_message("assistant"):
         placeholder = st.empty()
-        
-        # Transparent, human thinking states
         steps = [
-            "Reviewing your recent training blocks and split metrics...",
-            "Cross-referencing your sleep metrics and fatigue ramp rate...",
-            "Synthesizing personalized advice and structuring your plan..."
+            "Analyzing multi-sport load & run/bike impact balance...",
+            "Cross-referencing sleep quality and recent fatigue ratios...",
+            "Drafting adaptive training prescription..."
         ]
         for step in steps:
             placeholder.markdown(f"*(Thinking)* &bull; {step}")
@@ -865,7 +862,6 @@ tsb = latest.get("tsb", 0) or latest.get("TSB", 0) or 0
 # --- MAIN ROUTING LOGIC ---
 
 if selected_nav == NAV_OPTIONS[0]:
-    # Human-friendly morning briefing header
     current_hour = dt.datetime.now(LOCAL_TZ).hour
     time_greeting = "Good morning" if current_hour < 12 else ("Good afternoon" if current_hour < 18 else "Good evening")
     st.markdown(f"##### ☀️ {time_greeting}, {display_name}! Here is your training briefing.")
@@ -898,6 +894,13 @@ if selected_nav == NAV_OPTIONS[0]:
     c1.metric("Fitness (CTL)", round(float(ctl), 1), delta="Aerobic Base")
     c2.metric("Fatigue (ATL)", round(float(atl), 1), delta="Recent Load")
     c3.metric("Form (TSB)", round(float(tsb), 1), delta="Freshness")
+
+    # Quick action for life disruption
+    col_a, col_b = st.columns([2, 1])
+    with col_a:
+        if st.button("⚡ I missed a workout / Life got in the way — Rebalance my week", use_container_width=True):
+            discuss_with_coach("adjusting my training week because I missed a workout due to schedule disruption", "User missed a session and needs a sliding macrocycle adaptation.")
+            st.rerun()
 
     with st.expander("📊 View 90-Day Performance Management Chart (CTL / ATL / TSB)", expanded=False):
         if wellness_list:
@@ -1138,19 +1141,4 @@ elif selected_nav == NAV_OPTIONS[4]:
             fc3.metric("Sodium Target", f"{sodium_mg}mg total", "400mg / hour")
             st.divider()
 
-            if st.button("Generate Strategy", type="primary"):
-                with st.spinner("Analyzing profile & fueling requirements..."):
-                    try:
-                        prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Est Duration: {est_hours}h. Goal: {st.session_state.goals['target_metric']}. Guide with practical pacing, climbing, and hourly nutrition guidelines."
-                        st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=9000)
-                        st.toast("Strategy generated!", icon="🏔️")
-                    except Exception as exc: st.error(str(exc))
-                    
-            if st.session_state.route_analysis:
-                with st.expander("🗺️ Read Strategy", expanded=True):
-                    st.markdown(st.session_state.route_analysis)
-                    if st.button("💬 Discuss with Coach", key="route_discuss"):
-                        discuss_with_coach("my route strategy and fueling plan", st.session_state.route_analysis)
-                        st.rerun()
-        else:
-            st.error("Could not parse GPX file. Ensure it contains valid track points and elevation data.")
+name = "AI Performance Coach"
