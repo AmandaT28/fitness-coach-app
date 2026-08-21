@@ -48,7 +48,7 @@ GEMINI_KEYS = [
     ("Secondary Gemini", secret("SECONDARY_GEMINI_KEY")),
     ("Tertiary Gemini", secret("TERTIARY_GEMINI_KEY")),
 ]
-GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-3.x-flash")
 AI_TIMEOUT = 15  
 INTERVALS_TIMEOUT = 6
 NAV_OPTIONS = [
