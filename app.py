@@ -918,9 +918,30 @@ tsb = latest.get("tsb", 0) or latest.get("TSB", 0) or 0
 if selected_nav == NAV_OPTIONS[0]:
     current_hour = dt.datetime.now(LOCAL_TZ).hour
     time_greeting = "Good morning" if current_hour < 12 else ("Good afternoon" if current_hour < 18 else "Good evening")
+    
+    # --- FIND TODAY'S ACTIVITY FROM PLANNED EVENTS ---
+    today_date_str = dt.datetime.now(LOCAL_TZ).date().isoformat()
+    todays_workouts = [ev for ev in planned_events if event_date(ev) and event_date(ev).isoformat() == today_date_str]
+    
+    if todays_workouts:
+        session_titles = [w.get("name", "Planned Workout") for w in todays_workouts]
+        today_activity_text = " + ".join(session_titles)
+        today_activity_type = todays_workouts[0].get("type", "Workout")
+    else:
+        today_activity_text = "Rest Day / Flexible Recovery"
+        today_activity_type = "Rest"
+
     st.markdown(f"##### ☀️ {time_greeting}, {display_name}! Here is your training briefing.")
     st.caption(f"Intervals.icu connection status: {intervals_status}")
     
+    # --- TODAY'S ACTIVITY SPOTLIGHT BANNER ---
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, rgba(37, 99, 235, 0.15), rgba(37, 99, 235, 0.03)); border: 1px solid rgba(37, 99, 235, 0.35); border-radius: 10px; padding: 16px 20px; margin-bottom: 1.2rem; color: {TEXT_PRIMARY};">
+        <h4 style="margin:0 0 4px 0; font-size:1.1rem; color: #58A6FF;">🎯 Today's Focus ({today_date_str})</h4>
+        <p style="margin:0; font-size:1.05rem; font-weight:600;">{today_activity_text} <span class='workout-pill'>{today_activity_type}</span></p>
+    </div>
+    """, unsafe_allow_html=True)
+
     sleep_score = latest.get("sleep_score") or latest.get("sleepScore")
     acwr_val, acwr_status = calculate_acwr(wellness_list)
     
