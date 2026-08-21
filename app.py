@@ -1063,8 +1063,11 @@ elif selected_nav == COACH_PAGE:
     if pending:
         st.session_state.pending_coach_prompt = None
         render_coach_reply(pending, display_name, wellness_list, ATHLETE_ID, INTERVALS_API_KEY)
-    elif question := st.chat_input("Ask your coach anything... e.g. 'Balance my bike intervals and weekend long run'"):
+    
+    # --- STATIC CHAT INPUT WITH PERMANENT KEY ---
+    if question := st.chat_input("Ask your coach anything... e.g. 'Balance my bike intervals and weekend long run'", key="persistent_coach_chat_input"):
         render_coach_reply(question.strip(), display_name, wellness_list, ATHLETE_ID, INTERVALS_API_KEY)
+        st.rerun()
 
 elif selected_nav == NAV_OPTIONS[2]:
     st.markdown("##### 📅 Multi-Sport Training Calendar & Macrocycle Builder")
