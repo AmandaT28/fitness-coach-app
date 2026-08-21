@@ -4,8 +4,6 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 from google import genai
-from openai import OpenAI
-import anthropic
 from supabase import create_client, Client
 from streamlit_local_storage import LocalStorage
 
@@ -21,10 +19,8 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     st.stop()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-openai_client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY"))
-anthropic_client = anthropic.Anthropic(api_key=st.secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY"))
 
-# Google Keys
+# Google Keys Only
 P_KEY = st.secrets.get("google_keys", {}).get("primary_key") or os.getenv("PRIMARY_KEY")
 S_KEY = st.secrets.get("google_keys", {}).get("secondary_key") or os.getenv("SECONDARY_KEY")
 T_KEY = st.secrets.get("google_keys", {}).get("tertiary_key") or os.getenv("TERTIARY_KEY")
@@ -35,44 +31,27 @@ g_clients = {
     "Tertiary": genai.Client(api_key=T_KEY) if T_KEY else None
 }
 
-# --- BULLETPROOF AI ROUTER ---
-def execute_ai(prompt, provider="Google Gemini (3.x Flash)"):
+# --- PURE GEMINI AI ROUTER ---
+def execute_ai(prompt, provider="Google Gemini"):
     errors = []
     
-    def run_google():
-        # Prioritizes 3.x models but maintains a safety net to prevent app crashes
-        models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
-        for name, client in g_clients.items():
-            if not client: continue
-            for m in models:
-                try:
-                    res = client.models.generate_content(model=m, contents=prompt)
-                    # Check if response is valid, otherwise it was likely blocked by safety filters
-                    if res and hasattr(res, "text") and res.text:
-                        return res.text, f"Google {m} ({name})"
-                    else:
-                        errors.append(f"{name} ({m}): Empty response (Safety Block / Drop)")
-                except Exception as e:
-                    errors.append(f"{name} ({m}): {str(e)}")
-        raise Exception(f"Google Engine Failed. Diagnostics: {' | '.join(errors)}")
-
-    def run_openai():
-        if not openai_client: raise Exception("OpenAI not configured.")
-        res = openai_client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
-        return res.choices[0].message.content, "OpenAI GPT-4o-mini"
-
-    def run_anthropic():
-        if not anthropic_client: raise Exception("Anthropic not configured.")
-        res = anthropic_client.messages.create(model="claude-3-5-sonnet-20241022", max_tokens=1500, messages=[{"role": "user", "content": prompt}])
-        return res.content[0].text, "Anthropic Claude"
-
-    try:
-        if "Google" in provider: return run_google()
-        elif "OpenAI" in provider: return run_openai()
-        elif "Anthropic" in provider: return run_anthropic()
-        else: return run_google() 
-    except Exception as e:
-        raise Exception(f"Routing Error: {str(e)}")
+    # Prioritizes 3.x models but maintains a safety net down to 1.5-flash
+    models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    
+    for name, client in g_clients.items():
+        if not client: continue
+        for m in models:
+            try:
+                res = client.models.generate_content(model=m, contents=prompt)
+                # Check if response is valid, otherwise it was likely blocked by safety filters
+                if res and hasattr(res, "text") and res.text:
+                    return res.text, f"Google {m} ({name})"
+                else:
+                    errors.append(f"{name} ({m}): Empty response (Safety Block / Drop)")
+            except Exception as e:
+                errors.append(f"{name} ({m}): {str(e)}")
+                
+    raise Exception(f"Google Engine Failed. Diagnostics: {' | '.join(errors)}")
 
 localS = LocalStorage()
 
@@ -134,7 +113,8 @@ with st.sidebar:
     st.session_state.active_nav = st.radio("Menu", nav_opts, index=nav_opts.index(st.session_state.active_nav))
     
     st.markdown("---")
-    ai_model = st.selectbox("AI Engine", ["Google Gemini (3.x Flash)", "OpenAI GPT-4o-mini", "Anthropic Claude"])
+    # Simplified AI Model selection to only show Gemini
+    ai_model = st.selectbox("AI Engine", ["Google Gemini (Flash Cascade)"])
     persona = st.selectbox("Coach Persona", ["Sports Scientist", "Collaborative Peer", "Drill Sergeant"])
     
     if st.button("🗑️ Clear Chat History"):
