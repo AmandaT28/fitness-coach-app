@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Athlete-Optimized Production Edition)
+"""AI Performance Coach • Elite Suite (Multi-Platform Workout Engine)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -552,7 +552,7 @@ def parse_gpx(raw):
             tag = elem.tag.split("}")[-1].lower()
             if tag not in ("trkpt", "rtept") or not elem.attrib.get("lat") or not elem.attrib.get("lon"):
                 continue
-            points.append((float(elem.attrib["lat"]), float(elem.attrib["lon"])))
+            points.append((float(elem.attrib["lat"], float(elem.attrib["lon"]))))
             elevations.append(next((float(c.text) for c in elem if c.tag.split("}")[-1].lower() in ("ele", "elevation", "alt") and c.text), 0.0))
         if not points: return None
         distance = sum(6371 * 2 * math.asin(math.sqrt(math.sin(math.radians(points[i][0]-points[i-1][0])/2)**2 + math.cos(math.radians(points[i-1][0]))*math.cos(math.radians(points[i][0]))*math.sin(math.radians(points[i][1]-points[i-1][1])/2)**2)) for i in range(1, len(points)))
@@ -619,18 +619,35 @@ def build_gemini_payload(current_question, display_name, wellness_list):
         f"Supplements & Fueling: {supplements_str}\n"
         f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n\n"
         f"CALENDAR CONTEXT:\n{calendar_ctx}\n\n"
-        "CRITICAL WORKOUT FORMATTING RULES FOR INTERVALS.ICU:\n"
-        "When prescribing workouts (rides or runs), the `description` field MUST use strict Markdown syntax:\n"
-        "- Use clear section headers on their own line: Warmup, Main Set, Cooldown.\n"
-        "- Use bullet points starting with '- ' followed by exact duration, intensity (power % for rides, pace/HR for runs), AND cadence/spm.\n\n"
+        "CRITICAL WORKOUT FORMATTING RULES FOR MYWHOOSH (INDOOR RIDES) AND GARMIN (RUNS):\n"
+        "To ensure workouts sync correctly to Intervals.icu and export/parse flawlessly into MyWhoosh (indoor cycling) and Garmin devices (outdoor running):\n"
+        "1. For RIDES (MyWhoosh compatibility): The `description` field MUST follow structured Intervals.icu workout syntax using exact power percentages (e.g., % FTP) or explicit durations:\n"
+        "   - Example format:\n"
+        "     Warmup\n"
+        "     - 10m 50%'\n"
+        "     - 5m 65%'\n"
+        "     Main Set 3x\n"
+        "     - 5m 95%\n"
+        "     - 3m 55%\n"
+        "     Cooldown\n"
+        "     - 10m 50%\n"
+        "2. For RUNS (Garmin compatibility): The `description` field MUST use structured pace or heart-rate targets:\n"
+        "   - Example format:\n"
+        "     Warmup\n"
+        "     - 15m Z2 Pace\n"
+        "     Main Set 4x\n"
+        "     - 1km Threshold Pace\n"
+        "     - 90s Jog Recovery\n"
+        "     Cooldown\n"
+        "     - 10m Easy Jog\n\n"
         "IF PRESCRIBING A WEEKLY SCHEDULE OR MACROCYCLE, APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags:\n"
         "<icu_weekly_plan>\n"
         "[\n"
         "  {\n"
-        f"    \"name\": \"Threshold Run & Bike Brick\",\n"
-        f"    \"type\": \"Run\",\n"
+        f"    \"name\": \"Indoor Sweetspot Ride\",\n"
+        f"    \"type\": \"Ride\",\n"
         f"    \"start_date_local\": \"{next_monday_str}\",\n"
-        f"    \"description\": \"Warmup\\n- 15m Easy Jog\\n\\nMain Set 4x\\n- 1km Threshold Pace\\n- 90s Jog Recovery\\n\\nCooldown\\n- 10m Easy\"\n"
+        f"    \"description\": \"Warmup\\n- 10m 50%\\n- 5m 65%\\n\\nMain Set 2x\\n- 15m 88%\\n- 5m 55%\\n\\nCooldown\\n- 10m 50%\"\n"
         "  }\n"
         "]\n"
         "</icu_weekly_plan>"
@@ -638,7 +655,7 @@ def build_gemini_payload(current_question, display_name, wellness_list):
 
     contents = [
         {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
-        {"role": "model", "parts": [{"text": "Understood. I am ready to balance high-impact running stress and cycling threshold work safely."}]}
+        {"role": "model", "parts": [{"text": "Understood. I will ensure all cycling workouts use structured percentage-based steps for MyWhoosh/Intervals sync, and running workouts use Garmin-compatible pace/HR blocks."}]}
     ]
 
     for m in st.session_state.messages[-15:]:
@@ -656,9 +673,9 @@ def render_coach_reply(question, display_name, wellness_list, athlete_id, interv
     with st.chat_message("assistant"):
         placeholder = st.empty()
         steps = [
-            "Analyzing multi-sport load & run/bike impact balance...",
+            "Analyzing multi-sport load & formatting MyWhoosh/Garmin blocks...",
             "Cross-referencing sleep quality and recent fatigue ratios...",
-            "Drafting adaptive training prescription..."
+            "Drafting structured workout prescription..."
         ]
         for step in steps:
             placeholder.markdown(f"*(Thinking)* &bull; {step}")
@@ -671,16 +688,16 @@ def render_coach_reply(question, display_name, wellness_list, athlete_id, interv
             icu_payload = extract_icu_workout(response)
             if isinstance(icu_payload, list) and len(icu_payload) > 0:
                 with st.container(border=True):
-                    st.markdown(f"📋 **Proposed Training Block ({len(icu_payload)} sessions):**")
+                    st.markdown(f"📋 **Proposed Training Block ({len(icu_payload)} sessions — MyWhoosh/Garmin Ready):**")
                     for session in icu_payload:
                         w_type = session.get('type', 'Ride')
                         pill_color = "#2563EB" if "Ride" in w_type else "#D97706"
                         st.markdown(f"<span class='workout-pill' style='border-color: {pill_color};'>{session.get('start_date_local')}</span> **{session.get('name', 'Workout')}** ({w_type})", unsafe_allow_html=True)
                     if st.button("🚀 Approve & Sync Plan to Intervals.icu", key=f"sync_chat_{len(st.session_state.messages)}", type="primary"):
-                        with st.spinner("⏳ Syncing proposed plan to Intervals.icu..."):
+                        with st.spinner("⏳ Syncing structured files to Intervals.icu..."):
                             try:
                                 push_bulk_workouts_to_intervals(athlete_id, intervals_api_key, icu_payload)
-                                st.toast("✅ Proposed plan successfully synced!", icon="✅")
+                                st.toast("✅ Workouts successfully synced for MyWhoosh/Garmin integration!", icon="✅")
                             except Exception as exc: st.error(f"Sync failed: {exc}")
                     
             st.session_state.messages.append({"role": "assistant", "content": response})
@@ -895,7 +912,6 @@ if selected_nav == NAV_OPTIONS[0]:
     c2.metric("Fatigue (ATL)", round(float(atl), 1), delta="Recent Load")
     c3.metric("Form (TSB)", round(float(tsb), 1), delta="Freshness")
 
-    # Quick action for life disruption
     col_a, col_b = st.columns([2, 1])
     with col_a:
         if st.button("⚡ I missed a workout / Life got in the way — Rebalance my week", use_container_width=True):
@@ -1141,4 +1157,19 @@ elif selected_nav == NAV_OPTIONS[4]:
             fc3.metric("Sodium Target", f"{sodium_mg}mg total", "400mg / hour")
             st.divider()
 
-name = "AI Performance Coach"
+            if st.button("Generate Strategy", type="primary"):
+                with st.spinner("Analyzing profile & fueling requirements..."):
+                    try:
+                        prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Est Duration: {est_hours}h. Goal: {st.session_state.goals['target_metric']}. Guide with practical pacing, climbing, and hourly nutrition guidelines."
+                        st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=9000)
+                        st.toast("Strategy generated!", icon="🏔️")
+                    except Exception as exc: st.error(str(exc))
+                    
+            if st.session_state.route_analysis:
+                with st.expander("🗺️ Read Strategy", expanded=True):
+                    st.markdown(st.session_state.route_analysis)
+                    if st.button("💬 Discuss with Coach", key="route_discuss"):
+                        discuss_with_coach("my route strategy and fueling plan", st.session_state.route_analysis)
+                        st.rerun()
+        else:
+            st.error("Could not parse GPX file. Ensure it contains valid track points and elevation data.")
