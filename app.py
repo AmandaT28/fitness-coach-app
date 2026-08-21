@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Streamlined Edition)
+"""AI Performance Coach • Elite Suite (Production-Grade Edition)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -257,6 +257,8 @@ div[data-testid="stChatInput"] textarea {{
 </style>
 """, unsafe_allow_html=True)
 
+# --- CORE UTILITIES HOISTED TO TOP ---
+
 def ensure_initial_message():
     if not st.session_state.messages:
         st.session_state.messages = [{"role": "assistant", "content": "Hello! I am your AI Multi-Sport Coach. Ask me to balance your cycling and running blocks or review your recent training."}]
@@ -355,7 +357,6 @@ def clean_chat_content(text):
     text = re.sub(r"<icu_weekly_plan>.*?</icu_weekly_plan>", "", text, flags=re.S | re.I)
     return text.strip()
 
-# --- AI CASCADE GENERATOR & HELPER FUNCTIONS DEFINED UP FRONT ---
 def gemini_generate(messages_payload, api_key, model_name, max_tokens=4000):
     if not api_key:
         raise RuntimeError("Gemini API key is not configured.")
@@ -460,10 +461,10 @@ def persist_memory_to_db():
             localS.setItem("athlete_profile_config", st.session_state.user_credentials)
         except Exception: pass
 
-def trend_storage_key():
-    return f"coach_trend_analyses_history:{ATHLETE_ID or display_name}"
+def trend_storage_key(athlete_id, display_name):
+    return f"coach_trend_analyses_history:{athlete_id or display_name}"
 
-def load_persisted_trend():
+def load_persisted_trend(athlete_id, display_name):
     if st.session_state.trend_loaded: return
     st.session_state.trend_loaded = True
     saved = None
@@ -475,7 +476,7 @@ def load_persisted_trend():
         except Exception: pass
     if not saved and localS:
         try:
-            value = localS.getItem(trend_storage_key())
+            value = localS.getItem(trend_storage_key(athlete_id, display_name))
             saved = json.loads(value) if isinstance(value, str) else value
         except Exception: pass
     if isinstance(saved, list) and saved:
@@ -486,14 +487,14 @@ def load_persisted_trend():
             "analysis": st.session_state.cached_trend_analysis
         }]
 
-def persist_trend():
+def persist_trend(athlete_id, display_name):
     payload = st.session_state.cached_trend_analyses
     if st.session_state.user and supabase:
         try: 
             (supabase.table("profiles").update({"trend_analyses_list": payload}).eq("id", st.session_state.user.id).execute())
         except Exception: pass
     if localS:
-        try: localS.setItem(trend_storage_key(), json.dumps(payload))
+        try: localS.setItem(trend_storage_key(athlete_id, display_name), json.dumps(payload))
         except Exception: pass
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -551,7 +552,8 @@ def parse_gpx(raw):
         root = ET.fromstring(raw.decode("utf-8", errors="ignore"))
         points, elevations = [], []
         for elem in root.iter():
-            if elem.tag.split("}")[-1].lower() not in ("trkpt", "rtept") or not elem.attrib.get("lat") or not elem.attrib.get("lon"):
+            tag = elem.tag.split("}")[-1].lower()
+            if tag not in ("trkpt", "rtept") or not elem.attrib.get("lat") or not elem.attrib.get("lon"):
                 continue
             points.append((float(elem.attrib["lat"]), float(elem.attrib["lon"])))
             elevations.append(next((float(c.text) for c in elem if c.tag.split("}")[-1].lower() in ("ele", "elevation", "alt") and c.text), 0.0))
@@ -565,7 +567,7 @@ def parse_gpx(raw):
     except Exception:
         return None
 
-def build_gemini_payload(current_question, display_name):
+def build_gemini_payload(current_question, display_name, wellness_list):
     today = dt.datetime.now(LOCAL_TZ).date()
     next_monday = today + dt.timedelta(days=(0 - today.weekday()) % 7)
     if next_monday == today: next_monday += dt.timedelta(days=7)
@@ -651,7 +653,7 @@ def build_gemini_payload(current_question, display_name):
     contents.append({"role": "user", "parts": [{"text": str(current_question)[:2000]}]})
     return contents
 
-def render_coach_reply(question, display_name):
+def render_coach_reply(question, display_name, wellness_list, athlete_id, intervals_api_key):
     st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"):
         st.markdown(question)
@@ -659,7 +661,7 @@ def render_coach_reply(question, display_name):
         placeholder = st.empty()
         with st.spinner("🤔 **Coach is thinking...**"):
             try:
-                payload = build_gemini_payload(question, display_name)
+                payload = build_gemini_payload(question, display_name, wellness_list)
                 response = execute_ai(payload, max_tokens=3000)
                 placeholder.markdown(clean_chat_content(response))
                 
@@ -672,7 +674,7 @@ def render_coach_reply(question, display_name):
                         if st.button("🚀 Approve & Sync Plan to Intervals.icu", key=f"sync_chat_{len(st.session_state.messages)}", type="primary"):
                             with st.spinner("⏳ Syncing proposed plan to Intervals.icu..."):
                                 try:
-                                    push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, icu_payload)
+                                    push_bulk_workouts_to_intervals(athlete_id, intervals_api_key, icu_payload)
                                     st.toast("✅ Proposed plan successfully synced!", icon="✅")
                                 except Exception as exc: st.error(f"Sync failed: {exc}")
                         
@@ -681,7 +683,8 @@ def render_coach_reply(question, display_name):
             except Exception as exc:
                 placeholder.error(f"⚠️ {exc}")
 
-# --- AUTH & SETUP RUNTIME ---
+# --- RUNTIME AUTHENTICATION & INITIALIZATION ---
+
 try:
     token = st.query_params.get("token")
     if token and not st.session_state.user_credentials:
@@ -749,7 +752,7 @@ else:
         st.session_state.profile_loaded = True
 
 ensure_initial_message()
-load_persisted_trend()
+load_persisted_trend(ATHLETE_ID, display_name)
 
 wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
 st.session_state.calendar_context = json.dumps([session_summary(ev) for ev in planned_events[:10]], ensure_ascii=False)
@@ -758,6 +761,7 @@ check_for_new_rides_on_startup(activities_data)
 if st.session_state.active_nav not in NAV_OPTIONS: st.session_state.active_nav = NAV_OPTIONS[0]; st.session_state.sidebar_nav = NAV_OPTIONS[0]
 if st.session_state.sidebar_nav != st.session_state.active_nav: st.session_state.sidebar_nav = st.session_state.active_nav
 
+# --- SIDEBAR NAVIGATION & CONTROLS ---
 with st.sidebar:
     st.markdown("##### 🚴‍♂️🏃‍♂️ AI Multi-Sport Coach")
     st.caption(f"Athlete: **{display_name}**")
@@ -850,6 +854,8 @@ ctl = latest.get("ctl", 0) or latest.get("CTL", 0) or 0
 atl = latest.get("atl", 0) or latest.get("ATL", 0) or 0
 tsb = latest.get("tsb", 0) or latest.get("TSB", 0) or 0
 
+# --- MAIN ROUTING LOGIC ---
+
 if selected_nav == NAV_OPTIONS[0]:
     st.markdown("##### ☀️ Command Center")
     st.caption(f"Intervals.icu: {intervals_status}")
@@ -921,7 +927,7 @@ if selected_nav == NAV_OPTIONS[0]:
                 timestamp_str = dt.datetime.now(LOCAL_TZ).strftime("%d %b %Y, %H:%M %Z")
                 st.session_state.cached_trend_analyses.insert(0, {"timestamp": timestamp_str, "analysis": new_analysis})
                 st.session_state.cached_trend_analyses = st.session_state.cached_trend_analyses[:3]
-                persist_trend()
+                persist_trend(ATHLETE_ID, display_name)
                 st.toast("Multi-sport trend synthesis complete!", icon="📈")
             except Exception as exc: st.error(str(exc))
             
@@ -936,7 +942,7 @@ if selected_nav == NAV_OPTIONS[0]:
                     st.rerun()
                 if b.button("Delete report", key=f"clear_single_trend_{idx}"):
                     st.session_state.cached_trend_analyses.pop(idx)
-                    persist_trend()
+                    persist_trend(ATHLETE_ID, display_name)
                     st.rerun()
 
 elif selected_nav == COACH_PAGE:
@@ -965,9 +971,9 @@ elif selected_nav == COACH_PAGE:
     pending = st.session_state.pending_coach_prompt
     if pending:
         st.session_state.pending_coach_prompt = None
-        render_coach_reply(pending, display_name)
+        render_coach_reply(pending, display_name, wellness_list, ATHLETE_ID, INTERVALS_API_KEY)
     elif question := st.chat_input("Ask your coach anything... e.g. 'Balance my bike intervals and weekend long run'"):
-        render_coach_reply(question.strip(), display_name)
+        render_coach_reply(question.strip(), display_name, wellness_list, ATHLETE_ID, INTERVALS_API_KEY)
 
 elif selected_nav == NAV_OPTIONS[2]:
     st.markdown("##### 📅 Multi-Sport Training Calendar & Macrocycle Builder")
