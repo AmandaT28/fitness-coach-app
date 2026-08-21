@@ -357,7 +357,7 @@ def clean_chat_content(text):
     text = re.sub(r"<icu_weekly_plan>.*?</icu_weekly_plan>", "", text, flags=re.S | re.I)
     return text.strip()
 
-def gemini_generate(messages_payload, api_key, model_name, max_tokens=4000):
+def gemini_generate(messages_payload, api_key, model_name, max_tokens=9000):
     if not api_key:
         raise RuntimeError("Gemini API key is not configured.")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
@@ -380,7 +380,7 @@ def gemini_generate(messages_payload, api_key, model_name, max_tokens=4000):
         raise RuntimeError("Empty response (Safety Block / Filtered).")
     return text
 
-def execute_ai(messages_payload, max_tokens=4000):
+def execute_ai(messages_payload, max_tokens=9000):
     errors = []
     models = [
         "gemini-3.7-flash", 
@@ -662,7 +662,7 @@ def render_coach_reply(question, display_name, wellness_list, athlete_id, interv
         with st.spinner("🤔 **Coach is thinking...**"):
             try:
                 payload = build_gemini_payload(question, display_name, wellness_list)
-                response = execute_ai(payload, max_tokens=3000)
+                response = execute_ai(payload, max_tokens=9000)
                 placeholder.markdown(clean_chat_content(response))
                 
                 icu_payload = extract_icu_workout(response)
@@ -923,7 +923,7 @@ if selected_nav == NAV_OPTIONS[0]:
         payload_text = f"Analyze this multi-sport athlete's last 90 days. CTL {ctl}; ATL {atl}; TSB {tsb}. ACWR: {acwr_val}. Goal: {st.session_state.goals['target_metric']}."
         with st.spinner("Analyzing 90 days of multi-sport training data..."):
             try:
-                new_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=3000)
+                new_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=9000)
                 timestamp_str = dt.datetime.now(LOCAL_TZ).strftime("%d %b %Y, %H:%M %Z")
                 st.session_state.cached_trend_analyses.insert(0, {"timestamp": timestamp_str, "analysis": new_analysis})
                 st.session_state.cached_trend_analyses = st.session_state.cached_trend_analyses[:3]
@@ -1040,7 +1040,7 @@ elif selected_nav == NAV_OPTIONS[2]:
             with st.spinner("Synthesizing multi-sport periodized block..."):
                 try:
                     macro_prompt = f"Generate a strict {macro_weeks}-week multi-sport (cycling & running) training skeleton leading up to my race on {st.session_state.goals['race_date']}. Return a JSON array inside <icu_weekly_plan> tags containing structured rides and runs."
-                    response = execute_ai([{"role": "user", "parts": [{"text": macro_prompt}]}], max_tokens=4000)
+                    response = execute_ai([{"role": "user", "parts": [{"text": macro_prompt}]}], max_tokens=9000)
                     macro_payload = extract_icu_workout(response)
                     if macro_payload:
                         push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, macro_payload)
@@ -1085,7 +1085,7 @@ elif selected_nav == NAV_OPTIONS[3]:
             with st.spinner("Analyzing multi-sport performance data..."):
                 try:
                     prompt_text = f"Give a concise multi-sport performance debrief for this activity: {json.dumps(compact_activity)}. Calculated Compliance: {compliance}. Goal: {st.session_state.goals['target_metric']}."
-                    st.session_state.selected_activity_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
+                    st.session_state.selected_activity_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=9000)
                     st.session_state.selected_activity_label = label
                     st.toast("Debrief generated successfully!", icon="✅")
                 except Exception as exc: st.error(str(exc))
@@ -1128,7 +1128,7 @@ elif selected_nav == NAV_OPTIONS[4]:
                 with st.spinner("Analyzing profile & fueling requirements..."):
                     try:
                         prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Est Duration: {est_hours}h. Goal: {st.session_state.goals['target_metric']}. Give practical pacing, climbing, and hourly nutrition guidelines."
-                        st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=3000)
+                        st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=9000)
                         st.toast("Strategy generated!", icon="🏔️")
                     except Exception as exc: st.error(str(exc))
                     
