@@ -48,7 +48,7 @@ GEMINI_KEYS = [
     ("Secondary Gemini", secret("SECONDARY_GEMINI_KEY")),
     ("Tertiary Gemini", secret("TERTIARY_GEMINI_KEY")),
 ]
-
+GEMINI_MODEL = secret("GEMINI_MODEL", "gemini-2.5-flash")
 AI_TIMEOUT = 15  
 INTERVALS_TIMEOUT = 6
 NAV_OPTIONS = [
@@ -393,56 +393,37 @@ def clean_chat_content(text):
     text = re.sub(r"<icu_weekly_plan>.*?</icu_weekly_plan>", "", text, flags=re.S | re.I)
     return text.strip()
 
-# --- REBUILT AI CASCADE GENERATOR ---
-def gemini_generate(messages_payload, api_key, model_name, max_tokens=4000):
+def gemini_generate(messages_payload, api_key, max_tokens=4000):
     if not api_key:
         raise RuntimeError("Gemini API key is not configured.")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
     payload = {
         "contents": messages_payload,
         "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7},
     }
     response = requests.post(url, headers=headers, json=payload, timeout=AI_TIMEOUT)
-    
     if response.status_code == 429:
-        raise RuntimeError(f"Quota/Rate Limit exceeded on {model_name}.")
+        raise RuntimeError("Quota/Rate Limit exceeded on this API key.")
     if response.status_code != 200:
         raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:300]}")
-        
     parts = (response.json().get("candidates") or [{}])[0].get("content", {}).get("parts", [])
     text = "\n".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
-    
     if not text:
-        raise RuntimeError("Empty response (Safety Block / Filtered).")
+        raise RuntimeError("Gemini returned an empty response.")
     return text
 
 def execute_ai(messages_payload, max_tokens=4000):
     errors = []
-    # Strict fallback priority from newest/experimental models down to stable versions
-    models = [
-        "gemini-3.7-flash", 
-        "gemini-3.6-flash", 
-        "gemini-3.5-flash", 
-        "gemini-2.5-flash", 
-        "gemini-2.0-flash", 
-        "gemini-1.5-flash"
-    ]
-    
     for name, key in GEMINI_KEYS:
         if not key:
             continue
-        for m in models:
-            try:
-                # Attempt to generate with the current key and model
-                res = gemini_generate(messages_payload, key, m, max_tokens=max_tokens)
-                st.session_state.ai_diagnostic = f"Success: Connected via {name} ({m})"
-                return res
-            except Exception as exc:
-                errors.append(f"{name} ({m}): {exc}")
-                
+        try:
+            return gemini_generate(messages_payload, key, max_tokens=max_tokens)
+        except Exception as exc:
+            errors.append(f"{name}: {exc}")
     st.session_state.ai_diagnostic = "\n".join(errors)
-    raise RuntimeError(f"Google Engine Failed. Diagnostics: {' | '.join(errors[:4])}")
+    raise RuntimeError("The coach is temporarily rate-limited or busy. Please try again in 5 seconds.")
 
 def push_bulk_workouts_to_intervals(athlete_id, api_key, workout_list):
     if not athlete_id or not api_key:
@@ -763,7 +744,7 @@ with st.sidebar:
             with st.spinner("Pinging coach..."):
                 try:
                     execute_ai([{"role": "user", "parts": [{"text": "Reply exactly: AI connection successful."}]}], max_tokens=20)
-                    st.success(st.session_state.ai_diagnostic)
+                    st.success("AI connection successful.")
                 except Exception as exc: st.error(str(exc))
         if st.session_state.ai_diagnostic:
             st.caption("Diagnostic")
