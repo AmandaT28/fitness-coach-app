@@ -1092,12 +1092,19 @@ elif selected_nav == NAV_OPTIONS[2]:
         grouped_items = {}
         for item in items:
             grouped_items.setdefault(event_date(item).isoformat(), []).append(item)
-        for date, sessions in sorted(grouped_items.items()):
+            
+        for date_str, sessions in sorted(grouped_items.items()):
+            # Parse date string to get weekday name (e.g., Monday, Tuesday)
+            d_obj = dt.date.fromisoformat(date_str)
+            weekday_name = d_obj.strftime("%A") # e.g. "Monday"
+            formatted_date_label = f"{weekday_name}, {d_obj.strftime('%d %b %Y')}"
+            
             session_names = [event.get("name") or "Planned workout" for event in sessions]
             header_names = " + ".join(session_names[:2])
             if len(session_names) > 2:
                 header_names += f" + {len(session_names) - 2} more"
-            with st.expander(f"{date} · {header_names}", expanded=False):
+                
+            with st.expander(f"📅 {formatted_date_label} · {header_names}", expanded=False):
                 for number, event in enumerate(sessions, 1):
                     session = session_summary(event)
                     st.markdown(f"**Session {number}: {session['name']}**")
