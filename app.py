@@ -385,9 +385,7 @@ def execute_ai(messages_payload, max_tokens=9000):
     models = [
         "gemini-3.7-flash", 
         "gemini-3.6-flash", 
-        "gemini-3.5-flash", 
-        "gemini-2.0-flash", 
-        "gemini-1.5-flash"
+        "gemini-3.5-flash"
     ]
     
     for name, key in GEMINI_KEYS:
@@ -403,7 +401,7 @@ def execute_ai(messages_payload, max_tokens=9000):
                 
     st.session_state.ai_diagnostic = "\n".join(errors)
     raise RuntimeError(f"Google Engine Failed. Diagnostics: {' | '.join(errors[:4])}")
-
+    
 def push_bulk_workouts_to_intervals(athlete_id, api_key, workout_list):
     if not athlete_id or not api_key:
         raise RuntimeError("Intervals.icu credentials are required to push workouts.")
