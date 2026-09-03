@@ -610,7 +610,6 @@ def extract_json_workouts(text: str) -> List[Dict[str, Any]]:
             return json.loads(json_str)
         except Exception:
             try:
-                # Sanitize unescaped control characters inside string literals safely
                 sanitized = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', json_str)
                 sanitized = re.sub(r'(?<=: ")(.*?)(?=")', lambda m: m.group(1).replace('\n', '\\n').replace('\r', ''), sanitized, flags=re.S)
                 return json.loads(sanitized)
@@ -635,7 +634,7 @@ def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: st
             "start_date_local": start_local
         })
 
-    url = f"[https://intervals.icu/api/v1/athlete/](https://intervals.icu/api/v1/athlete/){athlete_id}/events/bulk?upsert=true"
+    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events/bulk?upsert=true"
     auth = ("API_KEY", api_key)
     
     try:
@@ -904,7 +903,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
                 st.toast("90-day trend synthesis complete!", icon="📈")
             except Exception as exc: st.error(str(exc))
 
-if st.session_state.cached_trend_analyses:
+    if st.session_state.cached_trend_analyses:
         st.markdown("###### 📈 Saved Trend Reports")
         for idx, item in enumerate(st.session_state.cached_trend_analyses):
             with st.expander(f"📌 Trend Report #{len(st.session_state.cached_trend_analyses) - idx} · Generated {item['timestamp']}", expanded=(idx == 0)):
