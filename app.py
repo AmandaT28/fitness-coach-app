@@ -610,40 +610,41 @@ def extract_json_workouts(text: str) -> List[Dict[str, Any]]:
             return json.loads(json_str)
         except Exception:
             try:
-                sanitized = re.sub(r'(?<=: ")(.*?)(?=")', lambda m: m.group(1).replace('\n', '\\n'), json_str, flags=re.S)
+                # Sanitize unescaped control characters inside string literals safely
+                sanitized = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', json_str)
+                sanitized = re.sub(r'(?<=: ")(.*?)(?=")', lambda m: m.group(1).replace('\n', '\\n').replace('\r', ''), sanitized, flags=re.S)
                 return json.loads(sanitized)
             except Exception:
                 pass
     return []
 
-# --- HELPER: PUSH WORKOUTS TO INTERVALS.ICU API ---
 def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: str, api_key: str) -> Tuple[bool, str]:
     if not athlete_id or not api_key:
         return False, "Missing API key or Athlete ID."
     
     events_to_post = []
     for item in events_list:
-        raw_date = str(item.get("date") or dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d"))
+        raw_date = str(item.get("date") or dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")).strip()
         start_local = f"{raw_date}T08:00:00" if "T" not in raw_date else raw_date
 
         events_to_post.append({
             "category": "WORKOUT",
             "type": item.get("type", "Ride"),
             "name": item.get("title") or item.get("name", "Planned Session"),
-            "description": item.get("description", ""),
+            "description": str(item.get("description", "")).replace("\\n", "\n"),
             "start_date_local": start_local
         })
 
-    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events/bulk?upsert=true"
+    url = f"[https://intervals.icu/api/v1/athlete/](https://intervals.icu/api/v1/athlete/){athlete_id}/events/bulk?upsert=true"
     auth = ("API_KEY", api_key)
     
     try:
         resp = requests.post(url, auth=auth, json=events_to_post, timeout=15)
         if resp.status_code in [200, 201]:
             return True, f"Successfully synced {len(events_to_post)} structured workout(s) to Intervals.icu calendar!"
-        return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
+        return False, f"Intervals.icu HTTP {resp.status_code}: {resp.text[:250]}"
     except Exception as e:
-        return False, str(e)
+        return False, f"Connection error during sync: {str(e)}"
 
 def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, Any]], activities_data: List[Dict[str, Any]], planned_events_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     prof = st.session_state.profile_data
