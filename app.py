@@ -124,7 +124,6 @@ def load_disk_store() -> Dict[str, Any]:
     return {}
 
 def save_disk_store():
-    # Keep active messages synced with active thread in chat_sessions dict
     if "chat_sessions" in st.session_state and "active_session_id" in st.session_state:
         st.session_state.chat_sessions[st.session_state.active_session_id] = st.session_state.get("messages", [])
 
@@ -600,6 +599,32 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
 def clean_chat_content(text: str) -> str:
     return re.sub(r"```xml\s*<\?xml.*?</workout_file>\s*```", "", text or "", flags=re.S | re.I).strip()
 
+# --- HELPER: PUSH WORKOUTS TO INTERVALS.ICU API ---
+def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: str, api_key: str) -> Tuple[bool, str]:
+    if not athlete_id or not api_key:
+        return False, "Missing API key or Athlete ID."
+    
+    events_to_post = []
+    for item in events_list:
+        events_to_post.append({
+            "category": "WORKOUT",
+            "type": item.get("type", "Ride"),
+            "name": item.get("title", "Planned Session"),
+            "description": item.get("description", ""),
+            "start_date_local": f"{item.get('date')}T08:00:00"
+        })
+
+    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events/bulk?upsert=true"
+    auth = ("API_KEY", api_key)
+    
+    try:
+        resp = requests.post(url, auth=auth, json=events_to_post, timeout=15)
+        if resp.status_code in [200, 201]:
+            return True, f"Successfully synced {len(events_to_post)} workout(s) to Intervals.icu!"
+        return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
+    except Exception as e:
+        return False, str(e)
+
 def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, Any]], activities_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     prof = st.session_state.profile_data
     goals = prof.get("goals", {})
@@ -608,7 +633,6 @@ def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, An
     persona = st.session_state.get("coach_persona", PERSONA_OPTIONS[0])
     protected_events = st.session_state.get("protected_events", [])
 
-    # Format planned life events & trips for coach context
     if protected_events:
         event_lines = [
             f"- [{e.get('category', 'Event')}] {e.get('title')}: {e.get('start_date')} to {e.get('end_date')} (Notes: {e.get('notes', 'None')})"
@@ -618,7 +642,6 @@ def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, An
     else:
         events_formatted = "No upcoming trips or travel blocks logged."
 
-    # Format upcoming planned workouts from calendar feed
     upcoming_planned = [
         f"- {ev.get('start_date_local', '')[:10]}: {ev.get('name', 'Workout')} ({ev.get('type', 'Ride')})"
         for ev in planned_events[:10]
@@ -654,14 +677,27 @@ COACH LONG-TERM MEMORY & ATHLETE LIMITATIONS:
 {memory}
 
 SUPPLEMENT PROTOCOL:
-{supps_formatted}"""
+{supps_formatted}
+
+WORKOUT GENERATION RULE:
+Whenever you propose workouts, scheduled sessions, or a multi-week plan, include a structured JSON block at the very end of your response inside ```json:workouts ... ``` like this:
+
+```json:workouts
+[
+  {{
+    "date": "2026-09-05",
+    "title": "Threshold 4x5m",
+    "type": "Ride",
+    "description": "Warmup\\n- 10m 50-60% FTP\\nMain Set 4x\\n- 5m 100% FTP\\n- 2m 50% FTP\\nCooldown\\n- 10m 40% FTP"
+  }}
+]
+```"""
 
     contents = [
         {"role": "user", "parts": [{"text": system_prompt}]},
         {"role": "model", "parts": [{"text": f"Understood. I have full vision of your biometrics, upcoming trips, planned calendar, athlete limitations, and the '{persona}' coaching style."}]}
     ]
     
-    # EXPANDED HISTORY WINDOW: Pass up to the last 30 messages (15 full conversational turns)
     history = [m for m in st.session_state.messages[:-1] if m["content"] != current_question][-30:]
     for m in history:
         contents.append({"role": "user" if m["role"] == "user" else "model", "parts": [{"text": clean_chat_content(str(m["content"]))[:2000]}]})
@@ -697,7 +733,6 @@ with st.sidebar:
 
     st.divider()
     
-    # MULTI-THREAD CHAT MANAGER
     st.markdown("###### 💬 Conversation Threads")
     session_names = list(st.session_state.get("chat_sessions", {"Main Conversation": []}).keys())
     curr_active_id = st.session_state.get("active_session_id", session_names[0])
@@ -710,7 +745,6 @@ with st.sidebar:
     )
 
     if selected_session != st.session_state.active_session_id:
-        # Sync old thread before switching
         st.session_state.chat_sessions[st.session_state.active_session_id] = st.session_state.messages
         st.session_state.active_session_id = selected_session
         st.session_state.messages = st.session_state.chat_sessions.get(selected_session, [])
@@ -866,19 +900,46 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
                     st.session_state.active_nav = NAV_OPTIONS[1]
                     st.rerun()
 
-# VIEW 2: AI COACH CHAT
+# VIEW 2: AI COACH CHAT WITH ONE-CLICK WORKOUT SYNC
 elif st.session_state.active_nav == NAV_OPTIONS[1]:
     st.markdown(f"##### 🤖 AI Multi-Sport Coach <span style='font-size:0.85rem; color:{TEXT_MUTED};'>({st.session_state.active_session_id})</span>", unsafe_allow_html=True)
 
     for idx, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
-            st.markdown(clean_chat_content(msg["content"]))
+            content_clean = clean_chat_content(msg["content"])
             
-            # QUICK ACTION: Save Key Advice directly into Coach Long-Term Memory
+            display_text = re.sub(r"```json:workouts.*?```", "", content_clean, flags=re.S).strip()
+            st.markdown(display_text)
+            
             if msg["role"] == "assistant":
+                workout_match = re.search(r"```json:workouts\s*(.*?)\s*```", msg["content"], re.S)
+                if workout_match:
+                    try:
+                        proposed_workouts = json.loads(workout_match.group(1))
+                        
+                        st.markdown("---")
+                        st.markdown(f"###### 📋 Proposed Workout Plan ({len(proposed_workouts)} Session{'s' if len(proposed_workouts)>1 else ''})")
+                        
+                        for w_item in proposed_workouts:
+                            st.caption(f"📅 **{w_item.get('date')}** | {w_item.get('type', 'Ride')} — **{w_item.get('title')}**")
+
+                        btn_key = f"approve_sync_{idx}"
+                        if st.button("🚀 Approve & Sync Plan to Intervals.icu Calendar", key=btn_key, type="primary", use_container_width=True):
+                            with st.spinner("Pushing workouts to Intervals.icu..."):
+                                ok, result_msg = push_workouts_to_intervals(
+                                    proposed_workouts, ATHLETE_ID, INTERVALS_API_KEY
+                                )
+                                if ok:
+                                    st.success(result_msg)
+                                    st.toast("Synced to Intervals.icu & MyWhoosh!", icon="✅")
+                                else:
+                                    st.error(result_msg)
+                    except Exception:
+                        pass
+
                 col_save_b, _ = st.columns([2, 5])
                 if col_save_b.button("🧠 Save to Permanent Coach Memory", key=f"save_to_mem_{idx}", type="secondary"):
-                    snippet = msg["content"][:250].replace("\n", " ")
+                    snippet = display_text[:250].replace("\n", " ")
                     st.session_state.coach_memory += f"\n• Coach Advice ({dt.datetime.now(LOCAL_TZ).strftime('%b %d, %Y')}): {snippet}..."
                     save_disk_store()
                     st.toast("Saved advice to Long-Term Coach Memory!", icon="🧠")
@@ -904,7 +965,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                     st.error(str(e))
         st.rerun()
 
-    if prompt := st.chat_input("Ask your coach... (e.g. Plan a 60m VO2Max workout for MyWhoosh)"):
+    if prompt := st.chat_input("Ask your coach... (e.g. Plan my next 2 weeks of threshold workouts)"):
         st.session_state.messages.append({"role": "user", "content": prompt})
         save_disk_store()
 
@@ -920,12 +981,12 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                     save_disk_store()
                 except Exception as e:
                     st.error(str(e))
+        st.rerun()
 
 # VIEW 3: TRAINING CALENDAR & LIFE EVENT PLANNER
 elif st.session_state.active_nav == NAV_OPTIONS[2]:
     st.markdown("##### 📅 Multi-Sport Training Calendar & Life Event Planner")
 
-    # --- PLANNED EVENTS / TRIPS MANAGER ---
     with st.expander("✈️ Add & Manage Planned Trips, Races or Travel Blocks", expanded=False):
         with st.form("form_add_event", clear_on_submit=True):
             e_title = st.text_input("Event / Trip Title", placeholder="e.g. Jeju Cycling Trip, Business Travel, Altitude Camp")
@@ -968,7 +1029,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
 
     raw_feed = get_unified_calendar_items(activities_data, planned_events)
 
-    # MERGE SAVED LIFE EVENTS & TRIPS INTO CALENDAR FEED
     for idx, p_ev in enumerate(st.session_state.get("protected_events", [])):
         try:
             s_dt = dt.datetime.strptime(p_ev["start_date"], "%Y-%m-%d")
@@ -1015,7 +1075,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
             continue
         filtered_feed.append(item)
 
-    # Grouping Hierarchy: Year-Month -> Week -> Day
     grouped_months: Dict[Tuple[int, int], Dict[Tuple[dt.date, dt.date], Dict[str, List[Dict[str, Any]]]]] = {}
     today_date = dt.datetime.now(LOCAL_TZ).date()
 
@@ -1037,7 +1096,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
             grouped_months[month_key][week_key][date_str] = []
         grouped_months[month_key][week_key][date_str].append(item)
 
-    # FORCE PRE-POPULATION OF CURRENT MONTH + NEXT 2 FUTURE MONTHS
     for i in range(3):
         target_m = today_date.month + i
         target_y = today_date.year + (target_m - 1) // 12
@@ -1048,7 +1106,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
 
     declared_ftp = int(st.session_state.profile_data.get("declared_ftp", 180))
 
-    # Render Month Level
     for (m_year, m_month), month_weeks in sorted(grouped_months.items(), key=lambda x: x[0], reverse=True):
         month_all_items = [
             item for days in month_weeks.values() for day_list in days.values() for item in day_list
@@ -1071,7 +1128,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
             if not month_weeks:
                 st.info("📌 No workouts or events logged for this month yet. Use the manager above to schedule planned travel or races.")
             else:
-                # Render Week Level inside Month
                 for week_idx, ((w_start, w_end), days_dict) in enumerate(sorted(month_weeks.items(), key=lambda x: x[0][0], reverse=True)):
                     week_all_items = [item for day_list in days_dict.values() for item in day_list]
                     w_total_sec = sum(item["duration_sec"] for item in week_all_items)
