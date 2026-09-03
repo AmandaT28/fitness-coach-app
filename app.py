@@ -63,7 +63,6 @@ NAV_OPTIONS = [
     "🤖 AI Coach & Sparring",
     "📅 Training Calendar",
     "👤 Athlete Profile & Memory",
-    "🏋️ Workout Builder & MyWhoosh Sync",
     "🗺️ Route Strategist"
 ]
 
@@ -73,43 +72,29 @@ PERSONA_OPTIONS = [
     "Drill Sergeant (Strict & Direct Accountability)"
 ]
 
-DEFAULT_PROFILE = {
-    "name": "Amanda Tan",
-    "gender": "Female",
-    "age": 43,
-    "weight_kg": 54.0,
-    "declared_ftp": 180,
-    "estimated_ftp": 185,
-    "max_hr": 182,
-    "resting_hr": 52,
-    "running_threshold_pace_sec": 300,
-    "unit_system": "Metric",
-    "rest_days": ["Friday"],
-    "primary_sports": ["Cycling", "Running"],
-    "goals": {
-        "event_name": "Bintan Multi-Sport Challenge",
-        "target_metric": "Build threshold power on Cervélo Soloist and running fatigue resistance",
-        "race_date": "2026-10-24"
+def get_user_default_profile(user_name: str) -> Dict[str, Any]:
+    return {
+        "name": user_name,
+        "gender": "Female",
+        "age": 40,
+        "weight_kg": 55.0,
+        "declared_ftp": 200,
+        "estimated_ftp": 200,
+        "max_hr": 185,
+        "resting_hr": 50,
+        "running_threshold_pace_sec": 300,
+        "unit_system": "Metric",
+        "rest_days": ["Monday"],
+        "primary_sports": ["Cycling", "Running"],
+        "goals": {
+            "event_name": "Target Season Goal",
+            "target_metric": "Build threshold power and endurance capacity",
+            "race_date": "2026-12-31"
+        }
     }
-}
 
-DEFAULT_SUPPLEMENTS = [
-    {"name": "Omega-3 Fish Oil", "dosage": "2000 mg", "timing": "Morning with meal", "purpose": "Anti-inflammatory & Recovery"},
-    {"name": "Magnesium Glycinate", "dosage": "400 mg", "timing": "30 mins before sleep", "purpose": "Muscle Relaxation & Sleep Quality"},
-    {"name": "Vitamin D3 + K2", "dosage": "5000 IU", "timing": "Morning with fats", "purpose": "Bone density & Immune support"},
-    {"name": "Creatine Monohydrate", "dosage": "5 g", "timing": "Post-workout", "purpose": "Power output & Cell hydration"}
-]
-
-DEFAULT_COACH_MEMORY = (
-    "• Equipment: Size 48 Cervélo Soloist (6.9kg) with THE ONE PRO Aero Carbon handlebars, "
-    "BBInfinite Ceramic BB, S-Works Power Pro Mirror saddle, Magene TEO P515 carbon power meter crank (160mm, 50-34T), "
-    "Dura-Ace 11-34 cassette & chain, Speedplay titanium pedals, Garmin Edge 530.\n"
-    "• Training Routine: Saturday club rides, Sunday recovery/social rides, mid-week structured indoor sessions.\n"
-    "• Key Focus Areas: Build sustained FTP density, maintain aerobic efficiency, protect joint recovery on running sessions.\n"
-    "• Athlete Limitations & Health Constraints: Protect joint impact during run sessions (monitor high ground contact/knee load); "
-    "avoid high fatigue spikes (ACWR > 1.35); protect strict rest days (Fridays); manage neck/lower-back loading in prolonged aero positions.\n"
-    "• Platforms: Intervals.icu primary hub, auto-synced to MyWhoosh for indoor virtual cycling."
-)
+DEFAULT_COACH_MEMORY = "• No specific coach memory logged yet. Add your equipment, routines, and training limitations here."
+DEFAULT_SUPPLEMENTS = []
 
 localS = LocalStorage() if LocalStorage else None
 
@@ -155,6 +140,8 @@ def save_disk_store():
 def init_state():
     disk_data = load_disk_store()
 
+    resolved_name = secret("ATHLETE_NAME") or "Athlete"
+
     default_sessions = disk_data.get("chat_sessions", {})
     if not default_sessions:
         default_sessions = {"Main Conversation": disk_data.get("messages", [])}
@@ -172,7 +159,7 @@ def init_state():
         "sidebar_nav": NAV_OPTIONS[0],
         "coach_persona": disk_data.get("coach_persona", PERSONA_OPTIONS[0]),
         "unit_system": "Metric",
-        "profile_data": disk_data.get("profile_data", DEFAULT_PROFILE.copy()),
+        "profile_data": disk_data.get("profile_data", get_user_default_profile(resolved_name)),
         "coach_memory": disk_data.get("coach_memory", DEFAULT_COACH_MEMORY),
         "user_supplements": disk_data.get("user_supplements", DEFAULT_SUPPLEMENTS.copy()),
         "daily_notes": {},
@@ -313,18 +300,18 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
         return (
             creds.get("icu_key", "").strip(),
             creds.get("icu_id", "").strip(),
-            creds.get("name", st.session_state.profile_data.get("name", "Amanda Tan")).strip(),
+            creds.get("name", st.session_state.profile_data.get("name", "Athlete")).strip(),
             "Guest Session"
         )
 
     sec_key = secret("INTERVALS_API_KEY") or secret("INTERVALS_KEY") or ""
     sec_id = secret("INTERVALS_ATHLETE_ID") or secret("INTERVALS_ID") or ""
-    owner_name = st.session_state.profile_data.get("name") or secret("ATHLETE_NAME") or "Amanda Tan"
+    owner_name = st.session_state.profile_data.get("name") or secret("ATHLETE_NAME") or "Athlete"
     
     if sec_key and sec_id:
         return str(sec_key).strip(), str(sec_id).strip(), owner_name, "Owner (Auto-Secrets)"
 
-    return "", "", st.session_state.profile_data.get("name", "Amanda Tan"), "Unauthenticated"
+    return "", "", st.session_state.profile_data.get("name", "Athlete"), "Unauthenticated"
 
 # --- ADVANCED WORKOUT DETAILS PARSER ENGINE ---
 def parse_workout_steps_detailed(description_text: str, declared_ftp: int = 180) -> Dict[str, Any]:
@@ -624,12 +611,15 @@ def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: st
     
     events_to_post = []
     for item in events_list:
+        raw_date = str(item.get("date") or dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d"))
+        start_local = f"{raw_date}T08:00:00" if "T" not in raw_date else raw_date
+
         events_to_post.append({
             "category": "WORKOUT",
             "type": item.get("type", "Ride"),
             "name": item.get("title") or item.get("name", "Planned Session"),
             "description": item.get("description", ""),
-            "start_date_local": f"{item.get('date')}T08:00:00"
+            "start_date_local": start_local
         })
 
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events/bulk?upsert=true"
@@ -675,15 +665,15 @@ SELECTED COACHING PERSONA:
 {persona}
 
 ATHLETE BIOMETRICS & BENCHMARKS:
-- Name: {prof.get('name', 'Amanda Tan')} | Gender: {prof.get('gender', 'Female')} | Age: {prof.get('age', 43)} | Weight: {prof.get('weight_kg', 54.0)} kg
-- Declared FTP: {prof.get('declared_ftp', 180)} W | Estimated FTP: {prof.get('estimated_ftp', 185)} W
-- Max Heart Rate: {prof.get('max_hr', 182)} bpm | Resting Heart Rate: {prof.get('resting_hr', 52)} bpm
-- Rest Days: {', '.join(prof.get('rest_days', ['Friday']))}
+- Name: {prof.get('name', 'Athlete')} | Gender: {prof.get('gender', 'Female')} | Age: {prof.get('age', 40)} | Weight: {prof.get('weight_kg', 55.0)} kg
+- Declared FTP: {prof.get('declared_ftp', 200)} W | Estimated FTP: {prof.get('estimated_ftp', 200)} W
+- Max Heart Rate: {prof.get('max_hr', 185)} bpm | Resting Heart Rate: {prof.get('resting_hr', 50)} bpm
+- Rest Days: {', '.join(prof.get('rest_days', ['Monday']))}
 
 ATHLETE GOALS & TARGET EVENTS:
-- Target Event: {goals.get('event_name', 'Bintan Multi-Sport Challenge')}
-- Event Date: {goals.get('race_date', '2026-10-24')}
-- Primary Objective: {goals.get('target_metric', 'Build threshold power and running fatigue resistance')}
+- Target Event: {goals.get('event_name', 'Target Season Goal')}
+- Event Date: {goals.get('race_date', '2026-12-31')}
+- Primary Objective: {goals.get('target_metric', 'Build threshold power and endurance capacity')}
 
 UPCOMING TRIPS, TRAVEL & PROTECTED EVENTS:
 {events_formatted}
@@ -708,12 +698,12 @@ The `description` field MUST follow native Intervals.icu plain text workout synt
 EXAMPLE:
 ```json:workouts
 [
-  {{
+  {
     "date": "2026-09-05",
     "title": "Threshold 4x5m",
     "type": "Ride",
     "description": "Warmup\\n- 10m 50%\\n\\n4x\\n- 5m 100%\\n- 2m 50%\\n\\nCooldown\\n- 10m 40%"
-  }}
+  }
 ]
 ```"""
 
@@ -734,12 +724,15 @@ INTERVALS_API_KEY, ATHLETE_ID, display_name, auth_mode = get_resolved_credential
 if not INTERVALS_API_KEY or not ATHLETE_ID:
     st.markdown("##### 🔐 AI Performance Coach • Guest Setup")
     with st.form("guest_onboarding_form"):
-        g_name = st.text_input("Your Name", value=st.session_state.profile_data.get("name", "Amanda Tan"))
+        g_name = st.text_input("Your Name", value="Athlete")
         g_key = st.text_input("Intervals.icu API Key", type="password")
         g_id = st.text_input("Intervals.icu Athlete ID (e.g. i12345)")
         if st.form_submit_button("Launch Session", use_container_width=True):
             if g_key.strip() and g_id.strip():
-                st.session_state.user_credentials = {"name": g_name.strip() or "Amanda Tan", "icu_key": g_key.strip(), "icu_id": g_id.strip()}
+                clean_name = g_name.strip() or "Athlete"
+                st.session_state.user_credentials = {"name": clean_name, "icu_key": g_key.strip(), "icu_id": g_id.strip()}
+                st.session_state.profile_data = get_user_default_profile(clean_name)
+                save_disk_store()
                 st.rerun()
     st.stop()
 
@@ -1313,17 +1306,17 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
         st.markdown("###### Biometric Benchmarks")
         with st.form("form_biometrics"):
             c1, c2 = st.columns(2)
-            name_val = c1.text_input("Name", value=prof.get("name", "Amanda Tan"))
+            name_val = c1.text_input("Name", value=prof.get("name", "Athlete"))
             gender_val = c2.selectbox("Gender", ["Female", "Male", "Other"], index=0 if prof.get("gender") == "Female" else 1)
             
             c3, c4, c5 = st.columns(3)
-            age_val = c3.number_input("Age", value=int(prof.get("age", 43)))
-            weight_val = c4.number_input("Weight (kg)", value=float(prof.get("weight_kg", 54.0)), step=0.5)
-            ftp_val = c5.number_input("Declared FTP (W)", value=int(prof.get("declared_ftp", 180)))
+            age_val = c3.number_input("Age", value=int(prof.get("age", 40)))
+            weight_val = c4.number_input("Weight (kg)", value=float(prof.get("weight_kg", 55.0)), step=0.5)
+            ftp_val = c5.number_input("Declared FTP (W)", value=int(prof.get("declared_ftp", 200)))
             
             c6, c7 = st.columns(2)
-            max_hr_val = c6.number_input("Max Heart Rate (bpm)", value=int(prof.get("max_hr", 182)))
-            rhr_val = c7.number_input("Resting Heart Rate (bpm)", value=int(prof.get("resting_hr", 52)))
+            max_hr_val = c6.number_input("Max Heart Rate (bpm)", value=int(prof.get("max_hr", 185)))
+            rhr_val = c7.number_input("Resting Heart Rate (bpm)", value=int(prof.get("resting_hr", 50)))
 
             if st.form_submit_button("Save Biometrics"):
                 st.session_state.profile_data.update({
@@ -1338,9 +1331,9 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
     with tab_goals:
         st.markdown("###### Multi-Sport Goals & Target Events")
         with st.form("form_goals"):
-            ev_name = st.text_input("Target Event Name", value=goals.get("event_name", "Bintan Multi-Sport Challenge"))
-            ev_date = st.text_input("Race Date (YYYY-MM-DD)", value=goals.get("race_date", "2026-10-24"))
-            ev_target = st.text_area("Primary Objective / Target Metric", value=goals.get("target_metric", "Build threshold power and running fatigue resistance"))
+            ev_name = st.text_input("Target Event Name", value=goals.get("event_name", "Target Season Goal"))
+            ev_date = st.text_input("Race Date (YYYY-MM-DD)", value=goals.get("race_date", "2026-12-31"))
+            ev_target = st.text_area("Primary Objective / Target Metric", value=goals.get("target_metric", "Build threshold power and endurance capacity"))
             
             if st.form_submit_button("Save Target Goals"):
                 st.session_state.profile_data["goals"] = {
@@ -1398,61 +1391,8 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
                     st.success(f"Added {s_name} to protocol!")
                     st.rerun()
 
-# VIEW 5: WORKOUT BUILDER & MYWHOOSH SYNC
+# VIEW 5: ROUTE STRATEGIST
 elif st.session_state.active_nav == NAV_OPTIONS[4]:
-    st.markdown("##### 🏋️ Workout Builder & MyWhoosh / Intervals.icu Direct Sync")
-    
-    default_txt = """Warmup
-- 10m 50%
-
-4x
-- 5m 100%
-- 2m 50%
-
-Cooldown
-- 10m 40%"""
-
-    col_w1, col_w2 = st.columns([1, 1])
-    
-    with col_w1:
-        st.markdown("###### Custom Workout Editor")
-        w_title = st.text_input("Workout Title", value="4x5m Threshold Intervals")
-        w_sport = st.selectbox("Sport Type", ["Ride", "Run", "VirtualRide"])
-        w_date = st.date_input("Scheduled Date", value=dt.datetime.now(LOCAL_TZ).date())
-        txt_input = st.text_area("Workout Syntax (Intervals.icu / MyWhoosh Compatible)", value=default_txt, height=220)
-
-        if st.button("🚀 Direct Push Single Workout to Intervals.icu & MyWhoosh", type="primary", use_container_width=True):
-            single_payload = [{
-                "title": w_title,
-                "type": w_sport,
-                "date": w_date.strftime("%Y-%m-%d"),
-                "description": txt_input
-            }]
-            with st.spinner("Pushing workout to Intervals.icu..."):
-                ok, res_msg = push_workouts_to_intervals(single_payload, ATHLETE_ID, INTERVALS_API_KEY)
-                if ok:
-                    st.success(res_msg)
-                else:
-                    st.error(res_msg)
-
-    with col_w2:
-        st.markdown("###### Target Metrics & Zone Preview")
-        parsed = parse_workout_steps_detailed(txt_input, int(st.session_state.profile_data.get("declared_ftp", 180)))
-        
-        if parsed["steps"]:
-            st.markdown("**Structured Breakdown:**")
-            for step in parsed["steps"]:
-                st.markdown(step)
-            
-            m = parsed["metrics"]
-            st.markdown("---")
-            st.markdown(f"• **Duration:** {m['duration_min']} mins")
-            st.markdown(f"• **Average Power:** {m['avg_watts']} W")
-            st.markdown(f"• **Estimated NP:** {m['np_watts']} W")
-            st.markdown(f"• **Total Work:** {m['work_kj']} kJ")
-
-# VIEW 6: ROUTE STRATEGIST
-elif st.session_state.active_nav == NAV_OPTIONS[5]:
     st.markdown("##### 🗺️ Route Pacing Strategist")
     uploaded_file = st.file_uploader("Upload GPX Route", type=["gpx"])
     
