@@ -124,11 +124,17 @@ def load_disk_store() -> Dict[str, Any]:
     return {}
 
 def save_disk_store():
+    # Keep active messages synced with active thread in chat_sessions dict
+    if "chat_sessions" in st.session_state and "active_session_id" in st.session_state:
+        st.session_state.chat_sessions[st.session_state.active_session_id] = st.session_state.get("messages", [])
+
     store = {
         "profile_data": st.session_state.get("profile_data"),
         "coach_persona": st.session_state.get("coach_persona"),
         "coach_memory": st.session_state.get("coach_memory"),
         "user_supplements": st.session_state.get("user_supplements"),
+        "chat_sessions": st.session_state.get("chat_sessions", {}),
+        "active_session_id": st.session_state.get("active_session_id", "Main Conversation"),
         "messages": st.session_state.get("messages", []),
         "cached_trend_analyses": st.session_state.get("cached_trend_analyses", []),
         "protected_events": st.session_state.get("protected_events", []),
@@ -150,10 +156,19 @@ def save_disk_store():
 def init_state():
     disk_data = load_disk_store()
 
+    default_sessions = disk_data.get("chat_sessions", {})
+    if not default_sessions:
+        default_sessions = {"Main Conversation": disk_data.get("messages", [])}
+
+    active_id = disk_data.get("active_session_id", list(default_sessions.keys())[0])
+    active_msgs = default_sessions.get(active_id, [])
+
     defaults = {
         "user": None,
         "user_credentials": None,
-        "messages": disk_data.get("messages", []),
+        "chat_sessions": default_sessions,
+        "active_session_id": active_id,
+        "messages": active_msgs,
         "active_nav": NAV_OPTIONS[0],
         "sidebar_nav": NAV_OPTIONS[0],
         "coach_persona": disk_data.get("coach_persona", PERSONA_OPTIONS[0]),
@@ -645,7 +660,9 @@ SUPPLEMENT PROTOCOL:
         {"role": "user", "parts": [{"text": system_prompt}]},
         {"role": "model", "parts": [{"text": f"Understood. I have full vision of your biometrics, upcoming trips, planned calendar, athlete limitations, and the '{persona}' coaching style."}]}
     ]
-    history = [m for m in st.session_state.messages[:-1] if m["content"] != current_question][-8:]
+    
+    # EXPANDED HISTORY WINDOW: Pass up to the last 30 messages (15 full conversational turns)
+    history = [m for m in st.session_state.messages[:-1] if m["content"] != current_question][-30:]
     for m in history:
         contents.append({"role": "user" if m["role"] == "user" else "model", "parts": [{"text": clean_chat_content(str(m["content"]))[:2000]}]})
     contents.append({"role": "user", "parts": [{"text": current_question}]})
@@ -668,7 +685,7 @@ if not INTERVALS_API_KEY or not ATHLETE_ID:
 
 wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data_90days(ATHLETE_ID, INTERVALS_API_KEY)
 
-# --- SIDEBAR NAVIGATION ---
+# --- SIDEBAR NAVIGATION & CHAT THREAD MANAGER ---
 with st.sidebar:
     st.markdown("##### ⚡ AI Multi-Sport Coach")
     st.caption(f"Athlete: {st.session_state.profile_data.get('name', display_name)} | Mode: {auth_mode}")
@@ -679,6 +696,41 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
+    
+    # MULTI-THREAD CHAT MANAGER
+    st.markdown("###### 💬 Conversation Threads")
+    session_names = list(st.session_state.get("chat_sessions", {"Main Conversation": []}).keys())
+    curr_active_id = st.session_state.get("active_session_id", session_names[0])
+    
+    selected_session = st.selectbox(
+        "Active Thread",
+        session_names,
+        index=session_names.index(curr_active_id) if curr_active_id in session_names else 0,
+        key="thread_selector"
+    )
+
+    if selected_session != st.session_state.active_session_id:
+        # Sync old thread before switching
+        st.session_state.chat_sessions[st.session_state.active_session_id] = st.session_state.messages
+        st.session_state.active_session_id = selected_session
+        st.session_state.messages = st.session_state.chat_sessions.get(selected_session, [])
+        save_disk_store()
+        st.rerun()
+
+    with st.popover("➕ New Chat Thread", use_container_width=True):
+        new_thread_title = st.text_input("Thread Title", placeholder="e.g. Jeju Trip Planning")
+        if st.button("Create Thread", use_container_width=True):
+            title_clean = new_thread_title.strip()
+            if title_clean and title_clean not in st.session_state.chat_sessions:
+                st.session_state.chat_sessions[st.session_state.active_session_id] = st.session_state.messages
+                st.session_state.chat_sessions[title_clean] = []
+                st.session_state.active_session_id = title_clean
+                st.session_state.messages = []
+                save_disk_store()
+                st.toast(f"Created '{title_clean}'", icon="💬")
+                st.rerun()
+
+    st.divider()
     persona_index = PERSONA_OPTIONS.index(st.session_state.coach_persona) if st.session_state.coach_persona in PERSONA_OPTIONS else 0
     selected_persona = st.selectbox("Coaching Persona", PERSONA_OPTIONS, index=persona_index)
     if selected_persona != st.session_state.coach_persona:
@@ -687,10 +739,11 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    if st.button("🗑️ Clear Coach Chat History", use_container_width=True):
+    if st.button("🗑️ Clear Active Thread History", use_container_width=True):
         st.session_state.messages = []
+        st.session_state.chat_sessions[st.session_state.active_session_id] = []
         save_disk_store()
-        st.toast("Chat history cleared!", icon="🧹")
+        st.toast("Active thread history cleared!", icon="🧹")
         st.rerun()
 
     if st.button("🧪 Test AI Connection", use_container_width=True):
@@ -815,11 +868,20 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
 
 # VIEW 2: AI COACH CHAT
 elif st.session_state.active_nav == NAV_OPTIONS[1]:
-    st.markdown("##### 🤖 AI Multi-Sport Coach")
+    st.markdown(f"##### 🤖 AI Multi-Sport Coach <span style='font-size:0.85rem; color:{TEXT_MUTED};'>({st.session_state.active_session_id})</span>", unsafe_allow_html=True)
 
-    for msg in st.session_state.messages:
+    for idx, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             st.markdown(clean_chat_content(msg["content"]))
+            
+            # QUICK ACTION: Save Key Advice directly into Coach Long-Term Memory
+            if msg["role"] == "assistant":
+                col_save_b, _ = st.columns([2, 5])
+                if col_save_b.button("🧠 Save to Permanent Coach Memory", key=f"save_to_mem_{idx}", type="secondary"):
+                    snippet = msg["content"][:250].replace("\n", " ")
+                    st.session_state.coach_memory += f"\n• Coach Advice ({dt.datetime.now(LOCAL_TZ).strftime('%b %d, %Y')}): {snippet}..."
+                    save_disk_store()
+                    st.toast("Saved advice to Long-Term Coach Memory!", icon="🧠")
 
     if st.session_state.pending_coach_prompt:
         prompt_to_send = st.session_state.pending_coach_prompt
@@ -1217,7 +1279,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
 
     with tab_memory:
         st.markdown("###### Coach Long-Term Memory, Notes & Athlete Limitations")
-        st.caption("This persistent memory and health/recovery limitations guide all AI coaching recommendations.")
+        st.caption("This persistent memory and health/recovery limitations guide all AI coaching recommendations indefinitely.")
         
         updated_memory = st.text_area(
             "Persistent Coach Notes & Athlete Limitations",
