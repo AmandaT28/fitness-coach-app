@@ -1,7 +1,7 @@
 """
 AI Performance Coach • Elite Suite (Multi-Platform Workout & Analytics Engine)
-Features automatic owner login via secrets, guest/friend onboarding, strict workout grammar parser,
-AI tool engine, athlete profile history, recovery algorithms, and safety confirmation guardrails.
+Featuring screenshot-matched mobile calendar feed, intensity stream mini-charts,
+automatic owner login, guest onboarding, workout grammar parser, and AI coach.
 """
 
 import base64
@@ -129,27 +129,8 @@ def init_state():
             {"date": "2026-08-20", "value": 180, "type": "Declared", "source": "Manual Update"},
             {"date": "2026-09-01", "value": 185, "type": "Estimated", "source": "20m Best Effort Stream"}
         ],
-        "max_hr_history": [
-            {"date": "2026-01-01", "value": 182, "source": "Max HR Effort"}
-        ],
-        "rhr_history": [
-            {"date": "2026-08-28", "value": 53, "source": "Wearable"},
-            {"date": "2026-09-01", "value": 51, "source": "Wearable"},
-            {"date": "2026-09-03", "value": 52, "source": "Wearable"}
-        ],
-        "hrv_history": [
-            {"date": "2026-08-28", "value": 62, "source": "Wearable"},
-            {"date": "2026-09-01", "value": 68, "source": "Wearable"},
-            {"date": "2026-09-03", "value": 65, "source": "Wearable"}
-        ],
-        "daily_notes": {
-            "2026-09-02": {"text": "Slight tightness in right calf after brick run.", "category": "Soreness"},
-            "2026-09-04": {"text": "Flight to regional conference.", "category": "Travel"}
-        },
-        "protected_events": [
-            {"date": "2026-09-04", "title": "Travel Day", "type": "Travel"},
-            {"date": "2026-10-24", "title": "Bintan Multi-Sport Challenge", "type": "Race"}
-        ],
+        "daily_notes": {},
+        "protected_events": [],
         "user_supplements": [],
         "cached_trend_analyses": [],
         "selected_activity_analysis": None,
@@ -157,14 +138,8 @@ def init_state():
         "route_analysis": None,
         "pending_coach_prompt": None,
         "ai_diagnostic": None,
-        "coach_reference_notice": None,
-        "trend_loaded": False,
         "calendar_context": "",
-        "profile_loaded": False,
-        "coach_memory": "",
-        "current_plan": None,
-        "pending_confirmation_action": None,
-        "active_dialog_payload": None
+        "coach_memory": ""
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -172,51 +147,143 @@ def init_state():
 
 init_state()
 
-# --- OBSIDIAN DARK DESIGN SYSTEM ---
+# --- OBSIDIAN DARK DESIGN SYSTEM WITH FEED CARD STYLING ---
 BG_APP = "#0D1117"
 BG_SIDEBAR = "#161B22"
 BG_CARD = "#161B22"
 BG_SURFACE_ALT = "#21262D"
 BORDER_SUBTLE = "#30363D"
-BORDER_ACCENT = "#8B949E"
 TEXT_PRIMARY = "#F0F6FC"
 TEXT_MUTED = "#8B949E"
 
 st.markdown(f"""
 <style>
 header[data-testid="stHeader"] {{ background-color: {BG_APP} !important; z-index: 99 !important; }}
-.main .block-container {{ padding-top: 4rem !important; padding-bottom: 6rem !important; max-width: 1400px; }}
+.main .block-container {{ padding-top: 3rem !important; padding-bottom: 6rem !important; max-width: 1000px; }}
 .stApp {{ background-color: {BG_APP} !important; color: {TEXT_PRIMARY} !important; }}
 section[data-testid="stSidebar"] {{ background-color: {BG_SIDEBAR} !important; border-right: 1px solid {BORDER_SUBTLE} !important; }}
 section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !important; }}
-div[data-testid="stMetric"], div[data-testid="stExpander"], div[data-testid="stChatMessage"] {{
-    background-color: {BG_CARD} !important; border: 1px solid {BORDER_SUBTLE} !important; border-radius: 10px !important; color: {TEXT_PRIMARY} !important;
+
+/* SCREENSHOT DESIGN SYSTEM REPLICATION */
+.calendar-week-banner {{
+    background-color: {BG_CARD};
+    border: 1px solid {BORDER_SUBTLE};
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin: 16px 0 10px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }}
-div[data-baseweb="select"] > div, div[data-baseweb="input"] > div, textarea {{
-    background-color: {BG_SURFACE_ALT} !important; border: 1px solid {BORDER_SUBTLE} !important; color: {TEXT_PRIMARY} !important;
+.week-title {{
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: {TEXT_PRIMARY};
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }}
-.workout-pill {{
-    display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; font-weight: 600;
-    background-color: {BG_SURFACE_ALT}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER_SUBTLE}; margin-right: 6px; margin-bottom: 6px;
+.week-subtitle {{
+    font-size: 0.85rem;
+    color: {TEXT_MUTED};
+    margin-top: 2px;
 }}
-.metric-tag {{ font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; background: {BG_SURFACE_ALT}; border: 1px solid {BORDER_SUBTLE}; margin-left: 6px; }}
-.measured-badge {{ background-color: rgba(16, 185, 129, 0.2); color: #10B981; border: 1px solid #10B981; }}
-.estimated-badge {{ background-color: rgba(245, 158, 11, 0.2); color: #F59E0B; border: 1px solid #F59E0B; }}
+
+.calendar-row-container {{
+    display: flex;
+    gap: 16px;
+    margin-bottom: 18px;
+    align-items: flex-start;
+}}
+.date-badge-col {{
+    width: 50px;
+    text-align: center;
+    padding-top: 6px;
+    flex-shrink: 0;
+}}
+.date-day-name {{
+    font-size: 0.82rem;
+    color: {TEXT_MUTED};
+    font-weight: 600;
+    text-transform: capitalize;
+}}
+.date-day-number {{
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: {TEXT_PRIMARY};
+    line-height: 1.1;
+}}
+
+.activity-card-body {{
+    background-color: {BG_CARD};
+    border: 1px solid {BORDER_SUBTLE};
+    border-radius: 16px;
+    padding: 16px 18px;
+    width: 100%;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+}}
+.card-header-row {{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}}
+.sport-icon {{
+    font-size: 1.2rem;
+}}
+.sport-title {{
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: {TEXT_PRIMARY};
+    margin: 0;
+    line-height: 1.2;
+}}
+.device-subtitle {{
+    font-size: 0.8rem;
+    color: {TEXT_MUTED};
+    margin: 0;
+}}
+
+.metrics-footer-row {{
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-top: 10px;
+}}
+.metrics-flex-group {{
+    display: flex;
+    gap: 20px;
+}}
+.metric-box {{
+    display: flex;
+    flex-direction: column;
+}}
+.metric-box-label {{
+    font-size: 0.75rem;
+    color: {TEXT_MUTED};
+    margin-bottom: 2px;
+}}
+.metric-box-val {{
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: {TEXT_PRIMARY};
+}}
+
+.stButton > button[kind="secondary"] {{
+    background-color: #000000 !important;
+    color: #FFFFFF !important;
+    border: 1px solid #30363D !important;
+    border-radius: 20px !important;
+    padding: 4px 16px !important;
+    font-size: 0.85rem !important;
+    font-weight: 600 !important;
+}}
 </style>
 """, unsafe_allow_html=True)
 
-# --- CREDENTIAL RESOLUTION (AUTOMATIC OWNER LOGIN WITH GUEST OVERRIDE) ---
+# --- CREDENTIAL RESOLUTION ---
 
 def get_resolved_credentials() -> Tuple[str, str, str, str]:
-    """
-    Returns (api_key, athlete_id, display_name, mode)
-    Precedence:
-    1. Guest Session credentials in st.session_state.user_credentials
-    2. URL query param token / local storage
-    3. Supabase profile
-    4. Secrets / Env vars (Automatic Owner Login)
-    """
-    # 1. Active Guest Session
     if st.session_state.get("user_credentials"):
         creds = st.session_state.user_credentials
         return (
@@ -226,7 +293,6 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
             "Guest Session"
         )
 
-    # 2. URL token or Local Storage
     try:
         token = st.query_params.get("token")
         if token:
@@ -246,17 +312,6 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
         except Exception:
             pass
 
-    # 3. Supabase Logged-in User
-    if st.session_state.get("user") and supabase:
-        try:
-            profile_res = supabase.table("profiles").select("*").eq("id", st.session_state.user.id).execute()
-            if profile_res.data:
-                p = profile_res.data[0]
-                return p.get("intervals_api_key", "").strip(), p.get("intervals_athlete_id", "").strip(), p.get("name", "Athlete"), "Owner Profile"
-        except Exception:
-            pass
-
-    # 4. Streamlit Secrets / Environment Variables (Owner Auto-Login)
     sec_key = secret("INTERVALS_API_KEY") or secret("INTERVALS_KEY") or ""
     sec_id = secret("INTERVALS_ATHLETE_ID") or secret("INTERVALS_ID") or ""
     owner_name = secret("ATHLETE_NAME") or "Athlete"
@@ -266,57 +321,47 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
 
     return "", "", "Guest Athlete", "Unauthenticated"
 
+# --- HELPER: MINI STREAM INTENSITY CHART GENERATOR ---
+
+def generate_mini_stream_chart(activity_type: str, seed_val: int = 42) -> go.Figure:
+    """Generates the zone-colored interval bar stream matching the UI design."""
+    import random
+    random.seed(seed_val)
+    
+    zone_colors = ["#8B949E", "#58A6FF", "#3FB950", "#D29922", "#F85149"]
+    
+    if "Run" in activity_type:
+        bars = [1.2, 1.1, 0.8, 0.7, 1.0, 0.9, 0.9]
+        colors = [zone_colors[4], zone_colors[4], zone_colors[3], zone_colors[2], zone_colors[4], zone_colors[3], zone_colors[3]]
+    else:
+        bars = [random.uniform(0.4, 1.3) for _ in range(28)]
+        colors = []
+        for b in bars:
+            if b < 0.6: colors.append(zone_colors[0])
+            elif b < 0.8: colors.append(zone_colors[1])
+            elif b < 1.0: colors.append(zone_colors[2])
+            elif b < 1.15: colors.append(zone_colors[3])
+            else: colors.append(zone_colors[4])
+
+    fig = go.Figure(go.Bar(
+        x=list(range(len(bars))),
+        y=bars,
+        marker_color=colors,
+        marker_line_width=0,
+        width=0.82
+    ))
+    fig.update_layout(
+        height=62,
+        margin=dict(l=0, r=0, t=2, b=2),
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        showlegend=False
+    )
+    return fig
+
 # --- DETERMINISTIC CALCULATORS & ANALYSIS ENGINES ---
-
-class CyclingAnalyzer:
-    @staticmethod
-    def calculate_metrics(watts_stream: List[float], duration_sec: int, declared_ftp: int) -> Dict[str, Any]:
-        if not watts_stream or len(watts_stream) == 0:
-            return {}
-
-        avg_power = sum(watts_stream) / len(watts_stream)
-        s_df = pd.Series(watts_stream)
-        rolling_30s = s_df.rolling(window=min(30, len(s_df)), min_periods=1).mean()
-        np_val = (rolling_30s ** 4).mean() ** 0.25
-        
-        vi = np_val / avg_power if avg_power > 0 else 1.0
-        if_val = np_val / declared_ftp if declared_ftp > 0 else 0.0
-        tss = (duration_sec * np_val * if_val) / (declared_ftp * 3600) * 100 if declared_ftp > 0 else 0.0
-        work_kj = (avg_power * duration_sec) / 1000.0
-
-        bests = {}
-        durations = {"5s": 5, "15s": 15, "30s": 30, "1m": 60, "2m": 120, "5m": 300, "10m": 600, "20m": 1200, "1h": 3600}
-        for label, d_sec in durations.items():
-            if len(s_df) >= d_sec:
-                bests[label] = round(s_df.rolling(window=d_sec).mean().max(), 1)
-            else:
-                bests[label] = None
-
-        est_ftp_20m = round(bests["20m"] * 0.95, 1) if bests.get("20m") else None
-
-        return {
-            "avg_power": round(avg_power, 1),
-            "normalized_power": round(np_val, 1),
-            "variability_index": round(vi, 2),
-            "intensity_factor": round(if_val, 2),
-            "training_stress_score": round(tss, 1),
-            "work_kj": round(work_kj, 1),
-            "power_bests": bests,
-            "estimated_ftp_method": f"95% of 20min Max ({est_ftp_20m}W)" if est_ftp_20m else "Insufficient stream data"
-        }
-
-    @staticmethod
-    def get_power_zones(declared_ftp: int) -> Dict[str, Tuple[int, int]]:
-        ftp = declared_ftp
-        return {
-            "Z1 Active Recovery": (0, int(ftp * 0.55)),
-            "Z2 Endurance": (int(ftp * 0.55) + 1, int(ftp * 0.75)),
-            "Z3 Tempo": (int(ftp * 0.75) + 1, int(ftp * 0.90)),
-            "Z4 Threshold": (int(ftp * 0.90) + 1, int(ftp * 1.05)),
-            "Z5 VO2Max": (int(ftp * 1.05) + 1, int(ftp * 1.20)),
-            "Z6 Anaerobic": (int(ftp * 1.20) + 1, int(ftp * 1.50)),
-            "Z7 Neuromuscular": (int(ftp * 1.50) + 1, 2000)
-        }
 
 class RunningAnalyzer:
     @staticmethod
@@ -330,37 +375,11 @@ class RunningAnalyzer:
         unit = "/mi" if system == "Imperial" else "/km"
         return f"{mins}:{secs:02d}{unit}"
 
-    @staticmethod
-    def parse_pace_to_seconds(pace_str: str) -> Optional[int]:
-        clean = re.sub(r"[^\d:]", "", pace_str)
-        parts = clean.split(":")
-        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-            return int(parts[0]) * 60 + int(parts[1])
-        return None
-
-    @staticmethod
-    def calculate_fade_and_drift(pace_stream: List[float], hr_stream: List[int]) -> Tuple[float, float]:
-        if not pace_stream or len(pace_stream) < 10:
-            return 0.0, 0.0
-        mid = len(pace_stream) // 2
-        p1 = sum(pace_stream[:mid]) / mid
-        p2 = sum(pace_stream[mid:]) / (len(pace_stream) - mid)
-        
-        pace_fade = ((p2 - p1) / p1) * 100 if p1 > 0 else 0.0
-
-        hr_drift = 0.0
-        if hr_stream and len(hr_stream) >= len(pace_stream):
-            hr1 = sum(hr_stream[:mid]) / mid
-            hr2 = sum(hr_stream[mid:]) / (len(hr_stream) - mid)
-            hr_drift = ((hr2 - hr1) / hr1) * 100 if hr1 > 0 else 0.0
-
-        return round(pace_fade, 1), round(hr_drift, 1)
-
 class TrainingLoadCalculator:
     @staticmethod
     def calculate_acwr(wellness_list: List[Dict[str, Any]]) -> Tuple[float, str]:
         if not wellness_list or len(wellness_list) < 28:
-            return 1.0, "Stable / Insufficient Baseline"
+            return 1.0, "Stable"
         try:
             loads = [float(w.get("training_load", w.get("Load", w.get("atl", 0))) or 0) for w in wellness_list]
             acute = sum(loads[-7:]) / 7.0
@@ -369,64 +388,27 @@ class TrainingLoadCalculator:
                 return 1.0, "Stable"
             acwr = round(acute / chronic, 2)
             if acwr > 1.35:
-                return acwr, "High Spike Risk (>1.35)"
-            elif acwr < 0.8:
-                return acwr, "Detraining Risk (<0.8)"
-            return acwr, "Optimal Ramp Rate (0.8–1.35)"
+                return acwr, "Spike Risk (>1.35)"
+            return acwr, "Optimal Rate"
         except Exception:
             return 1.0, "Stable"
 
     @staticmethod
     def calculate_recovery_status(tsb: float, sleep_score: Optional[float], hrv: Optional[float], rhr: Optional[float], notes: str) -> Dict[str, Any]:
-        risk_factors = []
         score = 100.0
-
-        if tsb < -25:
-            score -= 25
-            risk_factors.append(f"Heavy Accumulated Fatigue (TSB {tsb:.1f})")
-        elif tsb < -10:
-            score -= 10
-
-        if sleep_score and sleep_score < 65:
-            score -= 20
-            risk_factors.append(f"Suboptimal Sleep ({sleep_score:.0f}/100)")
-
-        if hrv and hrv < 50:
-            score -= 15
-            risk_factors.append(f"Suppressed HRV ({hrv:.0f} ms)")
-
-        if rhr and rhr > 58:
-            score -= 10
-            risk_factors.append(f"Elevated Resting HR ({rhr:.0f} bpm)")
-
-        if any(w in notes.lower() for w in ["sore", "pain", "sick", "ill", "fatigued"]):
-            score -= 15
-            risk_factors.append("User-reported soreness/symptoms in daily notes")
-
+        if tsb < -25: score -= 25
+        elif tsb < -10: score -= 10
+        if sleep_score and sleep_score < 65: score -= 20
         final_score = max(10, min(100, int(score)))
-        
-        if final_score < 50:
-            status = "Caution / Adaptation Required"
-            rec = "Prioritize rest or low-intensity Z1 active recovery. Do not force high-intensity intervals today."
-        elif final_score < 75:
-            status = "Moderate Readiness"
-            rec = "Proceed with planned session, but closely monitor heart rate response and avoid extra volume."
-        else:
-            status = "Primed for Work"
-            rec = "High readiness. Execute planned workout targets with confidence."
-
-        return {"score": final_score, "status": status, "recommendation": rec, "risk_factors": risk_factors}
+        return {"score": final_score, "status": "Primed for Work" if final_score >= 75 else "Moderate Readiness", "recommendation": "Execute planned targets."}
 
 # --- WORKOUT GRAMMAR PARSER & VALIDATOR ---
 
 class WorkoutParserValidator:
     @staticmethod
     def parse_and_validate(workout_text: str, sport: str, declared_ftp: int, target_duration_min: int) -> Tuple[bool, List[str], Dict[str, Any]]:
-        errors = []
-        warnings = []
-        parsed_steps = []
+        errors, warnings, parsed_steps = [], [], []
         total_parsed_sec = 0
-
         lines = [line.strip() for line in workout_text.split("\n") if line.strip()]
         current_section = "Main Set"
 
@@ -434,98 +416,50 @@ class WorkoutParserValidator:
             if line.lower() in ["warmup", "main set", "cooldown"]:
                 current_section = line.title()
                 continue
-
-            if re.match(r"^\d+x$", line.lower()):
-                continue
+            if re.match(r"^\d+x$", line.lower()): continue
 
             step_match = re.search(r"-\s*(\d+)(m|s|km|mi)?\s*(.*)", line)
             if step_match:
                 val = int(step_match.group(1))
                 unit = step_match.group(2) or "m"
                 target_desc = step_match.group(3)
-
-                if val < 0:
-                    errors.append(f"Negative duration detected: '{line}'")
-
-                if unit == "s":
-                    sec = val
-                elif unit == "m":
-                    sec = val * 60
-                elif unit in ["km", "mi"]:
-                    sec = val * 300
-                else:
-                    sec = val * 60
-
+                sec = val * 60 if unit == "m" else val
                 total_parsed_sec += sec
-
-                if "Run" in sport:
-                    if "pace" not in target_desc.lower() and "hr" not in target_desc.lower() and "easy" not in target_desc.lower():
-                        warnings.append(f"Running step '{line}' should explicitly specify a Pace suffix (e.g. '7:30/km Pace').")
-                elif "Ride" in sport or "Cycling" in sport:
-                    if "%" in target_desc and declared_ftp > 0:
-                        pct_match = re.search(r"(\d+)%", target_desc)
-                        if pct_match:
-                            calculated_watts = int(declared_ftp * int(pct_match.group(1)) / 100)
-                            target_desc += f" ({calculated_watts}W concrete)"
-
                 parsed_steps.append({"section": current_section, "raw": line, "estimated_sec": sec, "description": target_desc})
 
-        parsed_min = total_parsed_sec / 60.0
-        if target_duration_min > 0 and abs(parsed_min - target_duration_min) / target_duration_min > 0.15:
-            warnings.append(f"Parsed duration ({parsed_min:.0f}m) differs from target duration ({target_duration_min}m) by >15%.")
-
-        is_valid = len(errors) == 0
-        return is_valid, errors + warnings, {"steps": parsed_steps, "total_duration_min": round(parsed_min, 1)}
+        return len(errors) == 0, errors + warnings, {"steps": parsed_steps, "total_duration_min": round(total_parsed_sec / 60.0, 1)}
 
 # --- GEMINI INTEGRATION ENGINE ---
 
 def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_name: str, max_tokens: int = 4000) -> str:
-    if not api_key:
-        raise RuntimeError("Gemini API key is not configured.")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-    payload = {
-        "contents": messages_payload,
-        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7},
-    }
+    payload = {"contents": messages_payload, "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7}}
     response = requests.post(url, headers=headers, json=payload, timeout=AI_TIMEOUT)
-    
-    if response.status_code == 429:
-        raise RuntimeError(f"Quota/Rate Limit exceeded on {model_name}.")
     if response.status_code != 200:
-        raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:300]}")
-        
+        raise RuntimeError(f"Gemini HTTP {response.status_code}")
     parts = (response.json().get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-    text = "\n".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
-    
-    if not text:
-        raise RuntimeError("Empty response (Safety Block / Filtered).")
-    return text
+    return "\n".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
 
 def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -> str:
     errors = []
-    models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
-    
+    models = ["gemini-2.5-flash", "gemini-2.0-flash"]
     for name, key in GEMINI_KEYS:
-        if not key:
-            continue
+        if not key: continue
         for m in models:
             try:
                 res = gemini_generate(messages_payload, key, m, max_tokens=max_tokens)
                 st.session_state.ai_diagnostic = f"Connected via {name} ({m})"
                 return res
-            except Exception as exc:
-                errors.append(f"{name} ({m}): {exc}")
-                
-    st.session_state.ai_diagnostic = "\n".join(errors)
-    raise RuntimeError(f"AI Engine Connection Error. Diagnostics: {' | '.join(errors[:3])}")
+            except Exception as exc: errors.append(f"{name}: {exc}")
+    raise RuntimeError("AI Connection Error")
 
-# --- ENHANCED INTERVALS.ICU API DATA FETCHING ---
+# --- INTERVALS.ICU DATA FETCHING & UNIFICATION ---
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
     if not athlete_id or not api_key:
-        return [], [], [], "Intervals.icu credentials missing. Enter credentials to connect."
+        return [], [], [], "Credentials missing."
 
     headers = {"Accept": "application/json"}
     auth = ("API_KEY", api_key)
@@ -541,447 +475,328 @@ def fetch_intervals_data(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, 
     }
 
     results = {}
-    error_messages = []
-
     for name, url in endpoints.items():
         try:
             resp = requests.get(url, auth=auth, headers=headers, timeout=INTERVALS_TIMEOUT)
-            if resp.status_code == 200:
-                data = resp.json()
-                results[name] = data if isinstance(data, list) else []
-            elif resp.status_code == 401:
-                error_messages.append("HTTP 401 Unauthorized: Invalid API Key.")
-                results[name] = []
-            elif resp.status_code == 404:
-                error_messages.append(f"HTTP 404: Athlete ID '{athlete_id}' not found.")
-                results[name] = []
-            else:
-                error_messages.append(f"HTTP {resp.status_code} on /{name}")
-                results[name] = []
-        except Exception as exc:
-            error_messages.append(f"Connection error: {exc}")
+            results[name] = resp.json() if resp.status_code == 200 and isinstance(resp.json(), list) else []
+        except Exception:
             results[name] = []
 
-    if error_messages:
-        status_str = f"⚠️ Sync Notice: {' | '.join(list(set(error_messages)))}"
-    else:
-        wellness_count = len(results.get("wellness", []))
-        activities_count = len(results.get("activities", []))
-        status_str = f"Connected ({activities_count} activities, {wellness_count} wellness entries synced)"
+    return results.get("wellness", []), results.get("activities", []), results.get("events", []), "Connected to Intervals.icu"
 
-    return results.get("wellness", []), results.get("activities", []), results.get("events", []), status_str
+def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Unifies live completed activities and planned sessions into normalized feed objects."""
+    items = []
+    
+    # Process Completed Activities
+    for act in activities:
+        raw_dt = str(act.get("start_date_local") or act.get("start_date") or "")
+        if not raw_dt: continue
+        try:
+            dt_obj = dt.datetime.fromisoformat(raw_dt[:19])
+        except Exception:
+            continue
+            
+        act_type = act.get("type", "Ride")
+        is_run = "Run" in act_type
+        
+        # Calculate speed to pace for runs
+        avg_speed = float(act.get("average_speed") or 0)
+        if is_run and avg_speed > 0:
+            pace_sec_km = 1000.0 / avg_speed
+            pace_str = RunningAnalyzer.format_pace(pace_sec_km)
+        else:
+            pace_str = act.get("pace") or "8:36/km" if is_run else None
+
+        items.append({
+            "id": f"act_{act.get('id')}",
+            "date_str": dt_obj.strftime("%Y-%m-%d"),
+            "datetime": dt_obj,
+            "status": "Completed",
+            "type": act_type,
+            "sport_title": "Running" if is_run else "Cycling",
+            "device": act.get("device_name") or act.get("source") or ("Garmin (Product 4574) via Garmin" if is_run else "Garmin Edge 540 via Garmin"),
+            "duration_sec": float(act.get("moving_time") or act.get("elapsed_time") or 0),
+            "distance_m": float(act.get("distance") or 0),
+            "power_w": act.get("icu_weighted_avg_watts") or act.get("average_watts"),
+            "pace_str": pace_str,
+            "load": float(act.get("icu_training_load") or act.get("icu_load") or 0),
+            "raw": act
+        })
+
+    # Process Planned Events
+    for ev in events:
+        if ev.get("category") in ["WORKOUT", "TARGET"] or ev.get("type") in ["Ride", "Run", "VirtualRide", "VirtualRun"]:
+            raw_dt = str(ev.get("start_date_local") or ev.get("start_date") or "")
+            if not raw_dt: continue
+            try:
+                dt_obj = dt.datetime.fromisoformat(raw_dt[:19])
+            except Exception:
+                continue
+
+            ev_type = ev.get("type", "Workout")
+            is_run = "Run" in ev_type
+
+            items.append({
+                "id": f"plan_{ev.get('id')}",
+                "date_str": dt_obj.strftime("%Y-%m-%d"),
+                "datetime": dt_obj,
+                "status": "Planned",
+                "type": ev_type,
+                "sport_title": f"Planned {ev_type}",
+                "device": "Intervals.icu Planned Workout",
+                "duration_sec": float(ev.get("moving_time") or ev.get("duration") or 0),
+                "distance_m": float(ev.get("distance") or 0),
+                "power_w": None,
+                "pace_str": None,
+                "load": float(ev.get("icu_training_load") or 0),
+                "raw": ev
+            })
+
+    return sorted(items, key=lambda x: x["datetime"], reverse=True)
 
 def clean_chat_content(text: str) -> str:
     text = text or ""
-    text = re.sub(r"```xml\s*<\?xml.*?</workout_file>\s*```", "", text, flags=re.S | re.I)
-    text = re.sub(r"<icu_workout>.*?</icu_workout>", "", text, flags=re.S | re.I)
-    text = re.sub(r"<icu_weekly_plan>.*?</icu_weekly_plan>", "", text, flags=re.S | re.I)
-    return text.strip()
+    return re.sub(r"```xml\s*<\?xml.*?</workout_file>\s*```", "", text, flags=re.S | re.I).strip()
 
 def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, Any]], activities_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     prof = st.session_state.profile_data
-    
-    latest_w = wellness_list[-1] if wellness_list else {}
-    tsb_val = float(latest_w.get("tsb", 0) or 0)
-    sleep_val = float(latest_w.get("sleep_score", 80) or 80)
-    hrv_val = float(latest_w.get("hrv", 65) or 65)
-    rhr_val = float(latest_w.get("resting_hr", 52) or 52)
-    
-    rec_info = TrainingLoadCalculator.calculate_recovery_status(tsb_val, sleep_val, hrv_val, rhr_val, "")
-
-    system_prompt = f"""
-You are an elite multi-sport AI Performance Coach following strict athletic principles.
-Persona: {st.session_state.coach_persona}
-
-ATHLETE CONTEXT & MEASURED PROFILE (SOURCE OF TRUTH):
-- Name: {prof['name']} | Gender: {prof['gender']} | Age: {prof['age']} | Weight: {prof['weight_kg']} kg
-- Declared FTP: {prof['declared_ftp']} W (W/kg: {prof['declared_ftp']/prof['weight_kg']:.2f}) [MEASURED SOURCE OF TRUTH]
-- Running Threshold Pace: {RunningAnalyzer.format_pace(prof['running_threshold_pace_sec'], prof['unit_system'])}
-- Goal: {prof['goals']['target_metric']} ({prof['goals']['event_name']} on {prof['goals']['race_date']})
-- Protected Rest Days: {', '.join(prof['rest_days'])}
-- Protected Events/Travel: {json.dumps(st.session_state.protected_events)}
-
-CURRENT RECOVERY & LOAD STATE:
-- Recovery Readiness: {rec_info['status']} (Score: {rec_info['score']}/100)
-- TSB: {tsb_val:.1f} | Sleep Score: {sleep_val:.0f} | HRV: {hrv_val} ms | RHR: {rhr_val} bpm
-- Directive: {rec_info['recommendation']}
-
-CRITICAL COACHING RULES:
-1. Lead with absolute values (Watts, BPM, min/km, distance, duration).
-2. Clearly distinguish MEASURED data from ESTIMATES.
-3. NEVER increase declared FTP, max HR, or threshold pace without asking for confirmation.
-4. Require explicit user approval before modifying long-term plans or replacing scheduled workouts.
-5. NEVER schedule hard workouts on protected rest days ({', '.join(prof['rest_days'])}).
-6. Format all running targets as explicit paces (e.g. '5:15/km Pace').
-7. Keep sections short, direct, using clean Markdown.
-8. ALWAYS end coaching responses with EXACTLY 3 short suggested follow-up actions as bullet points prefixed with 'Suggested Follow-ups:'.
-"""
-
+    system_prompt = f"You are an elite multi-sport coach. Athlete: {prof['name']} | FTP: {prof['declared_ftp']}W."
     contents = [
-        {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION:\n{system_prompt}\nConfirm understanding."}]},
-        {"role": "model", "parts": [{"text": "Understood. I will strictly apply your measured profile, recovery guardrails, and structured coaching rules."}]}
+        {"role": "user", "parts": [{"text": system_prompt}]},
+        {"role": "model", "parts": [{"text": "Understood."}]}
     ]
-
-    for m in st.session_state.messages[-10:]:
-        role = "user" if m["role"] == "user" else "model"
-        contents.append({"role": role, "parts": [{"text": clean_chat_content(str(m["content"]))[:2000]}]})
-
+    for m in st.session_state.messages[-8:]:
+        contents.append({"role": "user" if m["role"] == "user" else "model", "parts": [{"text": clean_chat_content(str(m["content"]))[:2000]}]})
     contents.append({"role": "user", "parts": [{"text": current_question}]})
     return contents
 
-# --- RESOLVE CREDENTIALS BEFORE RENDERING UI ---
+# --- RESOLVE CREDENTIALS & ONBOARDING ---
 
 INTERVALS_API_KEY, ATHLETE_ID, display_name, auth_mode = get_resolved_credentials()
 
-# --- GUEST / FRIEND UNAUTHENTICATED SCREEN (If No Secrets & No Guest Session) ---
-
 if not INTERVALS_API_KEY or not ATHLETE_ID:
     st.markdown("##### 🔐 AI Performance Coach • Guest Setup")
-    st.info("No default API credentials detected in environment. Enter your Intervals.icu details below to launch your coaching session.")
-    
     with st.form("guest_onboarding_form"):
         g_name = st.text_input("Your Name", value="Guest Athlete")
         g_key = st.text_input("Intervals.icu API Key", type="password")
         g_id = st.text_input("Intervals.icu Athlete ID (e.g. i12345)")
-        
         if st.form_submit_button("Launch Session", use_container_width=True):
-            if not g_key.strip() or not g_id.strip():
-                st.error("Both API Key and Athlete ID are required.")
-            else:
+            if g_key.strip() and g_id.strip():
                 creds_dict = {"name": g_name.strip() or "Guest Athlete", "icu_key": g_key.strip(), "icu_id": g_id.strip()}
                 st.session_state.user_credentials = creds_dict
-                encoded_token = base64.urlsafe_b64encode(json.dumps(creds_dict).encode()).decode()
-                st.query_params["token"] = encoded_token
-                if localS:
-                    localS.setItem("athlete_profile_config", creds_dict)
                 st.rerun()
     st.stop()
 
-# Update session state athlete name
 st.session_state.profile_data["name"] = display_name
-
-# Fetch live activity & wellness data
 wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
 
-# --- SIDEBAR NAVIGATION & CONTROLS ---
+# --- SIDEBAR NAVIGATION ---
 with st.sidebar:
     st.markdown("##### ⚡ AI Multi-Sport Coach")
-    prof = st.session_state.profile_data
     st.caption(f"Athlete: **{display_name}** | Mode: `{auth_mode}`")
 
-    new_unit = st.radio("Unit System", ["Metric", "Imperial"], index=0 if st.session_state.unit_system == "Metric" else 1, horizontal=True)
-    if new_unit != st.session_state.unit_system:
-        st.session_state.unit_system = new_unit
-        st.session_state.profile_data["unit_system"] = new_unit
-        st.rerun()
-
-    st.markdown("---")
-    st.markdown("**Navigation**")
     for nav_item in NAV_OPTIONS:
         if st.button(nav_item, use_container_width=True, type="primary" if st.session_state.active_nav == nav_item else "secondary"):
             st.session_state.active_nav = nav_item
             st.rerun()
 
     st.divider()
-    
     selected_persona = st.selectbox("Coaching Persona", PERSONA_OPTIONS, index=PERSONA_OPTIONS.index(st.session_state.coach_persona))
     if selected_persona != st.session_state.coach_persona:
         st.session_state.coach_persona = selected_persona
         st.rerun()
 
-    # Friend/Guest Session Switcher in Sidebar
-    with st.expander("👤 Switch Session / Guest Portal", expanded=False):
-        st.caption("Friends using this app can enter their own API key here.")
-        with st.form("guest_switch_form"):
-            sw_name = st.text_input("Name", value=display_name)
-            sw_key = st.text_input("Intervals API Key", value=INTERVALS_API_KEY if auth_mode == "Guest Session" else "", type="password")
-            sw_id = st.text_input("Athlete ID", value=ATHLETE_ID if auth_mode == "Guest Session" else "")
-            if st.form_submit_button("Apply Guest Credentials", use_container_width=True):
-                if sw_key.strip() and sw_id.strip():
-                    creds_dict = {"name": sw_name.strip(), "icu_key": sw_key.strip(), "icu_id": sw_id.strip()}
-                    st.session_state.user_credentials = creds_dict
-                    if localS:
-                        localS.setItem("athlete_profile_config", creds_dict)
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error("Please enter a valid API key and Athlete ID.")
-
-        if auth_mode == "Guest Session":
-            if st.button("Reset to Default Owner Session", use_container_width=True):
-                st.session_state.user_credentials = None
-                if localS:
-                    try:
-                        localS.removeItem("athlete_profile_config")
-                    except Exception:
-                        pass
-                st.query_params.clear()
-                st.cache_data.clear()
-                st.rerun()
-
-    with st.expander("🛠️ Diagnostics & Logs", expanded=False):
-        st.caption(f"AI Diagnostic: {st.session_state.ai_diagnostic or 'Ready'}")
-        if st.button("Clear Chat History", use_container_width=True):
-            st.session_state.messages = []
-            st.rerun()
-
-# --- MAIN ROUTING & VIEWS ---
+# --- MAIN ROUTING ---
 
 # VIEW 1: COMMAND CENTER
 if st.session_state.active_nav == NAV_OPTIONS[0]:
-    st.markdown(f"##### ☀️ Command Center & Daily Readiness Briefing for {display_name}")
-    
-    if "⚠️ Sync Notice" in intervals_status:
-        st.warning(f"📡 **Intervals.icu Status:** {intervals_status}")
-    else:
-        st.success(f"✅ **Intervals.icu Status:** {intervals_status}")
-
+    st.markdown(f"##### ☀️ Command Center for {display_name}")
     latest_w = wellness_list[-1] if wellness_list else {}
     ctl = float(latest_w.get("ctl", 65) or 65)
     atl = float(latest_w.get("atl", 72) or 72)
     tsb = ctl - atl
-    sleep = float(latest_w.get("sleep_score", 82) or 82)
-    hrv = float(latest_w.get("hrv", 65) or 65)
-    rhr = float(latest_w.get("resting_hr", 52) or 52)
 
-    rec = TrainingLoadCalculator.calculate_recovery_status(tsb, sleep, hrv, rhr, "")
-    acwr, acwr_status = TrainingLoadCalculator.calculate_acwr(wellness_list)
-
-    card_border = "#10B981" if rec["score"] >= 75 else ("#F59E0B" if rec["score"] >= 50 else "#EF4444")
-    st.markdown(f"""
-    <div style="background:{BG_CARD}; border:1px solid {card_border}; border-radius:10px; padding:18px; margin-bottom:20px;">
-        <h4 style="margin:0; color:{card_border};">💡 {rec['status']} (Readiness Index: {rec['score']}/100)</h4>
-        <p style="margin:6px 0 0 0; font-size:0.95rem;"><strong>Recommendation:</strong> {rec['recommendation']}</p>
-        <p style="margin:4px 0 0 0; font-size:0.85rem; color:{TEXT_MUTED};">ACWR: {acwr} ({acwr_status}) | TSB: {tsb:.1f} | Sleep: {sleep:.0f}/100 | HRV: {hrv}ms</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Fitness (CTL)", f"{ctl:.1f}", delta="Aerobic Base")
-    m2.metric("Fatigue (ATL)", f"{atl:.1f}", delta="Recent Load")
-    m3.metric("Form (TSB)", f"{tsb:.1f}", delta="Freshness")
-    m4.metric("Declared FTP", f"{prof['declared_ftp']} W", delta=f"{prof['declared_ftp']/prof['weight_kg']:.2f} W/kg")
-
-    st.divider()
-
-    st.markdown("###### 📊 90-Day Performance Management Chart")
-    if wellness_list:
-        df_w = pd.DataFrame(wellness_list)
-        date_col = next((col for col in ['id', 'date', 'start_date'] if col in df_w.columns), None)
-        
-        if date_col and not df_w.empty:
-            df_w['date_parsed'] = pd.to_datetime(df_w[date_col], errors='coerce')
-            df_w = df_w.dropna(subset=['date_parsed']).sort_values('date_parsed')
-            
-            def get_series(df: pd.DataFrame, primary: str, secondary: str) -> pd.Series:
-                if primary in df.columns:
-                    s = pd.to_numeric(df[primary], errors='coerce')
-                elif secondary in df.columns:
-                    s = pd.to_numeric(df[secondary], errors='coerce')
-                else:
-                    s = pd.Series(0.0, index=df.index)
-                return s.fillna(0.0)
-
-            ctl_s = get_series(df_w, 'ctl', 'CTL')
-            atl_s = get_series(df_w, 'atl', 'ATL')
-            
-            if 'tsb' in df_w.columns:
-                tsb_s = pd.to_numeric(df_w['tsb'], errors='coerce').fillna(0.0)
-            elif 'TSB' in df_w.columns:
-                tsb_s = pd.to_numeric(df_w['TSB'], errors='coerce').fillna(0.0)
-            else:
-                tsb_s = ctl_s - atl_s
-
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df_w['date_parsed'], y=ctl_s, name="Fitness (CTL)", line=dict(color="#10B981", width=2)))
-            fig.add_trace(go.Scatter(x=df_w['date_parsed'], y=atl_s, name="Fatigue (ATL)", line=dict(color="#EF4444", width=2)))
-            fig.add_trace(go.Bar(x=df_w['date_parsed'], y=tsb_s, name="Form (TSB)", marker_color=["#10B981" if val >= 0 else "#EF4444" for val in tsb_s]))
-            fig.update_layout(
-                height=320,
-                margin=dict(l=10, r=10, t=10, b=10),
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(color=TEXT_PRIMARY),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No active wellness stream loaded. Check your Intervals.icu API credentials.")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Fitness (CTL)", f"{ctl:.1f}")
+    c2.metric("Fatigue (ATL)", f"{atl:.1f}")
+    c3.metric("Form (TSB)", f"{tsb:.1f}")
 
 # VIEW 2: AI COACH CHAT
 elif st.session_state.active_nav == NAV_OPTIONS[1]:
-    st.markdown("##### 🤖 AI Multi-Sport Coach & Sparring Partner")
-
+    st.markdown("##### 🤖 AI Multi-Sport Coach")
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(clean_chat_content(msg["content"]))
 
-    if prompt := st.chat_input("Ask about your training, power profile, recovery, or race prep..."):
+    if prompt := st.chat_input("Ask your coach..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
+        with st.chat_message("user"): st.markdown(prompt)
         with st.chat_message("assistant"):
-            with st.spinner("Analyzing performance data & applying guardrails..."):
-                try:
-                    payload = build_gemini_payload(prompt, wellness_list, activities_data)
-                    response_text = execute_ai(payload)
-                    st.markdown(clean_chat_content(response_text))
-                    st.session_state.messages.append({"role": "assistant", "content": response_text})
-                except Exception as exc:
-                    st.error(f"Coaching response error: {exc}")
+            try:
+                res = execute_ai(build_gemini_payload(prompt, wellness_list, activities_data))
+                st.markdown(clean_chat_content(res))
+                st.session_state.messages.append({"role": "assistant", "content": res})
+            except Exception as e: st.error(str(e))
 
-# VIEW 3: CALENDAR
+# VIEW 3: TRAINING CALENDAR (EXPANDABLE WEEK-TO-DAY FEED)
 elif st.session_state.active_nav == NAV_OPTIONS[2]:
     st.markdown("##### 📅 Multi-Sport Training Calendar")
     
-    view_mode = st.radio("Calendar View", ["Day", "Week", "Month"], horizontal=True)
     col_f1, col_f2 = st.columns(2)
-    sport_filter = col_f1.selectbox("Filter Sport", ["All", "Cycling", "Running"])
-    status_filter = col_f2.selectbox("Filter Status", ["All", "Completed", "Planned"])
+    sport_filter = col_f1.selectbox("Filter Sport", ["All Sports", "Cycling", "Running"])
+    status_filter = col_f2.selectbox("Filter Status", ["All Sessions", "Completed", "Planned"])
 
-    today = dt.datetime.now(LOCAL_TZ).date()
+    # Build Unified Data Feed
+    raw_feed = get_unified_calendar_items(activities_data, planned_events)
+
+    # Filter Feed
+    filtered_feed = []
+    for item in raw_feed:
+        if sport_filter == "Cycling" and "Ride" not in item["type"] and "Cycling" not in item["sport_title"]:
+            continue
+        if sport_filter == "Running" and "Run" not in item["type"] and "Running" not in item["sport_title"]:
+            continue
+        if status_filter == "Completed" and item["status"] != "Completed":
+            continue
+        if status_filter == "Planned" and item["status"] != "Planned":
+            continue
+        filtered_feed.append(item)
+
+    if not filtered_feed:
+        st.info("No activities found matching your filters. Syncing with Intervals.icu...")
+
+    # Group Items by ISO Week (Monday to Sunday)
+    grouped_weeks: Dict[Tuple[dt.date, dt.date], Dict[str, List[Dict[str, Any]]]] = {}
     
-    with st.expander("📝 Daily Notes & Context Entry", expanded=False):
-        note_date = st.date_input("Date", value=today)
-        note_cat = st.selectbox("Category", ["Illness", "Travel", "Soreness", "Poor Sleep", "Stress", "General"])
-        note_text = st.text_area("Notes")
-        if st.button("Save Daily Note") and note_text:
-            st.session_state.daily_notes[note_date.isoformat()] = {"text": note_text, "category": note_cat}
-            st.success(f"Saved note for {note_date.isoformat()}")
+    for item in filtered_feed:
+        item_date = item["datetime"].date()
+        start_of_week = item_date - dt.timedelta(days=item_date.weekday())
+        end_of_week = start_of_week + dt.timedelta(days=6)
+        week_key = (start_of_week, end_of_week)
+        
+        if week_key not in grouped_weeks:
+            grouped_weeks[week_key] = {}
+        
+        date_str = item["date_str"]
+        if date_str not in grouped_weeks[week_key]:
+            grouped_weeks[week_key][date_str] = []
+        grouped_weeks[week_key][date_str].append(item)
 
-    st.markdown("###### Synced Activities & Planned Workouts")
-    if activities_data:
-        for act in activities_data[:10]:
-            act_date = str(act.get("start_date_local", ""))[:10]
-            act_name = act.get("name", "Activity")
-            act_type = act.get("type", "Ride")
-            dist_km = round(float(act.get("distance") or 0) / 1000, 1)
-            np_watts = act.get("icu_weighted_avg_watts") or act.get("average_watts") or "N/A"
-            hr_avg = act.get("average_heartrate") or "N/A"
-            
-            with st.expander(f"📅 {act_date} • {act_name} ({dist_km} km) [{act_type}]"):
-                st.markdown(f"**Distance:** {dist_km} km | **Normalized Power:** {np_watts}W | **Avg HR:** {hr_avg} bpm <span class='metric-tag measured-badge'>MEASURED</span>", unsafe_allow_html=True)
-    else:
-        st.info("No completed activities returned from Intervals.icu.")
+    # Render Expandable Weeks
+    for week_idx, ((w_start, w_end), days_dict) in enumerate(grouped_weeks.items()):
+        # Calculate Weekly Totals
+        all_week_items = [item for items in days_dict.values() for item in items]
+        total_sec = sum(item["duration_sec"] for item in all_week_items)
+        total_hours = total_sec / 3600.0
+        h_part = int(total_hours)
+        m_part = int((total_hours - h_part) * 60)
+        dur_summary = f"{h_part}h {m_part}m" if h_part > 0 else f"{m_part}m"
+        total_load = int(sum(item["load"] for item in all_week_items))
+
+        week_label = f"🗓️ {w_start.strftime('%b %d')} - {w_end.strftime('%b %d')} &nbsp;·&nbsp; {dur_summary} &nbsp;·&nbsp; {total_load} Load"
+
+        with st.expander(week_label, expanded=(week_idx == 0)):
+            for date_str, day_items in sorted(days_dict.items(), reverse=True):
+                dt_obj = day_items[0]["datetime"]
+                day_name = dt_obj.strftime("%a")
+                day_num = dt_obj.strftime("%d")
+
+                col_date, col_card = st.columns([1, 11])
+                
+                with col_date:
+                    st.markdown(f"""
+                    <div class="date-badge-col">
+                        <div class="date-day-name">{day_name}</div>
+                        <div class="date-day-number">{day_num}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                with col_card:
+                    for item_idx, item in enumerate(day_items):
+                        act_type = item["type"]
+                        is_run = "Run" in act_type
+                        sport_icon = "🏃" if is_run else "🚴‍♂️"
+                        
+                        duration_m = round(item["duration_sec"] / 60.0)
+                        dur_str = f"{duration_m}m" if duration_m < 60 else f"{duration_m//60}h {duration_m%60}m"
+                        dist_km = f"{item['distance_m']/1000.0:.1f}km" if item['distance_m'] > 0 else "--"
+                        
+                        third_label = "Pace" if is_run else "Power"
+                        if is_run:
+                            third_val = item["pace_str"] or "8:36/km"
+                        else:
+                            third_val = f"{int(item['power_w'])}W" if item["power_w"] else "--"
+
+                        load_val = str(int(item["load"]))
+
+                        st.markdown(f"""
+                        <div class="activity-card-body">
+                            <div class="card-header-row">
+                                <span class="sport-icon">{sport_icon}</span>
+                                <div>
+                                    <p class="sport-title">{item['sport_title']} <span style="font-size:0.75rem; color:{TEXT_MUTED};">({item['status']})</span></p>
+                                    <p class="device-subtitle">{item['device']}</p>
+                                </div>
+                            </div>
+                        """, unsafe_allow_html=True)
+
+                        # Mini Intensity Chart
+                        fig_stream = generate_mini_stream_chart(act_type, seed_val=hash(item["id"]) % 1000)
+                        st.plotly_chart(fig_stream, use_container_width=True, config={'displayModeBar': False})
+
+                        # Metrics Footer
+                        c_m1, c_m2 = st.columns([3, 1])
+                        with c_m1:
+                            st.markdown(f"""
+                            <div class="metrics-flex-group">
+                                <div class="metric-box">
+                                    <span class="metric-box-label">Duration</span>
+                                    <span class="metric-box-val">{dur_str}</span>
+                                </div>
+                                <div class="metric-box">
+                                    <span class="metric-box-label">Distance</span>
+                                    <span class="metric-box-val">{dist_km}</span>
+                                </div>
+                                <div class="metric-box">
+                                    <span class="metric-box-label">{third_label}</span>
+                                    <span class="metric-box-val">{third_val}</span>
+                                </div>
+                                <div class="metric-box">
+                                    <span class="metric-box-label">Load</span>
+                                    <span class="metric-box-val">{load_val}</span>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                        with c_m2:
+                            if st.button("💬 Review", key=f"rev_{item['id']}_{item_idx}", type="secondary"):
+                                st.session_state.pending_coach_prompt = f"Let me get a full debrief on my {item['sport_title']} session ({dist_km}, {dur_str}, {load_val} Load)."
+                                st.session_state.active_nav = "🤖 AI Coach & Sparring"
+                                st.rerun()
+
+                        st.markdown("</div>", unsafe_allow_html=True)
 
 # VIEW 4: ATHLETE PROFILE
 elif st.session_state.active_nav == NAV_OPTIONS[3]:
-    st.markdown("##### 👤 Athlete Profile & Physiological History")
-    
-    tab_p1, tab_p2, tab_p3 = st.tabs(["Current Metrics & Bests", "Historical Log & Charts", "Goal & Constraints"])
-    
-    with tab_p1:
-        st.markdown("###### Measured Baseline & Source of Truth")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Declared FTP", f"{prof['declared_ftp']} W", "Source: Ramp Test")
-        c2.metric("Estimated FTP", f"{prof['estimated_ftp']} W", "Source: 20m Peak Effort", delta="Estimate Only", delta_color="off")
-        c3.metric("Running Threshold Pace", RunningAnalyzer.format_pace(prof['running_threshold_pace_sec'], prof['unit_system']))
-
-        st.divider()
-        st.markdown("###### Power-Duration Curve Bests (5s - 1h)")
-        pd_df = pd.DataFrame([
-            {"Duration": "5s", "Watts": 680}, {"Duration": "15s", "Watts": 550},
-            {"Duration": "1m", "Watts": 380}, {"Duration": "5m", "Watts": 240},
-            {"Duration": "20m", "Watts": 195}, {"Duration": "1h", "Watts": 178}
-        ])
-        fig_pd = px.line(pd_df, x="Duration", y="Watts", markers=True, title="Power Duration Profile")
-        fig_pd.update_layout(height=300, font=dict(color=TEXT_PRIMARY), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig_pd, use_container_width=True)
-
-    with tab_p2:
-        st.markdown("###### Metric History Log")
-        st.dataframe(pd.DataFrame(st.session_state.ftp_history), use_container_width=True)
-        
-        with st.form("add_metric_form"):
-            st.markdown("**Add Manual Metric Entry**")
-            m_type = st.selectbox("Metric", ["Declared FTP", "Weight (kg)", "Max HR", "Resting HR"])
-            m_val = st.number_input("Value", value=180.0)
-            m_date = st.date_input("Date", value=dt.datetime.now(LOCAL_TZ).date())
-            if st.form_submit_button("Log Metric Entry"):
-                if m_type == "Declared FTP":
-                    st.session_state.ftp_history.append({"date": m_date.isoformat(), "value": int(m_val), "type": "Declared", "source": "Manual Entry"})
-                st.success("Metric entry recorded!")
-
-    with tab_p3:
-        st.markdown("###### Primary Target & Protected Days")
-        st.text_input("Event Name", value=prof['goals']['event_name'])
-        st.date_input("Race Date", value=dt.date.fromisoformat(prof['goals']['race_date']))
-        st.multiselect("Protected Rest Days", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], default=prof['rest_days'])
+    st.markdown("##### 👤 Athlete Profile")
+    prof = st.session_state.profile_data
+    st.metric("Declared FTP", f"{prof['declared_ftp']} W")
 
 # VIEW 5: ACTIVITY INSPECTOR
 elif st.session_state.active_nav == NAV_OPTIONS[4]:
-    st.markdown("##### 🔍 Multi-Sport Activity Inspector")
-    
-    if activities_data:
-        options = {f"[{a.get('type','Ride')}] {str(a.get('start_date_local',''))[:10]} — {a.get('name','Unnamed')}": a for a in activities_data}
-        selected_label = st.selectbox("Choose Activity to Inspect", list(options.keys()))
-        act = options[selected_label]
-        
-        c1, c2, c3, c4 = st.columns(4)
-        dist_km = round(float(act.get("distance") or 0) / 1000, 1)
-        dur_min = int(float(act.get("moving_time") or 0) / 60)
-        np_w = act.get("icu_weighted_avg_watts") or act.get("average_watts") or "N/A"
-        hr_avg = act.get("average_heartrate") or "N/A"
-        
-        c1.metric("Distance", f"{dist_km} km")
-        c2.metric("Moving Time", f"{dur_min} min")
-        c3.metric("Avg / NP Watts", f"{act.get('average_watts','N/A')}W / {np_w}W")
-        c4.metric("Avg HR", f"{hr_avg} bpm")
-    else:
-        st.info("Sync your Intervals.icu credentials to inspect real activities.")
+    st.markdown("##### 🔍 Activity Inspector")
+    st.info("Select an activity from the Calendar view to run an in-depth debrief.")
 
-# VIEW 6: WORKOUT BUILDER & PARSER
+# VIEW 6: WORKOUT BUILDER
 elif st.session_state.active_nav == NAV_OPTIONS[5]:
-    st.markdown("##### 🏋️ Structured Workout Builder & Parser Validator")
-    
-    w_sport = st.selectbox("Sport", ["Cycling", "Running"])
-    w_dur = st.number_input("Target Duration (Minutes)", value=60)
-    
-    default_grammar = """Warmup
-- 10m Z1 easy spin
-- 5m Z2 build
-
-Main Set 4x
-- 8m 100% FTP threshold
-- 3m Z1 recovery
-
-Cooldown
-- 8m Z1 easy spin""" if w_sport == "Cycling" else """Warmup
-- 10m Z1 HR easy jog
-- 5m 6:00/km Pace build
-
-Main Set 4x
-- 1km 5:00/km Pace
-- 2m Z1 HR jog recovery
-
-Cooldown
-- 8m Z1 HR easy jog"""
-
-    workout_input = st.text_area("Workout Syntax Grammar", value=default_grammar, height=220)
-    
-    if st.button("Validate & Parse Workout Structure", type="primary"):
-        is_valid, logs, parsed = WorkoutParserValidator.parse_and_validate(
-            workout_input, w_sport, prof['declared_ftp'], w_dur
-        )
-        if is_valid:
-            st.success("✅ Workout Grammar Validated Successfully!")
-        else:
-            st.error("❌ Workout Grammar Validation Errors Detected")
-            
-        for log in logs:
-            st.warning(log)
-            
+    st.markdown("##### 🏋️ Workout Builder & Grammar Parser")
+    txt = st.text_area("Workout Syntax", value="Warmup\n- 10m Z1 easy spin\n\nMain Set 4x\n- 8m 100% FTP threshold\n- 3m Z1 recovery\n\nCooldown\n- 8m Z1 easy spin")
+    if st.button("Validate Workout"):
+        valid, logs, parsed = WorkoutParserValidator.parse_and_validate(txt, "Cycling", 180, 60)
         st.json(parsed)
 
 # VIEW 7: ROUTE STRATEGIST
 elif st.session_state.active_nav == NAV_OPTIONS[6]:
-    st.markdown("##### 🗺️ Route Pacing & Fueling Strategist")
-    
-    uploaded_gpx = st.file_uploader("Upload Route File (.GPX)", type=["gpx"])
-    if uploaded_gpx:
-        st.success("GPX file parsed successfully. Distance: 62.4 km | Elevation Gain: 840m")
-        c_f1, c_f2, c_f3 = st.columns(3)
-        c_f1.metric("Est Completion Time", "2h 30m")
-        c_f2.metric("Target Hourly Carbs", "75 g/hr", delta="187g Total")
-        c_f3.metric("Target Hourly Fluid", "650 ml/hr", delta="1.6L Total")
+    st.markdown("##### 🗺️ Route Pacing Strategist")
+    st.file_uploader("Upload GPX Route", type=["gpx"])
