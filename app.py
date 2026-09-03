@@ -256,6 +256,26 @@ section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !import
     color: {TEXT_PRIMARY};
 }}
 
+.workout-detail-container {{
+    background-color: {BG_SURFACE_ALT};
+    border: 1px solid {BORDER_SUBTLE};
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-top: 10px;
+    font-size: 0.88rem;
+}}
+.workout-step-bullet {{
+    margin-bottom: 4px;
+    color: {TEXT_PRIMARY};
+}}
+.workout-notes-box {{
+    margin-top: 10px;
+    font-style: italic;
+    color: {TEXT_MUTED};
+    border-left: 2px solid #3B82F6;
+    padding-left: 8px;
+}}
+
 .stButton > button[kind="secondary"] {{
     background-color: #000000 !important;
     color: #FFFFFF !important;
@@ -288,55 +308,85 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
 
     return "", "", st.session_state.profile_data.get("name", "Amanda Tan"), "Unauthenticated"
 
-# --- WORKOUT STEP PARSER ---
-def parse_workout_steps(text: str) -> List[Tuple[float, float]]:
-    steps = []
-    if not text:
-        return steps
-    lines = [l.strip() for l in text.split("\n") if l.strip()]
+# --- ADVANCED WORKOUT DETAILS PARSER ENGINE ---
+def parse_workout_steps_detailed(description_text: str, declared_ftp: int = 180) -> Dict[str, Any]:
+    """
+    Parses workout description syntax into structured step bullets with calculated absolute watts,
+    zone distribution totals, work in kJ, and descriptive narrative text.
+    """
+    if not description_text:
+        return {"steps": [], "notes": "", "metrics": {}, "zone_times": {}}
+
+    lines = [l.strip() for l in description_text.split("\n") if l.strip()]
+    
+    formatted_steps = []
+    descriptive_notes = []
+    zone_sec = {"Z1": 0.0, "Z2": 0.0, "Z3": 0.0, "Z4": 0.0, "Z5": 0.0, "Z6": 0.0}
+    
+    total_sec = 0.0
+    weighted_watts_sec = 0.0
     
     repeat_count = 1
-    repeat_buffer = []
     in_repeat = False
-    
+
     for line in lines:
-        rep_m = re.search(r"(\d+)x$", line, re.IGNORECASE)
+        rep_m = re.search(r"^(\d+)x$", line, re.IGNORECASE)
         if rep_m:
-            if in_repeat and repeat_buffer:
-                for _ in range(repeat_count):
-                    steps.extend(repeat_buffer)
-                repeat_buffer = []
             repeat_count = int(rep_m.group(1))
             in_repeat = True
+            formatted_steps.append(f"**{repeat_count}x Set:**")
             continue
 
-        step_m = re.search(r"^(?:-\s*)?(\d+)(m|s|h)?\s+([0-9]+)(?:-[0-9]+)?%?", line, re.IGNORECASE)
+        step_m = re.search(r"^(?:-\s*)?(\d+)(m|s|h)?\s+([0-9]+)(?:-[0-9]+)?%?\s*(.*)$", line, re.IGNORECASE)
         if step_m:
             dur_val = float(step_m.group(1))
             unit = (step_m.group(2) or "m").lower()
             pct_ftp = float(step_m.group(3))
+            label = step_m.group(4).strip() if step_m.group(4) else ""
+
+            dur_sec = dur_val * 60.0 if unit == "m" else (dur_val * 3600.0 if unit == "h" else dur_val)
+            dur_disp = f"{int(dur_val)}m" if unit == "m" else (f"{int(dur_val)}s" if unit == "s" else f"{dur_val}h")
             
-            dur_min = dur_val if unit == "m" else (dur_val * 60.0 if unit == "h" else dur_val / 60.0)
+            watts = round(declared_ftp * (pct_ftp / 100.0))
             
+            step_bullet = f"• {dur_disp} {int(pct_ftp)}% ({watts}W) {label}".strip()
             if in_repeat:
-                repeat_buffer.append((dur_min, pct_ftp))
-            else:
-                steps.append((dur_min, pct_ftp))
+                step_bullet = f"&nbsp;&nbsp;&nbsp;&nbsp;{step_bullet}"
+            formatted_steps.append(step_bullet)
+
+            effective_sec = dur_sec * (repeat_count if in_repeat else 1)
+            total_sec += effective_sec
+            weighted_watts_sec += watts * effective_sec
+
+            if pct_ftp < 55: zone_sec["Z1"] += effective_sec
+            elif pct_ftp <= 75: zone_sec["Z2"] += effective_sec
+            elif pct_ftp <= 90: zone_sec["Z3"] += effective_sec
+            elif pct_ftp <= 105: zone_sec["Z4"] += effective_sec
+            elif pct_ftp <= 120: zone_sec["Z5"] += effective_sec
+            else: zone_sec["Z6"] += effective_sec
         else:
-            if in_repeat and not line.startswith("-") and not line.startswith(" ") and not re.match(r"^\d+", line):
-                for _ in range(repeat_count):
-                    steps.extend(repeat_buffer)
-                repeat_buffer = []
+            if not line.startswith("-") and not line.startswith("Warmup") and not line.startswith("Main Set") and not line.startswith("Cooldown"):
+                descriptive_notes.append(line)
                 in_repeat = False
 
-    if in_repeat and repeat_buffer:
-        for _ in range(repeat_count):
-            steps.extend(repeat_buffer)
+    avg_watts = round(weighted_watts_sec / total_sec) if total_sec > 0 else 0
+    work_kj = round((weighted_watts_sec) / 1000.0) if total_sec > 0 else 0
+    np_watts = round(avg_watts * 1.05) if avg_watts > 0 else 0
 
-    return steps
+    return {
+        "steps": formatted_steps,
+        "notes": " ".join(descriptive_notes),
+        "metrics": {
+            "avg_watts": avg_watts,
+            "np_watts": np_watts,
+            "work_kj": work_kj,
+            "duration_min": round(total_sec / 60.0, 1)
+        },
+        "zone_times": zone_sec,
+        "total_sec": total_sec
+    }
 
 def is_indoor_training_workout(item: Dict[str, Any]) -> bool:
-    """Returns True ONLY for indoor training workouts (VirtualRide, MyWhoosh, Trainer sessions)."""
     act_type = str(item.get("type", "")).lower()
     device_str = str(item.get("device", "")).lower()
     
@@ -374,7 +424,40 @@ def generate_mywhoosh_chart(activity_item: Dict[str, Any], seed_val: int = 42, i
         elif pct_ftp <= 120: return zone_colors["Z5"]
         else: return zone_colors["Z6"]
 
-    parsed_steps = parse_workout_steps(str(desc))
+    # Parse steps directly for visualization
+    parsed_steps = []
+    lines = [l.strip() for l in str(desc).split("\n") if l.strip()]
+    repeat_count = 1
+    repeat_buffer = []
+    in_repeat = False
+
+    for line in lines:
+        rep_m = re.search(r"(\d+)x$", line, re.IGNORECASE)
+        if rep_m:
+            if in_repeat and repeat_buffer:
+                for _ in range(repeat_count): parsed_steps.extend(repeat_buffer)
+                repeat_buffer = []
+            repeat_count = int(rep_m.group(1))
+            in_repeat = True
+            continue
+
+        step_m = re.search(r"^(?:-\s*)?(\d+)(m|s|h)?\s+([0-9]+)(?:-[0-9]+)?%?", line, re.IGNORECASE)
+        if step_m:
+            dur_val = float(step_m.group(1))
+            unit = (step_m.group(2) or "m").lower()
+            pct_ftp = float(step_m.group(3))
+            dur_min = dur_val if unit == "m" else (dur_val * 60.0 if unit == "h" else dur_val / 60.0)
+            if in_repeat: repeat_buffer.append((dur_min, pct_ftp))
+            else: parsed_steps.append((dur_min, pct_ftp))
+        else:
+            if in_repeat and not line.startswith("-") and not line.startswith(" ") and not re.match(r"^\d+", line):
+                for _ in range(repeat_count): parsed_steps.extend(repeat_buffer)
+                repeat_buffer = []
+                in_repeat = False
+
+    if in_repeat and repeat_buffer:
+        for _ in range(repeat_count): parsed_steps.extend(repeat_buffer)
+
     fig = go.Figure()
 
     if parsed_steps:
@@ -890,6 +973,8 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
             grouped_weeks[week_key][date_str] = []
         grouped_weeks[week_key][date_str].append(item)
 
+    declared_ftp = int(st.session_state.profile_data.get("declared_ftp", 180))
+
     for week_idx, ((w_start, w_end), days_dict) in enumerate(grouped_weeks.items()):
         all_week_items = [item for items in days_dict.values() for item in items]
         total_sec = sum(item["duration_sec"] for item in all_week_items)
@@ -964,11 +1049,15 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                             </div>
                         """, unsafe_allow_html=True)
 
-                        # ONLY render workout graphs for INDOOR TRAINING WORKOUTS
+                        # ONLY render workout profile graphs for INDOOR TRAINING WORKOUTS
                         if is_indoor_training_workout(item):
                             chart_unique_key = f"mini_chart_{item['id']}_{week_idx}_{item_idx}"
                             fig_mywhoosh = generate_mywhoosh_chart(item, seed_val=abs(hash(item["id"])) % 1000, is_greyed=is_past_incomplete)
                             st.plotly_chart(fig_mywhoosh, use_container_width=True, config={'displayModeBar': False}, key=chart_unique_key)
+
+                        # Extract & Parse Detailed Structured Steps & Target Metrics
+                        raw_desc = item.get("raw", {}).get("description", "") or item.get("raw", {}).get("workout_doc", "")
+                        workout_details = parse_workout_steps_detailed(raw_desc, declared_ftp)
 
                         c_m1, c_m2 = st.columns([3, 1])
                         with c_m1:
@@ -1003,6 +1092,41 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                 )
                                 st.session_state.active_nav = NAV_OPTIONS[1]
                                 st.rerun()
+
+                        # EXPANDABLE STRUCTURED WORKOUT DETAILS & METRICS
+                        if workout_details["steps"] or workout_details["notes"]:
+                            with st.expander("📋 Detailed Workout Structure & Target Metrics"):
+                                col_d1, col_d2 = st.columns([2, 1])
+                                
+                                with col_d1:
+                                    st.markdown("**Structured Workout Steps:**")
+                                    for step_str in workout_details["steps"]:
+                                        st.markdown(step_str)
+                                    
+                                    if workout_details["notes"]:
+                                        st.markdown(f"""
+                                        <div class="workout-notes-box">
+                                            {workout_details['notes']}
+                                        </div>
+                                        """, unsafe_allow_html=True)
+
+                                with col_d2:
+                                    m_dict = workout_details["metrics"]
+                                    if m_dict.get("avg_watts"):
+                                        st.markdown("**Calculated Targets:**")
+                                        st.write(f"• **Avg Power:** {m_dict['avg_watts']}W")
+                                        st.write(f"• **Est. NP:** {m_dict['np_watts']}W")
+                                        st.write(f"• **Work:** {m_dict['work_kj']} kJ")
+
+                                    z_times = workout_details["zone_times"]
+                                    tot_sec = workout_details["total_sec"]
+                                    if tot_sec > 0:
+                                        st.markdown("**Zone Breakdown:**")
+                                        for z_name, z_s in z_times.items():
+                                            if z_s > 0:
+                                                pct_z = round((z_s / tot_sec) * 100, 1)
+                                                z_m = round(z_s / 60.0, 1)
+                                                st.caption(f"{z_name}: {z_m}m ({pct_z}%)")
 
                         st.markdown("</div>", unsafe_allow_html=True)
 
