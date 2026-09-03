@@ -483,7 +483,7 @@ def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_
 
 def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -> str:
     errors = []
-    models = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"]
+    models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
     for name, key in GEMINI_KEYS:
         if not key: continue
         for m in models:
@@ -597,7 +597,25 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
     return sorted(items, key=lambda x: x["datetime"], reverse=True)
 
 def clean_chat_content(text: str) -> str:
-    return re.sub(r"```xml\s*<\?xml.*?</workout_file>\s*```", "", text or "", flags=re.S | re.I).strip()
+    cleaned = re.sub(r"```xml\s*<\?xml.*?</workout_file>\s*```", "", text or "", flags=re.S | re.I)
+    cleaned = re.sub(r"```json:workouts\s*.*?\s*```", "", cleaned, flags=re.S | re.I)
+    return cleaned.strip()
+
+def extract_json_workouts(text: str) -> List[Dict[str, Any]]:
+    match = re.search(r"```(?:json:workouts|json)\s*(\[.*?\])\s*```", text, re.S | re.I)
+    if not match:
+        match = re.search(r"(\[\s*\{\s*\"date\".*?\}\s*\])", text, re.S)
+    if match:
+        json_str = match.group(1).strip()
+        try:
+            return json.loads(json_str)
+        except Exception:
+            try:
+                sanitized = re.sub(r'(?<=: ")(.*?)(?=")', lambda m: m.group(1).replace('\n', '\\n'), json_str, flags=re.S)
+                return json.loads(sanitized)
+            except Exception:
+                pass
+    return []
 
 # --- HELPER: PUSH WORKOUTS TO INTERVALS.ICU API ---
 def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: str, api_key: str) -> Tuple[bool, str]:
@@ -609,7 +627,7 @@ def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: st
         events_to_post.append({
             "category": "WORKOUT",
             "type": item.get("type", "Ride"),
-            "name": item.get("title", "Planned Session"),
+            "name": item.get("title") or item.get("name", "Planned Session"),
             "description": item.get("description", ""),
             "start_date_local": f"{item.get('date')}T08:00:00"
         })
@@ -620,12 +638,12 @@ def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: st
     try:
         resp = requests.post(url, auth=auth, json=events_to_post, timeout=15)
         if resp.status_code in [200, 201]:
-            return True, f"Successfully synced {len(events_to_post)} workout(s) to Intervals.icu!"
+            return True, f"Successfully synced {len(events_to_post)} workout(s) to Intervals.icu & MyWhoosh!"
         return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
     except Exception as e:
         return False, str(e)
 
-def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, Any]], activities_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, Any]], activities_data: List[Dict[str, Any]], planned_events_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     prof = st.session_state.profile_data
     goals = prof.get("goals", {})
     supps = st.session_state.get("user_supplements", [])
@@ -644,8 +662,8 @@ def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, An
 
     upcoming_planned = [
         f"- {ev.get('start_date_local', '')[:10]}: {ev.get('name', 'Workout')} ({ev.get('type', 'Ride')})"
-        for ev in planned_events[:10]
-    ] if 'planned_events' in globals() and planned_events else []
+        for ev in planned_events_list[:10]
+    ] if planned_events_list else []
     planned_formatted = "\n".join(upcoming_planned) if upcoming_planned else "No structured workouts planned yet."
 
     supp_lines = [f"- {s.get('name')}: {s.get('dosage')} ({s.get('timing')}) -> {s.get('purpose')}" for s in supps if isinstance(s, dict)]
@@ -679,16 +697,22 @@ COACH LONG-TERM MEMORY & ATHLETE LIMITATIONS:
 SUPPLEMENT PROTOCOL:
 {supps_formatted}
 
-WORKOUT GENERATION RULE:
-Whenever you propose workouts, scheduled sessions, or a multi-week plan, include a structured JSON block at the very end of your response inside ```json:workouts ... ``` like this:
+WORKOUT GENERATION RULE (CRITICAL FOR MYWHOOSH & INTERVALS.ICU SYNC):
+Whenever you prescribe or adjust workouts, ALWAYS include a valid JSON block at the very end of your response inside ```json:workouts ... ```.
+The `description` field MUST follow native Intervals.icu plain text workout syntax so it syncs directly to MyWhoosh:
 
+- Warmup & Cooldown: `Warmup\n- 10m 50%` or `Cooldown\n- 10m 40%`
+- Repeats / Sets: `4x\n- 5m 100% FTP\n- 2m 50% FTP`
+- Do NOT include HTML, XML, or markdown bullet sub-formatting inside `description`.
+
+EXAMPLE:
 ```json:workouts
 [
   {{
     "date": "2026-09-05",
     "title": "Threshold 4x5m",
     "type": "Ride",
-    "description": "Warmup\\n- 10m 50-60% FTP\\nMain Set 4x\\n- 5m 100% FTP\\n- 2m 50% FTP\\nCooldown\\n- 10m 40% FTP"
+    "description": "Warmup\\n- 10m 50%\\n\\n4x\\n- 5m 100%\\n- 2m 50%\\n\\nCooldown\\n- 10m 40%"
   }}
 ]
 ```"""
@@ -907,39 +931,32 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
     for idx, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             content_clean = clean_chat_content(msg["content"])
-            
-            display_text = re.sub(r"```json:workouts.*?```", "", content_clean, flags=re.S).strip()
-            st.markdown(display_text)
+            st.markdown(content_clean)
             
             if msg["role"] == "assistant":
-                workout_match = re.search(r"```json:workouts\s*(.*?)\s*```", msg["content"], re.S)
-                if workout_match:
-                    try:
-                        proposed_workouts = json.loads(workout_match.group(1))
-                        
-                        st.markdown("---")
-                        st.markdown(f"###### 📋 Proposed Workout Plan ({len(proposed_workouts)} Session{'s' if len(proposed_workouts)>1 else ''})")
-                        
-                        for w_item in proposed_workouts:
-                            st.caption(f"📅 **{w_item.get('date')}** | {w_item.get('type', 'Ride')} — **{w_item.get('title')}**")
+                proposed_workouts = extract_json_workouts(msg["content"])
+                if proposed_workouts:
+                    st.markdown("---")
+                    st.markdown(f"###### 📋 Proposed Workout Plan ({len(proposed_workouts)} Session{'s' if len(proposed_workouts)>1 else ''})")
+                    
+                    for w_item in proposed_workouts:
+                        st.caption(f"📅 **{w_item.get('date')}** | {w_item.get('type', 'Ride')} — **{w_item.get('title')}**")
 
-                        btn_key = f"approve_sync_{idx}"
-                        if st.button("🚀 Approve & Sync Plan to Intervals.icu Calendar", key=btn_key, type="primary", use_container_width=True):
-                            with st.spinner("Pushing workouts to Intervals.icu..."):
-                                ok, result_msg = push_workouts_to_intervals(
-                                    proposed_workouts, ATHLETE_ID, INTERVALS_API_KEY
-                                )
-                                if ok:
-                                    st.success(result_msg)
-                                    st.toast("Synced to Intervals.icu & MyWhoosh!", icon="✅")
-                                else:
-                                    st.error(result_msg)
-                    except Exception:
-                        pass
+                    btn_key = f"approve_sync_{idx}"
+                    if st.button("🚀 Bulk Push All Workouts to Intervals.icu & MyWhoosh", key=btn_key, type="primary", use_container_width=True):
+                        with st.spinner("Pushing workouts to Intervals.icu..."):
+                            ok, result_msg = push_workouts_to_intervals(
+                                proposed_workouts, ATHLETE_ID, INTERVALS_API_KEY
+                            )
+                            if ok:
+                                st.success(result_msg)
+                                st.toast("Synced to Intervals.icu & MyWhoosh!", icon="✅")
+                            else:
+                                st.error(result_msg)
 
                 col_save_b, _ = st.columns([2, 5])
                 if col_save_b.button("🧠 Save to Permanent Coach Memory", key=f"save_to_mem_{idx}", type="secondary"):
-                    snippet = display_text[:250].replace("\n", " ")
+                    snippet = content_clean[:250].replace("\n", " ")
                     st.session_state.coach_memory += f"\n• Coach Advice ({dt.datetime.now(LOCAL_TZ).strftime('%b %d, %Y')}): {snippet}..."
                     save_disk_store()
                     st.toast("Saved advice to Long-Term Coach Memory!", icon="🧠")
@@ -957,7 +974,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
         with st.chat_message("assistant"):
             with st.spinner("🤖 Coach is reviewing your activity data & performance metrics..."):
                 try:
-                    res = execute_ai(build_gemini_payload(prompt_to_send, wellness_list, activities_data))
+                    res = execute_ai(build_gemini_payload(prompt_to_send, wellness_list, activities_data, planned_events))
                     st.markdown(clean_chat_content(res))
                     st.session_state.messages.append({"role": "assistant", "content": res})
                     save_disk_store()
@@ -975,7 +992,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
         with st.chat_message("assistant"):
             with st.spinner("🤖 Coach is analyzing your request..."):
                 try:
-                    res = execute_ai(build_gemini_payload(prompt, wellness_list, activities_data))
+                    res = execute_ai(build_gemini_payload(prompt, wellness_list, activities_data, planned_events))
                     st.markdown(clean_chat_content(res))
                     st.session_state.messages.append({"role": "assistant", "content": res})
                     save_disk_store()
@@ -1384,20 +1401,74 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
 # VIEW 5: WORKOUT BUILDER & MYWHOOSH SYNC
 elif st.session_state.active_nav == NAV_OPTIONS[4]:
     st.markdown("##### 🏋️ Workout Builder & MyWhoosh / Intervals.icu Direct Sync")
+    
     default_txt = """Warmup
-10m 50-60% FTP
-Main Set 4x
-- 5m 100% FTP
-- 2m 50% FTP
-Cooldown
-10m 40% FTP"""
+- 10m 50%
 
-    w_title = st.text_input("Workout Title", value="4x5m Threshold Intervals")
-    w_sport = st.selectbox("Sport Type", ["Ride", "Run", "VirtualRide"])
-    w_date = st.date_input("Scheduled Date", value=dt.datetime.now(LOCAL_TZ).date())
-    txt_input = st.text_area("Workout Syntax (Intervals.icu / MyWhoosh Compatible)", value=default_txt, height=220)
+4x
+- 5m 100%
+- 2m 50%
+
+Cooldown
+- 10m 40%"""
+
+    col_w1, col_w2 = st.columns([1, 1])
+    
+    with col_w1:
+        st.markdown("###### Custom Workout Editor")
+        w_title = st.text_input("Workout Title", value="4x5m Threshold Intervals")
+        w_sport = st.selectbox("Sport Type", ["Ride", "Run", "VirtualRide"])
+        w_date = st.date_input("Scheduled Date", value=dt.datetime.now(LOCAL_TZ).date())
+        txt_input = st.text_area("Workout Syntax (Intervals.icu / MyWhoosh Compatible)", value=default_txt, height=220)
+
+        if st.button("🚀 Direct Push Single Workout to Intervals.icu & MyWhoosh", type="primary", use_container_width=True):
+            single_payload = [{
+                "title": w_title,
+                "type": w_sport,
+                "date": w_date.strftime("%Y-%m-%d"),
+                "description": txt_input
+            }]
+            with st.spinner("Pushing workout to Intervals.icu..."):
+                ok, res_msg = push_workouts_to_intervals(single_payload, ATHLETE_ID, INTERVALS_API_KEY)
+                if ok:
+                    st.success(res_msg)
+                else:
+                    st.error(res_msg)
+
+    with col_w2:
+        st.markdown("###### Target Metrics & Zone Preview")
+        parsed = parse_workout_steps_detailed(txt_input, int(st.session_state.profile_data.get("declared_ftp", 180)))
+        
+        if parsed["steps"]:
+            st.markdown("**Structured Breakdown:**")
+            for step in parsed["steps"]:
+                st.markdown(step)
+            
+            m = parsed["metrics"]
+            st.markdown("---")
+            st.markdown(f"• **Duration:** {m['duration_min']} mins")
+            st.markdown(f"• **Average Power:** {m['avg_watts']} W")
+            st.markdown(f"• **Estimated NP:** {m['np_watts']} W")
+            st.markdown(f"• **Total Work:** {m['work_kj']} kJ")
 
 # VIEW 6: ROUTE STRATEGIST
 elif st.session_state.active_nav == NAV_OPTIONS[5]:
     st.markdown("##### 🗺️ Route Pacing Strategist")
-    st.file_uploader("Upload GPX Route", type=["gpx"])
+    uploaded_file = st.file_uploader("Upload GPX Route", type=["gpx"])
+    
+    if uploaded_file is not None:
+        gpx_bytes = uploaded_file.read().decode("utf-8", errors="ignore")
+        st.success(f"Successfully loaded {uploaded_file.name} ({len(gpx_bytes)} bytes)")
+        
+        target_power = st.number_input("Target Normalized Power (W)", value=int(st.session_state.profile_data.get("declared_ftp", 180) * 0.85))
+        
+        if st.button("⚡ Generate AI Pacing & Strategy Plan", type="primary", use_container_width=True):
+            prompt = f"Create a comprehensive pacing strategy for a GPX route given my FTP of {st.session_state.profile_data.get('declared_ftp', 180)}W and target NP of {target_power}W. Optimize gear shifts, gradient-based power targets, and nutrition timing."
+            with st.spinner("Analyzing elevation profile and target pacing strategy..."):
+                try:
+                    pacing_plan = execute_ai(build_gemini_payload(prompt, wellness_list, activities_data, planned_events))
+                    st.markdown(pacing_plan)
+                except Exception as e:
+                    st.error(str(e))
+    else:
+        st.info("Upload a GPX file to analyze course gradient, segment power distribution, and nutrition pacing.")
