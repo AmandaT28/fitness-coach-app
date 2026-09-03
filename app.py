@@ -1,7 +1,7 @@
 """
 AI Performance Coach • Elite Suite (Multi-Platform Workout & Analytics Engine)
-Featuring screenshot-matched mobile calendar feed, intensity stream mini-charts,
-automatic owner login, guest onboarding, workout grammar parser, and AI coach.
+Fully restored Command Center, 90-day trend synthesis engine, live Intervals.icu calendar sync,
+real time-in-zone intensity bar charts, and strict workout grammar parser.
 """
 
 import base64
@@ -89,7 +89,7 @@ DEFAULT_PROFILE = {
     "max_hr": 182,
     "resting_hr": 52,
     "running_threshold_pace_sec": 300,  # 5:00 /km
-    "unit_system": "Metric",  # Metric or Imperial
+    "unit_system": "Metric",
     "rest_days": ["Friday"],
     "primary_sports": ["Cycling", "Running"],
     "goals": {
@@ -147,7 +147,7 @@ def init_state():
 
 init_state()
 
-# --- OBSIDIAN DARK DESIGN SYSTEM WITH FEED CARD STYLING ---
+# --- OBSIDIAN DARK DESIGN SYSTEM ---
 BG_APP = "#0D1117"
 BG_SIDEBAR = "#161B22"
 BG_CARD = "#161B22"
@@ -164,7 +164,6 @@ header[data-testid="stHeader"] {{ background-color: {BG_APP} !important; z-index
 section[data-testid="stSidebar"] {{ background-color: {BG_SIDEBAR} !important; border-right: 1px solid {BORDER_SUBTLE} !important; }}
 section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !important; }}
 
-/* SCREENSHOT DESIGN SYSTEM REPLICATION */
 .calendar-week-banner {{
     background-color: {BG_CARD};
     border: 1px solid {BORDER_SUBTLE};
@@ -189,12 +188,6 @@ section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !import
     margin-top: 2px;
 }}
 
-.calendar-row-container {{
-    display: flex;
-    gap: 16px;
-    margin-bottom: 18px;
-    align-items: flex-start;
-}}
 .date-badge-col {{
     width: 50px;
     text-align: center;
@@ -220,6 +213,7 @@ section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !import
     border-radius: 16px;
     padding: 16px 18px;
     width: 100%;
+    margin-bottom: 12px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.18);
 }}
 .card-header-row {{
@@ -244,12 +238,6 @@ section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !import
     margin: 0;
 }}
 
-.metrics-footer-row {{
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    margin-top: 10px;
-}}
 .metrics-flex-group {{
     display: flex;
     gap: 20px;
@@ -321,27 +309,49 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
 
     return "", "", "Guest Athlete", "Unauthenticated"
 
-# --- HELPER: MINI STREAM INTENSITY CHART GENERATOR ---
+# --- INTENSITY CHART GENERATOR (PULLS REAL TIME-IN-ZONE FROM INTERVALS.ICU) ---
 
-def generate_mini_stream_chart(activity_type: str, seed_val: int = 42) -> go.Figure:
-    """Generates the zone-colored interval bar stream matching the UI design."""
-    import random
-    random.seed(seed_val)
+def generate_mini_stream_chart(activity_item: Dict[str, Any], seed_val: int = 42) -> go.Figure:
+    """Generates an intensity chart using real time-in-zone data from Intervals.icu payload."""
+    raw_data = activity_item.get("raw", {})
+    act_type = activity_item.get("type", "Ride")
     
-    zone_colors = ["#8B949E", "#58A6FF", "#3FB950", "#D29922", "#F85149"]
+    zone_colors = [
+        "#8B949E",  # Z1 Active Recovery / Grey
+        "#58A6FF",  # Z2 Endurance / Blue
+        "#3FB950",  # Z3 Tempo / Green
+        "#D29922",  # Z4 Threshold / Yellow-Orange
+        "#F85149",  # Z5 VO2Max / Red
+        "#A371F7",  # Z6 Anaerobic / Purple
+        "#DA3633"   # Z7 Neuromuscular / Crimson
+    ]
+
+    # Attempt to extract live zone distribution from Intervals.icu payload
+    zone_times = raw_data.get("icu_zone_times") or raw_data.get("icu_hr_zone_times") or raw_data.get("zone_times")
     
-    if "Run" in activity_type:
-        bars = [1.2, 1.1, 0.8, 0.7, 1.0, 0.9, 0.9]
-        colors = [zone_colors[4], zone_colors[4], zone_colors[3], zone_colors[2], zone_colors[4], zone_colors[3], zone_colors[3]]
+    if isinstance(zone_times, list) and len(zone_times) > 0 and sum(zone_times) > 0:
+        bars = [float(t) for t in zone_times[:7]]
+        colors = [zone_colors[i % len(zone_colors)] for i in range(len(bars))]
     else:
-        bars = [random.uniform(0.4, 1.3) for _ in range(28)]
-        colors = []
-        for b in bars:
-            if b < 0.6: colors.append(zone_colors[0])
-            elif b < 0.8: colors.append(zone_colors[1])
-            elif b < 1.0: colors.append(zone_colors[2])
-            elif b < 1.15: colors.append(zone_colors[3])
-            else: colors.append(zone_colors[4])
+        # Fallback estimation based on activity Intensity Factor or Normalized Power ratio
+        import random
+        random.seed(seed_val)
+        if "Run" in act_type:
+            bars = [180, 420, 1200, 600, 240]
+            colors = [zone_colors[0], zone_colors[1], zone_colors[2], zone_colors[3], zone_colors[4]]
+        else:
+            np_val = float(activity_item.get("power_w") or 150)
+            ftp_val = float(st.session_state.profile_data.get("declared_ftp", 180))
+            if_ratio = np_val / ftp_val if ftp_val > 0 else 0.8
+            
+            bars = [random.uniform(0.3, 1.2) * (if_ratio * 1.1) for _ in range(24)]
+            colors = []
+            for b in bars:
+                if b < 0.55: colors.append(zone_colors[0])
+                elif b < 0.75: colors.append(zone_colors[1])
+                elif b < 0.90: colors.append(zone_colors[2])
+                elif b < 1.05: colors.append(zone_colors[3])
+                else: colors.append(zone_colors[4])
 
     fig = go.Figure(go.Bar(
         x=list(range(len(bars))),
@@ -361,7 +371,7 @@ def generate_mini_stream_chart(activity_type: str, seed_val: int = 42) -> go.Fig
     )
     return fig
 
-# --- DETERMINISTIC CALCULATORS & ANALYSIS ENGINES ---
+# --- CALCULATORS & ANALYSIS ENGINES ---
 
 class RunningAnalyzer:
     @staticmethod
@@ -388,19 +398,49 @@ class TrainingLoadCalculator:
                 return 1.0, "Stable"
             acwr = round(acute / chronic, 2)
             if acwr > 1.35:
-                return acwr, "Spike Risk (>1.35)"
-            return acwr, "Optimal Rate"
+                return acwr, "High Spike Risk (>1.35)"
+            elif acwr < 0.8:
+                return acwr, "Detraining Risk (<0.8)"
+            return acwr, "Optimal Ramp Rate (0.8–1.35)"
         except Exception:
             return 1.0, "Stable"
 
     @staticmethod
     def calculate_recovery_status(tsb: float, sleep_score: Optional[float], hrv: Optional[float], rhr: Optional[float], notes: str) -> Dict[str, Any]:
+        risk_factors = []
         score = 100.0
-        if tsb < -25: score -= 25
-        elif tsb < -10: score -= 10
-        if sleep_score and sleep_score < 65: score -= 20
+
+        if tsb < -25:
+            score -= 25
+            risk_factors.append(f"Heavy Accumulated Fatigue (TSB {tsb:.1f})")
+        elif tsb < -10:
+            score -= 10
+
+        if sleep_score and sleep_score < 65:
+            score -= 20
+            risk_factors.append(f"Suboptimal Sleep ({sleep_score:.0f}/100)")
+
+        if hrv and hrv < 50:
+            score -= 15
+            risk_factors.append(f"Suppressed HRV ({hrv:.0f} ms)")
+
+        if rhr and rhr > 58:
+            score -= 10
+            risk_factors.append(f"Elevated Resting HR ({rhr:.0f} bpm)")
+
         final_score = max(10, min(100, int(score)))
-        return {"score": final_score, "status": "Primed for Work" if final_score >= 75 else "Moderate Readiness", "recommendation": "Execute planned targets."}
+        
+        if final_score < 50:
+            status = "Caution / Adaptation Required"
+            rec = "Prioritize rest or low-intensity Z1 active recovery."
+        elif final_score < 75:
+            status = "Moderate Readiness"
+            rec = "Proceed with planned session, avoid extra volume."
+        else:
+            status = "Primed for Work"
+            rec = "High readiness. Execute planned workout targets with confidence."
+
+        return {"score": final_score, "status": status, "recommendation": rec, "risk_factors": risk_factors}
 
 # --- WORKOUT GRAMMAR PARSER & VALIDATOR ---
 
@@ -454,7 +494,7 @@ def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -
             except Exception as exc: errors.append(f"{name}: {exc}")
     raise RuntimeError("AI Connection Error")
 
-# --- INTERVALS.ICU DATA FETCHING & UNIFICATION ---
+# --- INTERVALS.ICU DATA FETCHING (90 DAYS PAST TO 60 DAYS FUTURE) ---
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
@@ -465,13 +505,13 @@ def fetch_intervals_data(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, 
     auth = ("API_KEY", api_key)
     today = dt.datetime.now(LOCAL_TZ).date()
     oldest_date = (today - dt.timedelta(days=90)).isoformat()
-    newest_date = (today + dt.timedelta(days=14)).isoformat()
+    newest_date = (today + dt.timedelta(days=60)).isoformat()
     base_url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
 
     endpoints = {
         "wellness": f"{base_url}/wellness?oldest={oldest_date}&newest={newest_date}",
         "activities": f"{base_url}/activities?oldest={oldest_date}&newest={newest_date}",
-        "events": f"{base_url}/events?oldest={(today - dt.timedelta(days=14)).isoformat()}&newest={newest_date}"
+        "events": f"{base_url}/events?oldest={oldest_date}&newest={newest_date}"
     }
 
     results = {}
@@ -485,10 +525,9 @@ def fetch_intervals_data(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, 
     return results.get("wellness", []), results.get("activities", []), results.get("events", []), "Connected to Intervals.icu"
 
 def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Unifies live completed activities and planned sessions into normalized feed objects."""
     items = []
     
-    # Process Completed Activities
+    # Completed Activities from Intervals.icu
     for act in activities:
         raw_dt = str(act.get("start_date_local") or act.get("start_date") or "")
         if not raw_dt: continue
@@ -500,13 +539,12 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
         act_type = act.get("type", "Ride")
         is_run = "Run" in act_type
         
-        # Calculate speed to pace for runs
         avg_speed = float(act.get("average_speed") or 0)
         if is_run and avg_speed > 0:
             pace_sec_km = 1000.0 / avg_speed
             pace_str = RunningAnalyzer.format_pace(pace_sec_km)
         else:
-            pace_str = act.get("pace") or "8:36/km" if is_run else None
+            pace_str = act.get("pace") if is_run else None
 
         items.append({
             "id": f"act_{act.get('id')}",
@@ -514,17 +552,19 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
             "datetime": dt_obj,
             "status": "Completed",
             "type": act_type,
+            "name": act.get("name") or ("Running" if is_run else "Cycling"),
             "sport_title": "Running" if is_run else "Cycling",
             "device": act.get("device_name") or act.get("source") or ("Garmin (Product 4574) via Garmin" if is_run else "Garmin Edge 540 via Garmin"),
             "duration_sec": float(act.get("moving_time") or act.get("elapsed_time") or 0),
             "distance_m": float(act.get("distance") or 0),
             "power_w": act.get("icu_weighted_avg_watts") or act.get("average_watts"),
+            "hr_bpm": act.get("average_heartrate"),
             "pace_str": pace_str,
             "load": float(act.get("icu_training_load") or act.get("icu_load") or 0),
             "raw": act
         })
 
-    # Process Planned Events
+    # Planned Events from Intervals.icu
     for ev in events:
         if ev.get("category") in ["WORKOUT", "TARGET"] or ev.get("type") in ["Ride", "Run", "VirtualRide", "VirtualRun"]:
             raw_dt = str(ev.get("start_date_local") or ev.get("start_date") or "")
@@ -543,11 +583,13 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
                 "datetime": dt_obj,
                 "status": "Planned",
                 "type": ev_type,
+                "name": ev.get("name") or f"Planned {ev_type}",
                 "sport_title": f"Planned {ev_type}",
                 "device": "Intervals.icu Planned Workout",
                 "duration_sec": float(ev.get("moving_time") or ev.get("duration") or 0),
                 "distance_m": float(ev.get("distance") or 0),
                 "power_w": None,
+                "hr_bpm": None,
                 "pace_str": None,
                 "load": float(ev.get("icu_training_load") or 0),
                 "raw": ev
@@ -612,19 +654,126 @@ with st.sidebar:
 # VIEW 1: COMMAND CENTER
 if st.session_state.active_nav == NAV_OPTIONS[0]:
     st.markdown(f"##### ☀️ Command Center for {display_name}")
+    prof = st.session_state.profile_data
+    
     latest_w = wellness_list[-1] if wellness_list else {}
     ctl = float(latest_w.get("ctl", 65) or 65)
     atl = float(latest_w.get("atl", 72) or 72)
     tsb = ctl - atl
+    sleep = float(latest_w.get("sleep_score", 82) or 82)
+    hrv = float(latest_w.get("hrv", 65) or 65)
+    rhr = float(latest_w.get("resting_hr", 52) or 52)
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Fitness (CTL)", f"{ctl:.1f}")
-    c2.metric("Fatigue (ATL)", f"{atl:.1f}")
-    c3.metric("Form (TSB)", f"{tsb:.1f}")
+    rec = TrainingLoadCalculator.calculate_recovery_status(tsb, sleep, hrv, rhr, "")
+    acwr, acwr_status = TrainingLoadCalculator.calculate_acwr(wellness_list)
+
+    card_border = "#10B981" if rec["score"] >= 75 else ("#F59E0B" if rec["score"] >= 50 else "#EF4444")
+    st.markdown(f"""
+    <div style="background:{BG_CARD}; border:1px solid {card_border}; border-radius:10px; padding:18px; margin-bottom:20px;">
+        <h4 style="margin:0; color:{card_border};">💡 {rec['status']} (Readiness Index: {rec['score']}/100)</h4>
+        <p style="margin:6px 0 0 0; font-size:0.95rem;"><strong>Recommendation:</strong> {rec['recommendation']}</p>
+        <p style="margin:4px 0 0 0; font-size:0.85rem; color:{TEXT_MUTED};">ACWR: {acwr} ({acwr_status}) | TSB: {tsb:.1f} | Sleep: {sleep:.0f}/100 | HRV: {hrv}ms</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Fitness (CTL)", f"{ctl:.1f}", delta="Aerobic Base")
+    m2.metric("Fatigue (ATL)", f"{atl:.1f}", delta="Recent Load")
+    m3.metric("Form (TSB)", f"{tsb:.1f}", delta="Freshness")
+    m4.metric("Declared FTP", f"{prof['declared_ftp']} W", delta=f"{prof['declared_ftp']/prof['weight_kg']:.2f} W/kg")
+
+    st.divider()
+
+    # Quick Rebalance Control
+    if st.button("⚡ I missed a workout / Life got in the way — Rebalance my week", use_container_width=True):
+        st.session_state.pending_coach_prompt = "I missed a workout today due to life circumstances. Please rebalance my training week safely while preserving rest days."
+        st.session_state.active_nav = "🤖 AI Coach & Sparring"
+        st.rerun()
+
+    st.divider()
+
+    # 90-Day Performance Management Chart
+    st.markdown("###### 📊 90-Day Performance Management Chart (CTL / ATL / TSB)")
+    if wellness_list:
+        df_w = pd.DataFrame(wellness_list)
+        date_col = next((col for col in ['id', 'date', 'start_date'] if col in df_w.columns), None)
+        
+        if date_col and not df_w.empty:
+            df_w['date_parsed'] = pd.to_datetime(df_w[date_col], errors='coerce')
+            df_w = df_w.dropna(subset=['date_parsed']).sort_values('date_parsed')
+            
+            def get_series(df: pd.DataFrame, primary: str, secondary: str) -> pd.Series:
+                if primary in df.columns:
+                    s = pd.to_numeric(df[primary], errors='coerce')
+                elif secondary in df.columns:
+                    s = pd.to_numeric(df[secondary], errors='coerce')
+                else:
+                    s = pd.Series(0.0, index=df.index)
+                return s.fillna(0.0)
+
+            ctl_s = get_series(df_w, 'ctl', 'CTL')
+            atl_s = get_series(df_w, 'atl', 'ATL')
+            
+            if 'tsb' in df_w.columns:
+                tsb_s = pd.to_numeric(df_w['tsb'], errors='coerce').fillna(0.0)
+            elif 'TSB' in df_w.columns:
+                tsb_s = pd.to_numeric(df_w['TSB'], errors='coerce').fillna(0.0)
+            else:
+                tsb_s = ctl_s - atl_s
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df_w['date_parsed'], y=ctl_s, name="Fitness (CTL)", line=dict(color="#10B981", width=2)))
+            fig.add_trace(go.Scatter(x=df_w['date_parsed'], y=atl_s, name="Fatigue (ATL)", line=dict(color="#EF4444", width=2)))
+            fig.add_trace(go.Bar(x=df_w['date_parsed'], y=tsb_s, name="Form (TSB)", marker_color=["#10B981" if val >= 0 else "#EF4444" for val in tsb_s]))
+            fig.update_layout(
+                height=320,
+                margin=dict(l=10, r=10, t=10, b=10),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color=TEXT_PRIMARY),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig, use_container_width=True, key="cmd_center_pmc_chart")
+
+    st.divider()
+
+    # 90-Day Trend Synthesis Engine
+    if st.button("🚀 Run 90-Day Multi-Sport Trend Synthesis", type="primary", use_container_width=True):
+        payload_text = f"Analyze this multi-sport athlete's last 90 days. CTL {ctl:.1f}; ATL {atl:.1f}; TSB {tsb:.1f}. ACWR: {acwr}. Goal: {prof['goals']['target_metric']}."
+        with st.spinner("Analyzing 90 days of multi-sport training data..."):
+            try:
+                new_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=4000)
+                timestamp_str = dt.datetime.now(LOCAL_TZ).strftime("%d %b %Y, %H:%M %Z")
+                st.session_state.cached_trend_analyses.insert(0, {"timestamp": timestamp_str, "analysis": new_analysis})
+                st.session_state.cached_trend_analyses = st.session_state.cached_trend_analyses[:3]
+                st.toast("Multi-sport trend synthesis complete!", icon="📈")
+            except Exception as exc: st.error(str(exc))
+
+    if st.session_state.cached_trend_analyses:
+        st.markdown("###### 📈 Saved 90-Day Trend Reports")
+        for idx, item in enumerate(st.session_state.cached_trend_analyses):
+            with st.expander(f"📌 Trend Report #{len(st.session_state.cached_trend_analyses) - idx} · Generated {item['timestamp']}", expanded=(idx == 0)):
+                st.markdown(item['analysis'])
+                if st.button("💬 Discuss with Coach", key=f"trend_discuss_{idx}"):
+                    st.session_state.pending_coach_prompt = f"Let me discuss my 90-Day Trend Synthesis from {item['timestamp']}."
+                    st.session_state.active_nav = "🤖 AI Coach & Sparring"
+                    st.rerun()
 
 # VIEW 2: AI COACH CHAT
 elif st.session_state.active_nav == NAV_OPTIONS[1]:
     st.markdown("##### 🤖 AI Multi-Sport Coach")
+    
+    # Handle pending prompts from buttons
+    if st.session_state.pending_coach_prompt:
+        prompt_to_send = st.session_state.pending_coach_prompt
+        st.session_state.pending_coach_prompt = None
+        st.session_state.messages.append({"role": "user", "content": prompt_to_send})
+        try:
+            res = execute_ai(build_gemini_payload(prompt_to_send, wellness_list, activities_data))
+            st.session_state.messages.append({"role": "assistant", "content": res})
+        except Exception as e:
+            st.error(str(e))
+
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(clean_chat_content(msg["content"]))
@@ -647,10 +796,8 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
     sport_filter = col_f1.selectbox("Filter Sport", ["All Sports", "Cycling", "Running"])
     status_filter = col_f2.selectbox("Filter Status", ["All Sessions", "Completed", "Planned"])
 
-    # Build Unified Data Feed
     raw_feed = get_unified_calendar_items(activities_data, planned_events)
 
-    # Filter Feed
     filtered_feed = []
     for item in raw_feed:
         if sport_filter == "Cycling" and "Ride" not in item["type"] and "Cycling" not in item["sport_title"]:
@@ -664,11 +811,12 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
         filtered_feed.append(item)
 
     if not filtered_feed:
-        st.info("No activities found matching your filters. Syncing with Intervals.icu...")
+        st.info("No activities or planned workouts found matching your filters.")
 
     # Group Items by ISO Week (Monday to Sunday)
     grouped_weeks: Dict[Tuple[dt.date, dt.date], Dict[str, List[Dict[str, Any]]]] = {}
-    
+    today_date = dt.datetime.now(LOCAL_TZ).date()
+
     for item in filtered_feed:
         item_date = item["datetime"].date()
         start_of_week = item_date - dt.timedelta(days=item_date.weekday())
@@ -685,7 +833,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
 
     # Render Expandable Weeks
     for week_idx, ((w_start, w_end), days_dict) in enumerate(grouped_weeks.items()):
-        # Calculate Weekly Totals
         all_week_items = [item for items in days_dict.values() for item in items]
         total_sec = sum(item["duration_sec"] for item in all_week_items)
         total_hours = total_sec / 3600.0
@@ -694,9 +841,10 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
         dur_summary = f"{h_part}h {m_part}m" if h_part > 0 else f"{m_part}m"
         total_load = int(sum(item["load"] for item in all_week_items))
 
+        is_current_week = (w_start <= today_date <= w_end)
         week_label = f"🗓️ {w_start.strftime('%b %d')} - {w_end.strftime('%b %d')} &nbsp;·&nbsp; {dur_summary} &nbsp;·&nbsp; {total_load} Load"
 
-        with st.expander(week_label, expanded=(week_idx == 0)):
+        with st.expander(week_label, expanded=(is_current_week or week_idx == 0)):
             for date_str, day_items in sorted(days_dict.items(), reverse=True):
                 dt_obj = day_items[0]["datetime"]
                 day_name = dt_obj.strftime("%a")
@@ -724,9 +872,15 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                         
                         third_label = "Pace" if is_run else "Power"
                         if is_run:
-                            third_val = item["pace_str"] or "8:36/km"
+                            third_val = item["pace_str"] or "--"
                         else:
-                            third_val = f"{int(item['power_w'])}W" if item["power_w"] else "--"
+                            if item["power_w"]:
+                                third_val = f"{int(item['power_w'])}W"
+                            elif item.get("hr_bpm"):
+                                third_val = f"{int(item['hr_bpm'])} bpm"
+                                third_label = "Avg HR"
+                            else:
+                                third_val = "--"
 
                         load_val = str(int(item["load"]))
 
@@ -735,15 +889,16 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                             <div class="card-header-row">
                                 <span class="sport-icon">{sport_icon}</span>
                                 <div>
-                                    <p class="sport-title">{item['sport_title']} <span style="font-size:0.75rem; color:{TEXT_MUTED};">({item['status']})</span></p>
+                                    <p class="sport-title">{item['name']} <span style="font-size:0.75rem; color:{TEXT_MUTED};">({item['status']})</span></p>
                                     <p class="device-subtitle">{item['device']}</p>
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
 
-                        # Mini Intensity Chart
-                        fig_stream = generate_mini_stream_chart(act_type, seed_val=hash(item["id"]) % 1000)
-                        st.plotly_chart(fig_stream, use_container_width=True, config={'displayModeBar': False})
+                        # Mini Intensity Chart using live time-in-zone payload
+                        chart_unique_key = f"mini_chart_{item['id']}_{week_idx}_{item_idx}"
+                        fig_stream = generate_mini_stream_chart(item, seed_val=abs(hash(item["id"])) % 1000)
+                        st.plotly_chart(fig_stream, use_container_width=True, config={'displayModeBar': False}, key=chart_unique_key)
 
                         # Metrics Footer
                         c_m1, c_m2 = st.columns([3, 1])
@@ -770,8 +925,9 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                             """, unsafe_allow_html=True)
 
                         with c_m2:
-                            if st.button("💬 Review", key=f"rev_{item['id']}_{item_idx}", type="secondary"):
-                                st.session_state.pending_coach_prompt = f"Let me get a full debrief on my {item['sport_title']} session ({dist_km}, {dur_str}, {load_val} Load)."
+                            button_unique_key = f"rev_{item['id']}_{week_idx}_{item_idx}"
+                            if st.button("💬 Review", key=button_unique_key, type="secondary"):
+                                st.session_state.pending_coach_prompt = f"Let me get a full debrief on my {item['name']} session ({dist_km}, {dur_str}, {load_val} Load)."
                                 st.session_state.active_nav = "🤖 AI Coach & Sparring"
                                 st.rerun()
 
