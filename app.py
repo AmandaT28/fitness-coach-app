@@ -483,7 +483,7 @@ def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_
 
 def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -> str:
     errors = []
-    models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    models = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"]
     for name, key in GEMINI_KEYS:
         if not key: continue
         for m in models:
