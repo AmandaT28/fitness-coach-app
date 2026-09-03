@@ -61,7 +61,7 @@ INTERVALS_TIMEOUT = 10
 NAV_OPTIONS = [
     "☀️ Command Center",
     "🤖 AI Coach & Sparring",
-    "📅 Training Calendar (8w Past / 8w Future)",
+    "📅 Training Calendar",
     "👤 Athlete Profile & Memory",
     "🏋️ Workout Builder & MyWhoosh Sync",
     "🗺️ Route Strategist"
@@ -426,62 +426,133 @@ class WorkoutParserValidator:
         except Exception as e:
             return False, f"Network exception pushing workout: {str(e)}"
 
-# --- INTENSITY BAR CHART GENERATOR ---
+# --- WORKOUT STRUCTURE SYNTAX PARSER FOR INTERVALS.ICU / MYWHOOSH ---
 
-def generate_mini_stream_chart(activity_item: Dict[str, Any], seed_val: int = 42) -> go.Figure:
+def parse_workout_steps_to_profile(text: str) -> List[Tuple[float, float]]:
+    steps = []
+    if not text:
+        return steps
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    
+    repeat_count = 1
+    repeat_buffer = []
+    in_repeat = False
+    
+    for line in lines:
+        rep_m = re.search(r"(\d+)x$", line, re.IGNORECASE)
+        if rep_m:
+            if in_repeat and repeat_buffer:
+                for _ in range(repeat_count):
+                    steps.extend(repeat_buffer)
+                repeat_buffer = []
+            repeat_count = int(rep_m.group(1))
+            in_repeat = True
+            continue
+
+        step_m = re.search(r"^(?:-\s*)?(\d+)(m|s|h)?\s+([0-9]+)(?:-[0-9]+)?%?", line, re.IGNORECASE)
+        if step_m:
+            dur_val = int(step_m.group(1))
+            unit = (step_m.group(2) or "m").lower()
+            pct_ftp = float(step_m.group(3))
+            
+            dur_sec = dur_val * 60 if unit == "m" else (dur_val * 3600 if unit == "h" else dur_val)
+            
+            if in_repeat:
+                repeat_buffer.append((dur_sec, pct_ftp))
+            else:
+                steps.append((dur_sec, pct_ftp))
+        else:
+            if in_repeat and not line.startswith("-") and not line.startswith(" ") and not re.match(r"^\d+", line):
+                for _ in range(repeat_count):
+                    steps.extend(repeat_buffer)
+                repeat_buffer = []
+                in_repeat = False
+
+    if in_repeat and repeat_buffer:
+        for _ in range(repeat_count):
+            steps.extend(repeat_buffer)
+
+    return steps
+
+# --- INTENSITY BAR & INTERVAL WORKOUT CHART GENERATOR ---
+
+def generate_mini_stream_chart(activity_item: Dict[str, Any], seed_val: int = 42, is_greyed: bool = False) -> go.Figure:
     raw_data = activity_item.get("raw", {})
+    desc = raw_data.get("description", "") or raw_data.get("workout_doc", "") or activity_item.get("name", "")
     act_type = activity_item.get("type", "Ride")
     
-    zone_colors = [
-        "#7C8BA1",  # Z1 Active Recovery (Grey)
-        "#3B82F6",  # Z2 Endurance (Blue)
-        "#10B981",  # Z3 Tempo (Green)
-        "#F59E0B",  # Z4 Threshold (Amber)
-        "#EF4444",  # Z5 VO2Max (Red)
-        "#8B5CF6",  # Z6 Anaerobic (Purple)
-        "#EC4899"   # Z7 Neuromuscular (Pink)
-    ]
+    zone_colors = {
+        "Z1": "#7C8BA1",  # Active Recovery
+        "Z2": "#3B82F6",  # Endurance
+        "Z3": "#10B981",  # Tempo
+        "Z4": "#F59E0B",  # Threshold
+        "Z5": "#EF4444",  # VO2Max
+        "Z6": "#8B5CF6"   # Anaerobic
+    }
+    grey_colors = ["#21262D", "#30363D", "#484F58", "#6E7681"]
 
-    raw_zone_times = raw_data.get("icu_zone_times") or raw_data.get("icu_hr_zone_times") or raw_data.get("zone_times")
-    
-    safe_zone_times = []
-    if isinstance(raw_zone_times, list):
-        for item in raw_zone_times:
-            try:
-                safe_zone_times.append(float(item) if item is not None else 0.0)
-            except (ValueError, TypeError):
-                safe_zone_times.append(0.0)
+    def get_color(pct_ftp: float) -> str:
+        if is_greyed:
+            idx = min(3, max(0, int(pct_ftp / 30)))
+            return grey_colors[idx]
+        if pct_ftp < 55: return zone_colors["Z1"]
+        elif pct_ftp < 75: return zone_colors["Z2"]
+        elif pct_ftp < 90: return zone_colors["Z3"]
+        elif pct_ftp < 105: return zone_colors["Z4"]
+        elif pct_ftp < 120: return zone_colors["Z5"]
+        else: return zone_colors["Z6"]
 
-    if safe_zone_times and sum(safe_zone_times) > 0:
-        bars = [t / 60.0 for t in safe_zone_times[:7]]
-        colors = [zone_colors[i % len(zone_colors)] for i in range(len(bars))]
-        max_b = max(bars) if max(bars) > 0 else 1.0
-        widths = [max(0.4, min(1.0, b / max_b)) for b in bars]
+    parsed_steps = parse_workout_steps_to_profile(str(desc))
+
+    bars = []
+    colors = []
+    widths = []
+
+    if parsed_steps:
+        for dur, pct in parsed_steps:
+            num_slices = max(1, int(dur / 60))
+            for _ in range(num_slices):
+                bars.append(pct)
+                colors.append(get_color(pct))
+                widths.append(0.9)
     else:
         import random
         random.seed(seed_val)
+        dur_m = max(20, int((activity_item.get("duration_sec") or 3600) / 60))
+        num_blocks = min(36, max(16, dur_m // 2))
         
-        np_watts = float(activity_item.get("power_w") or 0)
-        ftp_val = float(st.session_state.profile_data.get("declared_ftp", 180))
-        if_ratio = np_watts / ftp_val if ftp_val > 0 else 0.85
-
-        if "Run" in act_type:
-            bars = [1.1, 1.05, 0.85, 0.75, 1.0, 0.95, 0.90]
-            colors = [zone_colors[4], zone_colors[4], zone_colors[3], zone_colors[1], zone_colors[4], zone_colors[3], zone_colors[2]]
-            widths = [0.85] * len(bars)
-        else:
-            num_blocks = 24
-            bars = []
-            colors = []
-            widths = [0.85] * num_blocks
-            for _ in range(num_blocks):
-                val = (0.5 + 0.7 * random.random()) * max(0.6, if_ratio)
-                bars.append(val)
-                if val < 0.55: colors.append(zone_colors[0])
-                elif val < 0.75: colors.append(zone_colors[1])
-                elif val < 0.90: colors.append(zone_colors[2])
-                elif val < 1.05: colors.append(zone_colors[3])
-                else: colors.append(zone_colors[4])
+        warmup_len = max(2, num_blocks // 5)
+        for i in range(warmup_len):
+            val = 45 + (i / warmup_len) * 30
+            bars.append(val)
+            colors.append(get_color(val))
+            widths.append(0.88)
+            
+        cooldown_len = max(2, num_blocks // 5)
+        main_len = num_blocks - warmup_len - cooldown_len
+        
+        is_interval = True
+        target_high = 95 + random.randint(0, 15)
+        target_low = 50 + random.randint(0, 10)
+        
+        block_counter = 0
+        block_size = 2 if "Run" in act_type else 3
+        
+        for _ in range(main_len):
+            val = target_high if is_interval else target_low
+            bars.append(val + random.uniform(-2, 2))
+            colors.append(get_color(val))
+            widths.append(0.88)
+            block_counter += 1
+            if block_counter >= block_size:
+                is_interval = not is_interval
+                block_counter = 0
+                
+        for i in range(cooldown_len):
+            val = 65 - (i / cooldown_len) * 25
+            bars.append(val)
+            colors.append(get_color(val))
+            widths.append(0.88)
 
     fig = go.Figure(go.Bar(
         x=list(range(len(bars))),
@@ -597,10 +668,10 @@ def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -
             except Exception as exc: errors.append(f"{name} ({m}): {exc}")
     raise RuntimeError(f"AI Connection Error: {' | '.join(errors[:3])}")
 
-# --- EXPANDED 16-WEEK INTERVALS.ICU DATA FETCHING ---
+# --- EXPANDED 90-DAY INTERVALS.ICU DATA FETCHING ---
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_intervals_data_16weeks(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
+def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
     if not athlete_id or not api_key:
         return [], [], [], "Credentials missing."
 
@@ -608,8 +679,8 @@ def fetch_intervals_data_16weeks(athlete_id: str, api_key: str) -> Tuple[List[Di
     auth = ("API_KEY", api_key)
     today = dt.datetime.now(LOCAL_TZ).date()
     
-    oldest_date = (today - dt.timedelta(weeks=8)).isoformat()
-    newest_date = (today + dt.timedelta(weeks=8)).isoformat()
+    oldest_date = (today - dt.timedelta(days=90)).isoformat()
+    newest_date = (today + dt.timedelta(days=30)).isoformat()
     base_url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
 
     endpoints = {
@@ -626,7 +697,7 @@ def fetch_intervals_data_16weeks(athlete_id: str, api_key: str) -> Tuple[List[Di
         except Exception:
             results[name] = []
 
-    return results.get("wellness", []), results.get("activities", []), results.get("events", []), "Connected to Intervals.icu (16-Week Window)"
+    return results.get("wellness", []), results.get("activities", []), results.get("events", []), "Connected to Intervals.icu (90-Day Window)"
 
 def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     items = []
@@ -778,7 +849,7 @@ if not INTERVALS_API_KEY or not ATHLETE_ID:
                 st.rerun()
     st.stop()
 
-wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data_16weeks(ATHLETE_ID, INTERVALS_API_KEY)
+wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data_90days(ATHLETE_ID, INTERVALS_API_KEY)
 
 # --- SIDEBAR NAVIGATION ---
 with st.sidebar:
@@ -836,12 +907,12 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
 
     if st.button("⚡ I missed a workout / Life got in the way — Rebalance my week", use_container_width=True):
         st.session_state.pending_coach_prompt = "I missed a workout today due to life circumstances. Please rebalance my training week safely while preserving rest days."
-        st.session_state.active_nav = "🤖 AI Coach & Sparring"
+        st.session_state.active_nav = NAV_OPTIONS[1]
         st.rerun()
 
     st.divider()
 
-    st.markdown("###### 📊 16-Week Performance Management Chart (CTL / ATL / TSB)")
+    st.markdown("###### 📊 90-Day Performance Management Chart (CTL / ATL / TSB)")
     if wellness_list:
         df_w = pd.DataFrame(wellness_list)
         date_col = next((col for col in ['id', 'date', 'start_date'] if col in df_w.columns), None)
@@ -885,15 +956,15 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
 
     st.divider()
 
-    if st.button("🚀 Run 16-Week Multi-Sport Trend Synthesis", type="primary", use_container_width=True):
-        payload_text = f"Analyze this multi-sport athlete's 16-week window (8 weeks past + 8 weeks future). CTL {ctl:.1f}; ATL {atl:.1f}; TSB {tsb:.1f}. ACWR: {acwr}. Goal: {prof['goals']['target_metric']}."
-        with st.spinner("Analyzing 16 weeks of multi-sport training data..."):
+    if st.button("🚀 Run 90-Day Multi-Sport Trend Synthesis", type="primary", use_container_width=True):
+        payload_text = f"Analyze this multi-sport athlete's 90-day training trend window. CTL {ctl:.1f}; ATL {atl:.1f}; TSB {tsb:.1f}. ACWR: {acwr}. Goal: {prof['goals']['target_metric']}."
+        with st.spinner("Analyzing 90 days of multi-sport training data..."):
             try:
                 new_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=4000)
                 timestamp_str = dt.datetime.now(LOCAL_TZ).strftime("%d %b %Y, %H:%M %Z")
                 st.session_state.cached_trend_analyses.insert(0, {"timestamp": timestamp_str, "analysis": new_analysis})
                 st.session_state.cached_trend_analyses = st.session_state.cached_trend_analyses[:3]
-                st.toast("16-week trend synthesis complete!", icon="📈")
+                st.toast("90-day trend synthesis complete!", icon="📈")
             except Exception as exc: st.error(str(exc))
 
     if st.session_state.cached_trend_analyses:
@@ -902,41 +973,53 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
             with st.expander(f"📌 Trend Report #{len(st.session_state.cached_trend_analyses) - idx} · Generated {item['timestamp']}", expanded=(idx == 0)):
                 st.markdown(item['analysis'])
                 if st.button("💬 Discuss with Coach", key=f"trend_discuss_{idx}"):
-                    st.session_state.pending_coach_prompt = f"Let me discuss my 16-Week Trend Synthesis from {item['timestamp']}."
-                    st.session_state.active_nav = "🤖 AI Coach & Sparring"
+                    st.session_state.pending_coach_prompt = f"Let me discuss my 90-Day Trend Synthesis from {item['timestamp']}."
+                    st.session_state.active_nav = NAV_OPTIONS[1]
                     st.rerun()
 
 # VIEW 2: AI COACH CHAT
 elif st.session_state.active_nav == NAV_OPTIONS[1]:
     st.markdown("##### 🤖 AI Multi-Sport Coach")
 
-    if st.session_state.pending_coach_prompt:
-        prompt_to_send = st.session_state.pending_coach_prompt
-        st.session_state.pending_coach_prompt = None
-        st.session_state.messages.append({"role": "user", "content": prompt_to_send})
-        try:
-            res = execute_ai(build_gemini_payload(prompt_to_send, wellness_list, activities_data))
-            st.session_state.messages.append({"role": "assistant", "content": res})
-        except Exception as e:
-            st.error(str(e))
-
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(clean_chat_content(msg["content"]))
 
+    if st.session_state.pending_coach_prompt:
+        prompt_to_send = st.session_state.pending_coach_prompt
+        st.session_state.pending_coach_prompt = None
+
+        st.session_state.messages.append({"role": "user", "content": prompt_to_send})
+        with st.chat_message("user"):
+            st.markdown(prompt_to_send)
+
+        with st.chat_message("assistant"):
+            with st.spinner("🤖 Coach is reviewing your activity data & performance metrics..."):
+                try:
+                    res = execute_ai(build_gemini_payload(prompt_to_send, wellness_list, activities_data))
+                    st.markdown(clean_chat_content(res))
+                    st.session_state.messages.append({"role": "assistant", "content": res})
+                except Exception as e:
+                    st.error(str(e))
+        st.rerun()
+
     if prompt := st.chat_input("Ask your coach... (e.g. Plan a 60m VO2Max workout for MyWhoosh)"):
         st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"): st.markdown(prompt)
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
         with st.chat_message("assistant"):
-            try:
-                res = execute_ai(build_gemini_payload(prompt, wellness_list, activities_data))
-                st.markdown(clean_chat_content(res))
-                st.session_state.messages.append({"role": "assistant", "content": res})
-            except Exception as e: st.error(str(e))
+            with st.spinner("🤖 Coach is analyzing your request..."):
+                try:
+                    res = execute_ai(build_gemini_payload(prompt, wellness_list, activities_data))
+                    st.markdown(clean_chat_content(res))
+                    st.session_state.messages.append({"role": "assistant", "content": res})
+                except Exception as e:
+                    st.error(str(e))
 
 # VIEW 3: TRAINING CALENDAR
 elif st.session_state.active_nav == NAV_OPTIONS[2]:
-    st.markdown("##### 📅 Multi-Sport Training Calendar (Past 8 Weeks to Next 8 Weeks)")
+    st.markdown("##### 📅 Multi-Sport Training Calendar")
 
     col_f1, col_f2 = st.columns(2)
     sport_filter = col_f1.selectbox("Filter Sport", ["All Sports", "Cycling", "Running"])
@@ -957,7 +1040,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
         filtered_feed.append(item)
 
     if not filtered_feed:
-        st.info("No activities or planned workouts found matching your filters across the 16-week window.")
+        st.info("No activities or planned workouts found matching your filters across the training window.")
 
     grouped_weeks: Dict[Tuple[dt.date, dt.date], Dict[str, List[Dict[str, Any]]]] = {}
     today_date = dt.datetime.now(LOCAL_TZ).date()
@@ -1007,6 +1090,11 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
 
                 with col_card:
                     for item_idx, item in enumerate(day_items):
+                        item_date = item["datetime"].date()
+                        is_past = item_date < today_date
+                        is_incomplete = (item["status"] == "Planned") or (item.get("status") in ["Missed", "Incomplete"])
+                        is_past_incomplete = is_past and is_incomplete
+
                         act_type = item["type"]
                         is_run = "Run" in act_type
                         sport_icon = "🏃" if is_run else "🚴‍♂️"
@@ -1029,19 +1117,24 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
 
                         load_val = str(int(item["load"]))
 
+                        card_opacity = "0.55" if is_past_incomplete else "1.0"
+                        card_border = "#21262D" if is_past_incomplete else BORDER_SUBTLE
+                        status_label = "Incomplete" if is_past_incomplete else item['status']
+                        status_color = TEXT_MUTED if is_past_incomplete else ("#10B981" if item['status'] == "Completed" else "#3B82F6")
+
                         st.markdown(f"""
-                        <div class="activity-card-body">
+                        <div class="activity-card-body" style="opacity: {card_opacity}; border-color: {card_border};">
                             <div class="card-header-row">
-                                <span class="sport-icon">{sport_icon}</span>
+                                <span class="sport-icon" style="filter: {'grayscale(100%)' if is_past_incomplete else 'none'};">{sport_icon}</span>
                                 <div>
-                                    <p class="sport-title">{item['name']} <span style="font-size:0.75rem; color:{TEXT_MUTED};">({item['status']})</span></p>
+                                    <p class="sport-title">{item['name']} <span style="font-size:0.75rem; color:{status_color};">({status_label})</span></p>
                                     <p class="device-subtitle">{item['device']}</p>
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
 
                         chart_unique_key = f"mini_chart_{item['id']}_{week_idx}_{item_idx}"
-                        fig_stream = generate_mini_stream_chart(item, seed_val=abs(hash(item["id"])) % 1000)
+                        fig_stream = generate_mini_stream_chart(item, seed_val=abs(hash(item["id"])) % 1000, is_greyed=is_past_incomplete)
                         st.plotly_chart(fig_stream, use_container_width=True, config={'displayModeBar': False}, key=chart_unique_key)
 
                         c_m1, c_m2 = st.columns([3, 1])
@@ -1075,7 +1168,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                     f"from {item['date_str']} (Distance: {dist_km}, Duration: {dur_str}, "
                                     f"Power/Pace: {third_val}, Load: {load_val}). Analyze efficiency, zones, and recovery needs."
                                 )
-                                st.session_state.active_nav = "🤖 AI Coach & Sparring"
+                                st.session_state.active_nav = NAV_OPTIONS[1]
                                 st.rerun()
 
                         st.markdown("</div>", unsafe_allow_html=True)
