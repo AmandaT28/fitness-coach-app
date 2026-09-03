@@ -59,6 +59,11 @@ NAV_OPTIONS = [
     "🗺️ Route Strategist"
 ]
 COACH_PAGE = "🤖 AI Coach & Sparring"
+PERSONA_OPTIONS = [
+    "Collaborative Peer (Balanced & Brainstorming)",
+    "Sports Scientist (Data & Periodization Focus)",
+    "Drill Sergeant (Strict & Direct Accountability)"
+]
 DEFAULT_GOALS = {
     "event_name": "Bintan Round Island / Multi-Sport", 
     "target_metric": "Balance cycling threshold power and running endurance/pace", 
@@ -77,7 +82,7 @@ def init_state():
     defaults = {
         "user": None, "user_credentials": None, "messages": [],
         "active_nav": NAV_OPTIONS[0], "sidebar_nav": NAV_OPTIONS[0],
-        "coach_persona": "Collaborative Peer (Balanced & Brainstorming)",
+        "coach_persona": PERSONA_OPTIONS[0],
         "athlete_gear": "", "athlete_limitations": "", "goals": DEFAULT_GOALS.copy(),
         "user_supplements": [], "cached_trend_analyses": [],
         "selected_activity_analysis": None, "selected_activity_label": None, 
@@ -381,11 +386,11 @@ def gemini_generate(messages_payload, api_key, model_name, max_tokens=4000):
 
 def execute_ai(messages_payload, max_tokens=4000):
     errors = []
-    # Updated to active, fast Google Gemini model endpoints
+    # FIX BUG 2: Valid operational model endpoints
     models = [
-        "gemini-2.5-flash", 
-        "gemini-2.0-flash", 
-        "gemini-1.5-flash"
+        "gemini-3.6-flash", 
+        "gemini-3.5-flash", 
+        "gemini-3.7-flash"
     ]
     
     for name, key in GEMINI_KEYS:
@@ -450,6 +455,17 @@ def persist_supplements_to_db():
     elif localS and st.session_state.user_credentials:
         try:
             st.session_state.user_credentials["supplements"] = st.session_state.user_supplements
+            localS.setItem("athlete_profile_config", st.session_state.user_credentials)
+        except Exception: pass
+
+def persist_persona_to_db(persona_val):
+    if st.session_state.user and supabase:
+        try:
+            (supabase.table("profiles").update({"coach_persona": persona_val}).eq("id", st.session_state.user.id).execute())
+        except Exception: pass
+    elif localS and st.session_state.user_credentials:
+        try:
+            st.session_state.user_credentials["coach_persona"] = persona_val
             localS.setItem("athlete_profile_config", st.session_state.user_credentials)
         except Exception: pass
 
@@ -613,7 +629,6 @@ def build_gemini_payload(current_question, display_name, wellness_list, activiti
     else:
         gatekeeper_directive = f"Readiness Status: CLEAR (TSB: {current_tsb:.1f}, Sleep: {current_sleep:.0f}, ACWR: {acwr_val}). Multi-sport load balanced."
 
-    # FIX BUG 1: Properly reference trend reports from cached_trend_analyses list
     trend_reports = st.session_state.get('cached_trend_analyses', [])
     if trend_reports:
         latest_trend = trend_reports[0]
@@ -621,7 +636,6 @@ def build_gemini_payload(current_question, display_name, wellness_list, activiti
     else:
         trend_ctx = "No 90-Day Trend Analysis generated yet."
 
-    # FIX BUG 2: Format and pass recent synced activities (Garmin / Intervals)
     recent_acts_summary = [activity_summary(act) for act in (activities_data or [])[:5]]
     recent_acts_ctx = json.dumps(recent_acts_summary, ensure_ascii=False) if recent_acts_summary else "No recent completed activities found."
 
@@ -698,9 +712,8 @@ def render_coach_reply(question, display_name, wellness_list, athlete_id, interv
         except Exception as exc:
             placeholder.error(f"⚠️ {exc}")
 
-# --- RUNTIME AUTHENTICATION & SESSION PERSISTENCE (BUG 4 FIX) ---
+# --- RUNTIME AUTHENTICATION & SESSION PERSISTENCE ---
 
-# Maintain token in URL parameters to survive mobile background tab sleeps / page refreshes
 try:
     token = st.query_params.get("token")
     if token and not st.session_state.user_credentials:
@@ -756,6 +769,7 @@ if st.session_state.user:
     display_name = profile.get("name") or "Athlete"
     st.session_state.athlete_gear = st.session_state.athlete_gear or profile.get("gear_notes", "")
     st.session_state.athlete_limitations = st.session_state.athlete_limitations or profile.get("limitations_notes", "")
+    if profile.get("coach_persona"): st.session_state.coach_persona = profile["coach_persona"]
     for key in DEFAULT_GOALS: st.session_state.goals[key] = profile.get(key) or st.session_state.goals[key]
     if profile.get("coach_memory"): st.session_state.coach_memory = profile["coach_memory"]
     if not st.session_state.profile_loaded:
@@ -767,6 +781,7 @@ else:
     INTERVALS_API_KEY, ATHLETE_ID, display_name = creds.get("icu_key", ""), creds.get("icu_id", ""), creds.get("name", "Athlete")
     st.session_state.athlete_gear = st.session_state.athlete_gear or creds.get("gear", "")
     st.session_state.athlete_limitations = st.session_state.athlete_limitations or creds.get("limitations", "")
+    if creds.get("coach_persona"): st.session_state.coach_persona = creds["coach_persona"]
     if isinstance(creds.get("goals"), dict): st.session_state.goals.update({key: value for key, value in creds["goals"].items() if key in DEFAULT_GOALS and value})
     if creds.get("coach_memory"): st.session_state.coach_memory = creds["coach_memory"]
     if not st.session_state.profile_loaded:
@@ -799,8 +814,17 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    st.session_state.coach_persona = st.selectbox("Coaching Persona", ["Collaborative Peer (Balanced & Brainstorming)", "Sports Scientist (Data & Periodization Focus)", "Drill Sergeant (Strict & Direct Accountability)"], index=0)
     
+    # FIX BUG 1: Dynamic Persona Selection with State Retention
+    current_persona = st.session_state.get("coach_persona", PERSONA_OPTIONS[0])
+    current_persona_idx = PERSONA_OPTIONS.index(current_persona) if current_persona in PERSONA_OPTIONS else 0
+    selected_persona = st.selectbox("Coaching Persona", PERSONA_OPTIONS, index=current_persona_idx)
+    
+    if selected_persona != st.session_state.coach_persona:
+        st.session_state.coach_persona = selected_persona
+        persist_persona_to_db(selected_persona)
+        st.rerun()
+
     with st.expander("Recovery, fuel & supplements", expanded=False):
         with st.form("sidebar_supplement_form", clear_on_submit=True):
             supplement_name = st.text_input("Supplement / fuel")
@@ -838,6 +862,7 @@ with st.sidebar:
                             "gear_notes": gear,
                             "limitations_notes": limitations,
                             "supplements": st.session_state.user_supplements,
+                            "coach_persona": st.session_state.coach_persona,
                             "chat_history": st.session_state.messages[-30:]
                         }).eq("id", st.session_state.user.id).execute())
                     except Exception as exc: st.warning(f"Profile saved locally: {exc}")
