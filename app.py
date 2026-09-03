@@ -131,6 +131,7 @@ def save_disk_store():
         "user_supplements": st.session_state.get("user_supplements"),
         "messages": st.session_state.get("messages", []),
         "cached_trend_analyses": st.session_state.get("cached_trend_analyses", []),
+        "protected_events": st.session_state.get("protected_events", []),
     }
     try:
         with open(PERSIST_FILE, "w") as f:
@@ -161,7 +162,7 @@ def init_state():
         "coach_memory": disk_data.get("coach_memory", DEFAULT_COACH_MEMORY),
         "user_supplements": disk_data.get("user_supplements", DEFAULT_SUPPLEMENTS.copy()),
         "daily_notes": {},
-        "protected_events": [],
+        "protected_events": disk_data.get("protected_events", []),
         "cached_trend_analyses": disk_data.get("cached_trend_analyses", []),
         "pending_coach_prompt": None,
         "ai_diagnostic": None,
@@ -486,7 +487,7 @@ def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -
                         break
     raise RuntimeError(f"AI Connection Error: {' | '.join(errors[-3:])}")
 
-# --- 90-DAY PAST + 60-DAY FUTURE (2 MONTHS) DATA FETCHING ---
+# --- 90-DAY PAST + 60-DAY FUTURE DATA FETCHING ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
     if not athlete_id or not api_key:
@@ -497,7 +498,7 @@ def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dic
     today = dt.datetime.now(LOCAL_TZ).date()
     
     oldest_date = (today - dt.timedelta(days=90)).isoformat()
-    newest_date = (today + dt.timedelta(days=62)).isoformat()  # Covers future 2 full months
+    newest_date = (today + dt.timedelta(days=62)).isoformat()
     base_url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
 
     endpoints = {
@@ -834,15 +835,83 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                 except Exception as e:
                     st.error(str(e))
 
-# VIEW 3: TRAINING CALENDAR (ORGANIZED BY MONTHS -> EXPANDS TO WEEKS)
+# VIEW 3: TRAINING CALENDAR & LIFE EVENT PLANNER
 elif st.session_state.active_nav == NAV_OPTIONS[2]:
-    st.markdown("##### 📅 Multi-Sport Training Calendar")
+    st.markdown("##### 📅 Multi-Sport Training Calendar & Life Event Planner")
+
+    # --- PLANNED EVENTS / TRIPS MANAGER ---
+    with st.expander("✈️ Add & Manage Planned Trips, Races or Travel Blocks", expanded=False):
+        with st.form("form_add_event", clear_on_submit=True):
+            e_title = st.text_input("Event / Trip Title", placeholder="e.g. Jeju Cycling Trip, Business Travel, Altitude Camp")
+            e_cat = st.selectbox("Category", ["✈️ Travel / Trip", "🏁 Race / Target Event", "🚫 Rest / Recovery Block", "📌 Note / Event"])
+            c_d1, c_d2 = st.columns(2)
+            e_start = c_d1.date_input("Start Date", value=dt.datetime.now(LOCAL_TZ).date())
+            e_end = c_d2.date_input("End Date", value=dt.datetime.now(LOCAL_TZ).date())
+            e_notes = st.text_area("Impact / Coach Instructions", placeholder="e.g. No bike access, high walking load, protect joint recovery")
+            
+            if st.form_submit_button("Save Event to Calendar", use_container_width=True):
+                if e_title.strip():
+                    new_ev = {
+                        "title": e_title.strip(),
+                        "category": e_cat,
+                        "start_date": e_start.strftime("%Y-%m-%d"),
+                        "end_date": e_end.strftime("%Y-%m-%d"),
+                        "notes": e_notes.strip()
+                    }
+                    st.session_state.protected_events.append(new_ev)
+                    save_disk_store()
+                    st.toast(f"Saved '{e_title}' to calendar!", icon="🗓️")
+                    st.rerun()
+
+        if st.session_state.protected_events:
+            st.markdown("###### Currently Saved Life Events & Trips")
+            for p_idx, p_ev in enumerate(st.session_state.protected_events):
+                pe_col1, pe_col2, pe_col3 = st.columns([3, 4, 1])
+                pe_col1.markdown(f"**{p_ev['category']} {p_ev['title']}**")
+                pe_col2.caption(f"🗓️ {p_ev['start_date']} to {p_ev['end_date']} | {p_ev.get('notes', '')}")
+                if pe_col3.button("❌", key=f"del_p_ev_{p_idx}"):
+                    st.session_state.protected_events.pop(p_idx)
+                    save_disk_store()
+                    st.rerun()
+
+    st.divider()
 
     col_f1, col_f2 = st.columns(2)
-    sport_filter = col_f1.selectbox("Filter Sport", ["All Sports", "Cycling", "Running"])
-    status_filter = col_f2.selectbox("Filter Status", ["All Sessions", "Completed", "Planned"])
+    sport_filter = col_f1.selectbox("Filter Sport", ["All Sports", "Cycling", "Running", "Events & Trips"])
+    status_filter = col_f2.selectbox("Filter Status", ["All Sessions", "Completed", "Planned", "Event / Trip"])
 
     raw_feed = get_unified_calendar_items(activities_data, planned_events)
+
+    # MERGE SAVED LIFE EVENTS & TRIPS INTO CALENDAR FEED
+    for idx, p_ev in enumerate(st.session_state.get("protected_events", [])):
+        try:
+            s_dt = dt.datetime.strptime(p_ev["start_date"], "%Y-%m-%d")
+            e_dt = dt.datetime.strptime(p_ev["end_date"], "%Y-%m-%d")
+            curr = s_dt
+            while curr <= e_dt:
+                date_str = curr.strftime("%Y-%m-%d")
+                dt_obj = dt.datetime.combine(curr.date(), dt.time(8, 0))
+                
+                raw_feed.append({
+                    "id": f"pevent_{idx}_{date_str}",
+                    "date_str": date_str,
+                    "datetime": dt_obj,
+                    "status": "Event / Trip",
+                    "type": p_ev.get("category", "Trip"),
+                    "name": p_ev["title"],
+                    "sport_title": p_ev.get("category", "Event"),
+                    "device": p_ev.get("notes") or "Planned Event / Travel Block",
+                    "duration_sec": 0,
+                    "distance_m": 0,
+                    "power_w": None,
+                    "hr_bpm": None,
+                    "pace_str": None,
+                    "load": 0,
+                    "raw": {}
+                })
+                curr += dt.timedelta(days=1)
+        except Exception:
+            pass
 
     filtered_feed = []
     for item in raw_feed:
@@ -850,26 +919,20 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
             continue
         if sport_filter == "Running" and "Run" not in item["type"] and "Running" not in item["sport_title"]:
             continue
+        if sport_filter == "Events & Trips" and item["status"] != "Event / Trip":
+            continue
         if status_filter == "Completed" and item["status"] != "Completed":
             continue
         if status_filter == "Planned" and item["status"] != "Planned":
             continue
+        if status_filter == "Event / Trip" and item["status"] != "Event / Trip":
+            continue
         filtered_feed.append(item)
 
-    if not filtered_feed:
-        st.info("No activities or planned workouts found matching your filters across the training window.")
-
-# Grouping Hierarchy: Year-Month -> Week -> Day
+    # Grouping Hierarchy: Year-Month -> Week -> Day
     grouped_months: Dict[Tuple[int, int], Dict[Tuple[dt.date, dt.date], Dict[str, List[Dict[str, Any]]]]] = {}
     today_date = dt.datetime.now(LOCAL_TZ).date()
 
-    # Pre-initialize Current Month + Next 2 Future Months so they always show
-    for offset in range(3):
-        target_month = (today_date.month - 1 + offset) % 12 + 1
-        target_year = today_date.year + (today_date.month - 1 + offset) // 12
-        grouped_months[(target_year, target_month)] = {}
-
-    # Populate fetched items into month/week groups
     for item in filtered_feed:
         item_date = item["datetime"].date()
         month_key = (item_date.year, item_date.month)
@@ -887,6 +950,15 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
         if date_str not in grouped_months[month_key][week_key]:
             grouped_months[month_key][week_key][date_str] = []
         grouped_months[month_key][week_key][date_str].append(item)
+
+    # FORCE PRE-POPULATION OF CURRENT MONTH + NEXT 2 FUTURE MONTHS
+    for i in range(3):
+        target_m = today_date.month + i
+        target_y = today_date.year + (target_m - 1) // 12
+        target_m = ((target_m - 1) % 12) + 1
+        m_key = (target_y, target_m)
+        if m_key not in grouped_months:
+            grouped_months[m_key] = {}
 
     declared_ftp = int(st.session_state.profile_data.get("declared_ftp", 180))
 
@@ -911,155 +983,159 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
 
         with st.expander(month_label, expanded=(is_current_month or is_future_month)):
             if not month_weeks:
-                st.info("No workouts or events scheduled for this month yet.")
+                st.info("📌 No workouts or events logged for this month yet. Use the manager above to schedule planned travel or races.")
             else:
                 # Render Week Level inside Month
                 for week_idx, ((w_start, w_end), days_dict) in enumerate(sorted(month_weeks.items(), key=lambda x: x[0][0], reverse=True)):
-                week_all_items = [item for days in days_dict.values() for item in days]
-                w_total_sec = sum(item["duration_sec"] for item in week_all_items)
-                w_hours = w_total_sec / 3600.0
-                w_h_part = int(w_hours)
-                w_m_part = int((w_hours - w_h_part) * 60)
-                w_dur_summary = f"{w_h_part}h {w_m_part}m" if w_h_part > 0 else f"{w_m_part}m"
-                w_total_load = int(sum(item["load"] for item in week_all_items))
+                    week_all_items = [item for day_list in days_dict.values() for item in day_list]
+                    w_total_sec = sum(item["duration_sec"] for item in week_all_items)
+                    w_hours = w_total_sec / 3600.0
+                    w_h_part = int(w_hours)
+                    w_m_part = int((w_hours - w_h_part) * 60)
+                    w_dur_summary = f"{w_h_part}h {w_m_part}m" if w_h_part > 0 else f"{w_m_part}m"
+                    w_total_load = int(sum(item["load"] for item in week_all_items))
 
-                is_current_week = (w_start <= today_date <= w_end)
-                week_tag = " [CURRENT WEEK]" if is_current_week else (" [FUTURE]" if w_start > today_date else " [PAST]")
-                week_label = f"📅 Week {w_start.strftime('%b %d')} - {w_end.strftime('%b %d')}{week_tag} &nbsp;·&nbsp; {w_dur_summary} &nbsp;·&nbsp; {w_total_load} Load"
+                    is_current_week = (w_start <= today_date <= w_end)
+                    week_tag = " [CURRENT WEEK]" if is_current_week else (" [FUTURE]" if w_start > today_date else " [PAST]")
+                    week_label = f"📅 Week {w_start.strftime('%b %d')} - {w_end.strftime('%b %d')}{week_tag} &nbsp;·&nbsp; {w_dur_summary} &nbsp;·&nbsp; {w_total_load} Load"
 
-                with st.expander(week_label, expanded=is_current_week):
-                    for date_str, day_items in sorted(days_dict.items(), reverse=True):
-                        dt_obj = day_items[0]["datetime"]
-                        day_name = dt_obj.strftime("%a")
-                        day_num = dt_obj.strftime("%d")
+                    with st.expander(week_label, expanded=is_current_week):
+                        for date_str, day_items in sorted(days_dict.items(), reverse=True):
+                            dt_obj = day_items[0]["datetime"]
+                            day_name = dt_obj.strftime("%a")
+                            day_num = dt_obj.strftime("%d")
 
-                        col_date, col_card = st.columns([1, 11])
-                        
-                        with col_date:
-                            st.markdown(f"""
-                            <div class="date-badge-col">
-                                <div class="date-day-name">{day_name}</div>
-                                <div class="date-day-number">{day_num}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                        with col_card:
-                            for item_idx, item in enumerate(day_items):
-                                item_date = item["datetime"].date()
-                                is_past = item_date < today_date
-                                is_incomplete = (item["status"] == "Planned") or (item.get("status") in ["Missed", "Incomplete"])
-                                is_past_incomplete = is_past and is_incomplete
-
-                                act_type = item["type"]
-                                is_run = "Run" in act_type
-                                sport_icon = "🏃" if is_run else "🚴‍♂️"
-                                
-                                duration_m = round(item["duration_sec"] / 60.0)
-                                dur_str = f"{duration_m}m" if duration_m < 60 else f"{duration_m//60}h {duration_m%60}m"
-                                dist_km = f"{item['distance_m']/1000.0:.1f}km" if item['distance_m'] > 0 else "--"
-                                
-                                third_label = "Pace" if is_run else "Power"
-                                if is_run:
-                                    third_val = item["pace_str"] or "--"
-                                else:
-                                    if item["power_w"]:
-                                        third_val = f"{int(item['power_w'])}W"
-                                    elif item.get("hr_bpm"):
-                                        third_val = f"{int(item['hr_bpm'])} bpm"
-                                        third_label = "Avg HR"
-                                    else:
-                                        third_val = "--"
-
-                                load_val = str(int(item["load"]))
-
-                                card_opacity = "0.55" if is_past_incomplete else "1.0"
-                                card_border = "#21262D" if is_past_incomplete else BORDER_SUBTLE
-                                status_label = "Incomplete" if is_past_incomplete else item['status']
-                                status_color = TEXT_MUTED if is_past_incomplete else ("#10B981" if item['status'] == "Completed" else "#3B82F6")
-
+                            col_date, col_card = st.columns([1, 11])
+                            
+                            with col_date:
                                 st.markdown(f"""
-                                <div class="activity-card-body" style="opacity: {card_opacity}; border-color: {card_border};">
-                                    <div class="card-header-row">
-                                        <span class="sport-icon" style="filter: {'grayscale(100%)' if is_past_incomplete else 'none'};">{sport_icon}</span>
-                                        <div>
-                                            <p class="sport-title">{item['name']} <span style="font-size:0.75rem; color:{status_color};">({status_label})</span></p>
-                                            <p class="device-subtitle">{item['device']}</p>
-                                        </div>
-                                    </div>
+                                <div class="date-badge-col">
+                                    <div class="date-day-name">{day_name}</div>
+                                    <div class="date-day-number">{day_num}</div>
+                                </div>
                                 """, unsafe_allow_html=True)
 
-                                raw_desc = item.get("raw", {}).get("description", "") or item.get("raw", {}).get("workout_doc", "")
-                                workout_details = parse_workout_steps_detailed(raw_desc, declared_ftp)
+                            with col_card:
+                                for item_idx, item in enumerate(day_items):
+                                    item_date = item["datetime"].date()
+                                    is_past = item_date < today_date
+                                    is_event = (item["status"] == "Event / Trip")
+                                    is_incomplete = (item["status"] == "Planned") or (item.get("status") in ["Missed", "Incomplete"])
+                                    is_past_incomplete = is_past and is_incomplete and not is_event
 
-                                c_m1, c_m2 = st.columns([3, 1])
-                                with c_m1:
+                                    act_type = item["type"]
+                                    is_run = "Run" in act_type
+                                    sport_icon = "✈️" if is_event else ("🏃" if is_run else "🚴‍♂️")
+                                    
+                                    duration_m = round(item["duration_sec"] / 60.0)
+                                    dur_str = f"{duration_m}m" if duration_m < 60 else f"{duration_m//60}h {duration_m%60}m"
+                                    dist_km = f"{item['distance_m']/1000.0:.1f}km" if item['distance_m'] > 0 else "--"
+                                    
+                                    third_label = "Pace" if is_run else "Power"
+                                    if is_event:
+                                        third_val = "Event Block"
+                                        third_label = "Type"
+                                    elif is_run:
+                                        third_val = item["pace_str"] or "--"
+                                    else:
+                                        if item["power_w"]:
+                                            third_val = f"{int(item['power_w'])}W"
+                                        elif item.get("hr_bpm"):
+                                            third_val = f"{int(item['hr_bpm'])} bpm"
+                                            third_label = "Avg HR"
+                                        else:
+                                            third_val = "--"
+
+                                    load_val = str(int(item["load"]))
+
+                                    card_opacity = "0.55" if is_past_incomplete else "1.0"
+                                    card_border = "#F59E0B" if is_event else ("#21262D" if is_past_incomplete else BORDER_SUBTLE)
+                                    status_label = "Trip / Event" if is_event else ("Incomplete" if is_past_incomplete else item['status'])
+                                    status_color = "#F59E0B" if is_event else (TEXT_MUTED if is_past_incomplete else ("#10B981" if item['status'] == "Completed" else "#3B82F6"))
+
                                     st.markdown(f"""
-                                    <div class="metrics-flex-group">
-                                        <div class="metric-box">
-                                            <span class="metric-box-label">Duration</span>
-                                            <span class="metric-box-val">{dur_str}</span>
+                                    <div class="activity-card-body" style="opacity: {card_opacity}; border-color: {card_border};">
+                                        <div class="card-header-row">
+                                            <span class="sport-icon" style="filter: {'grayscale(100%)' if is_past_incomplete else 'none'};">{sport_icon}</span>
+                                            <div>
+                                                <p class="sport-title">{item['name']} <span style="font-size:0.75rem; color:{status_color};">({status_label})</span></p>
+                                                <p class="device-subtitle">{item['device']}</p>
+                                            </div>
                                         </div>
-                                        <div class="metric-box">
-                                            <span class="metric-box-label">Distance</span>
-                                            <span class="metric-box-val">{dist_km}</span>
-                                        </div>
-                                        <div class="metric-box">
-                                            <span class="metric-box-label">{third_label}</span>
-                                            <span class="metric-box-val">{third_val}</span>
-                                        </div>
-                                        <div class="metric-box">
-                                            <span class="metric-box-label">Load</span>
-                                            <span class="metric-box-val">{load_val}</span>
-                                        </div>
-                                    </div>
                                     """, unsafe_allow_html=True)
 
-                                with c_m2:
-                                    button_unique_key = f"rev_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"
-                                    if st.button("💬 Review & Inspect", key=button_unique_key, type="secondary"):
-                                        st.session_state.pending_coach_prompt = (
-                                            f"Please run a deep activity inspection on my {item['name']} session "
-                                            f"from {item['date_str']} (Distance: {dist_km}, Duration: {dur_str}, "
-                                            f"Power/Pace: {third_val}, Load: {load_val}). Analyze efficiency, zones, and recovery needs."
-                                        )
-                                        st.session_state.active_nav = NAV_OPTIONS[1]
-                                        st.rerun()
+                                    raw_desc = item.get("raw", {}).get("description", "") or item.get("raw", {}).get("workout_doc", "")
+                                    workout_details = parse_workout_steps_detailed(raw_desc, declared_ftp)
 
-                                if workout_details["steps"] or workout_details["notes"]:
-                                    with st.expander("📋 Detailed Workout Structure & Target Metrics"):
-                                        col_d1, col_d2 = st.columns([2, 1])
-                                        
-                                        with col_d1:
-                                            st.markdown("**Structured Workout Steps:**")
-                                            for step_str in workout_details["steps"]:
-                                                st.markdown(step_str)
+                                    c_m1, c_m2 = st.columns([3, 1])
+                                    with c_m1:
+                                        st.markdown(f"""
+                                        <div class="metrics-flex-group">
+                                            <div class="metric-box">
+                                                <span class="metric-box-label">Duration</span>
+                                                <span class="metric-box-val">{dur_str if not is_event else 'All Day'}</span>
+                                            </div>
+                                            <div class="metric-box">
+                                                <span class="metric-box-label">Distance</span>
+                                                <span class="metric-box-val">{dist_km if not is_event else '--'}</span>
+                                            </div>
+                                            <div class="metric-box">
+                                                <span class="metric-box-label">{third_label}</span>
+                                                <span class="metric-box-val">{third_val}</span>
+                                            </div>
+                                            <div class="metric-box">
+                                                <span class="metric-box-label">Load</span>
+                                                <span class="metric-box-val">{load_val}</span>
+                                            </div>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+
+                                    with c_m2:
+                                        button_unique_key = f"rev_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"
+                                        if st.button("💬 Review & Inspect", key=button_unique_key, type="secondary"):
+                                            st.session_state.pending_coach_prompt = (
+                                                f"Please run a deep activity inspection on my {item['name']} session "
+                                                f"from {item['date_str']} (Distance: {dist_km}, Duration: {dur_str}, "
+                                                f"Power/Pace: {third_val}, Load: {load_val}). Analyze efficiency, zones, and recovery needs."
+                                            )
+                                            st.session_state.active_nav = NAV_OPTIONS[1]
+                                            st.rerun()
+
+                                    if workout_details["steps"] or workout_details["notes"]:
+                                        with st.expander("📋 Detailed Workout Structure & Target Metrics"):
+                                            col_d1, col_d2 = st.columns([2, 1])
                                             
-                                            if workout_details["notes"]:
-                                                st.markdown(f"""
-                                                <div class="workout-notes-box">
-                                                    {workout_details['notes']}
-                                                </div>
-                                                """, unsafe_allow_html=True)
+                                            with col_d1:
+                                                st.markdown("**Structured Workout Steps:**")
+                                                for step_str in workout_details["steps"]:
+                                                    st.markdown(step_str)
+                                                
+                                                if workout_details["notes"]:
+                                                    st.markdown(f"""
+                                                    <div class="workout-notes-box">
+                                                        {workout_details['notes']}
+                                                    </div>
+                                                    """, unsafe_allow_html=True)
 
-                                        with col_d2:
-                                            m_dict = workout_details["metrics"]
-                                            if m_dict.get("avg_watts"):
-                                                st.markdown("**Calculated Targets:**")
-                                                st.write(f"• **Avg Power:** {m_dict['avg_watts']}W")
-                                                st.write(f"• **Est. NP:** {m_dict['np_watts']}W")
-                                                st.write(f"• **Work:** {m_dict['work_kj']} kJ")
+                                            with col_d2:
+                                                m_dict = workout_details["metrics"]
+                                                if m_dict.get("avg_watts"):
+                                                    st.markdown("**Calculated Targets:**")
+                                                    st.write(f"• **Avg Power:** {m_dict['avg_watts']}W")
+                                                    st.write(f"• **Est. NP:** {m_dict['np_watts']}W")
+                                                    st.write(f"• **Work:** {m_dict['work_kj']} kJ")
 
-                                            z_times = workout_details["zone_times"]
-                                            tot_sec = workout_details["total_sec"]
-                                            if tot_sec > 0:
-                                                st.markdown("**Zone Breakdown:**")
-                                                for z_name, z_s in z_times.items():
-                                                    if z_s > 0:
-                                                        pct_z = round((z_s / tot_sec) * 100, 1)
-                                                        z_m = round(z_s / 60.0, 1)
-                                                        st.caption(f"{z_name}: {z_m}m ({pct_z}%)")
+                                                z_times = workout_details["zone_times"]
+                                                tot_sec = workout_details["total_sec"]
+                                                if tot_sec > 0:
+                                                    st.markdown("**Zone Breakdown:**")
+                                                    for z_name, z_s in z_times.items():
+                                                        if z_s > 0:
+                                                            pct_z = round((z_s / tot_sec) * 100, 1)
+                                                            z_m = round(z_s / 60.0, 1)
+                                                            st.caption(f"{z_name}: {z_m}m ({pct_z}%)")
 
-                                st.markdown("</div>", unsafe_allow_html=True)
+                                    st.markdown("</div>", unsafe_allow_html=True)
 
 # VIEW 4: ATHLETE PROFILE & MEMORY
 elif st.session_state.active_nav == NAV_OPTIONS[3]:
