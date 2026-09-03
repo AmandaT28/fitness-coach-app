@@ -256,18 +256,18 @@ section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !import
     color: {TEXT_PRIMARY};
 }}
 
-.workout-detail-container {{
+.chart-summary-box {{
     background-color: {BG_SURFACE_ALT};
     border: 1px solid {BORDER_SUBTLE};
-    border-radius: 10px;
-    padding: 14px 16px;
+    border-left: 3px solid #10B981;
+    border-radius: 8px;
+    padding: 12px 16px;
     margin-top: 10px;
+    margin-bottom: 15px;
     font-size: 0.88rem;
+    line-height: 1.45;
 }}
-.workout-step-bullet {{
-    margin-bottom: 4px;
-    color: {TEXT_PRIMARY};
-}}
+
 .workout-notes-box {{
     margin-top: 10px;
     font-style: italic;
@@ -310,10 +310,6 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
 
 # --- ADVANCED WORKOUT DETAILS PARSER ENGINE ---
 def parse_workout_steps_detailed(description_text: str, declared_ftp: int = 180) -> Dict[str, Any]:
-    """
-    Parses workout description syntax into structured step bullets with calculated absolute watts,
-    zone distribution totals, work in kJ, and descriptive narrative text.
-    """
     if not description_text:
         return {"steps": [], "notes": "", "metrics": {}, "zone_times": {}}
 
@@ -385,134 +381,6 @@ def parse_workout_steps_detailed(description_text: str, declared_ftp: int = 180)
         "zone_times": zone_sec,
         "total_sec": total_sec
     }
-
-def is_indoor_training_workout(item: Dict[str, Any]) -> bool:
-    act_type = str(item.get("type", "")).lower()
-    device_str = str(item.get("device", "")).lower()
-    
-    if act_type in ["virtualride", "virtualrun", "indoor cycling", "indoor ride"]:
-        return True
-    if any(k in device_str for k in ["mywhoosh", "zwift", "trainer", "indoor", "smart trainer"]):
-        return True
-    if item.get("status") == "Planned" and "ride" in act_type and "virtual" in act_type:
-        return True
-    return False
-
-# --- MYWHOOSH / ZWIFT STYLE WORKOUT PROFILE CHART GENERATOR ---
-def generate_mywhoosh_chart(activity_item: Dict[str, Any], seed_val: int = 42, is_greyed: bool = False) -> go.Figure:
-    raw_data = activity_item.get("raw", {})
-    desc = raw_data.get("description", "") or raw_data.get("workout_doc", "") or activity_item.get("name", "")
-    
-    zone_colors = {
-        "Z1": "#808080",  # Active Recovery (<55% FTP) - Grey
-        "Z2": "#38BDF8",  # Endurance (55-75% FTP) - Blue
-        "Z3": "#34D399",  # Tempo (76-90% FTP) - Green
-        "Z4": "#FBBF24",  # Threshold (91-105% FTP) - Yellow
-        "Z5": "#FB923C",  # VO2Max (106-120% FTP) - Orange
-        "Z6": "#F87171"   # Anaerobic (>120% FTP) - Red
-    }
-    grey_colors = ["#21262D", "#30363D", "#484F58", "#6E7681"]
-
-    def get_color(pct_ftp: float) -> str:
-        if is_greyed:
-            idx = min(3, max(0, int(pct_ftp / 30)))
-            return grey_colors[idx]
-        if pct_ftp < 55: return zone_colors["Z1"]
-        elif pct_ftp <= 75: return zone_colors["Z2"]
-        elif pct_ftp <= 90: return zone_colors["Z3"]
-        elif pct_ftp <= 105: return zone_colors["Z4"]
-        elif pct_ftp <= 120: return zone_colors["Z5"]
-        else: return zone_colors["Z6"]
-
-    # Parse steps directly for visualization
-    parsed_steps = []
-    lines = [l.strip() for l in str(desc).split("\n") if l.strip()]
-    repeat_count = 1
-    repeat_buffer = []
-    in_repeat = False
-
-    for line in lines:
-        rep_m = re.search(r"(\d+)x$", line, re.IGNORECASE)
-        if rep_m:
-            if in_repeat and repeat_buffer:
-                for _ in range(repeat_count): parsed_steps.extend(repeat_buffer)
-                repeat_buffer = []
-            repeat_count = int(rep_m.group(1))
-            in_repeat = True
-            continue
-
-        step_m = re.search(r"^(?:-\s*)?(\d+)(m|s|h)?\s+([0-9]+)(?:-[0-9]+)?%?", line, re.IGNORECASE)
-        if step_m:
-            dur_val = float(step_m.group(1))
-            unit = (step_m.group(2) or "m").lower()
-            pct_ftp = float(step_m.group(3))
-            dur_min = dur_val if unit == "m" else (dur_val * 60.0 if unit == "h" else dur_val / 60.0)
-            if in_repeat: repeat_buffer.append((dur_min, pct_ftp))
-            else: parsed_steps.append((dur_min, pct_ftp))
-        else:
-            if in_repeat and not line.startswith("-") and not line.startswith(" ") and not re.match(r"^\d+", line):
-                for _ in range(repeat_count): parsed_steps.extend(repeat_buffer)
-                repeat_buffer = []
-                in_repeat = False
-
-    if in_repeat and repeat_buffer:
-        for _ in range(repeat_count): parsed_steps.extend(repeat_buffer)
-
-    fig = go.Figure()
-
-    if parsed_steps:
-        curr_time = 0.0
-        for dur_min, pct_ftp in parsed_steps:
-            color = get_color(pct_ftp)
-            center_x = curr_time + (dur_min / 2.0)
-            
-            fig.add_trace(go.Bar(
-                x=[center_x],
-                y=[pct_ftp],
-                width=[dur_min],
-                marker_color=color,
-                marker_line_width=1,
-                marker_line_color="#0D1117" if not is_greyed else "#161B22",
-                hoverinfo="text",
-                hovertext=f"{dur_min:.1f}m @ {int(pct_ftp)}% FTP",
-                showlegend=False
-            ))
-            curr_time += dur_min
-    else:
-        import random
-        random.seed(seed_val)
-        dur_m = max(20.0, float((activity_item.get("duration_sec") or 3600) / 60.0))
-        num_bars = 24
-        bar_width = dur_m / num_bars
-        
-        curr_time = 0.0
-        for i in range(num_bars):
-            if i < 3: val = 45 + (i / 3) * 25
-            elif i > num_bars - 4: val = 65 - ((i - (num_bars - 4)) / 4) * 25
-            else: val = 85 + random.uniform(-15, 20)
-            
-            center_x = curr_time + (bar_width / 2.0)
-            fig.add_trace(go.Bar(
-                x=[center_x],
-                y=[val],
-                width=[bar_width],
-                marker_color=get_color(val),
-                marker_line_width=0.5,
-                showlegend=False
-            ))
-            curr_time += bar_width
-
-    fig.update_layout(
-        height=65,
-        margin=dict(l=0, r=0, t=2, b=2),
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False, range=[0, 150]),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        bargap=0,
-        showlegend=False
-    )
-    return fig
 
 # --- CALCULATORS ---
 class RunningAnalyzer:
@@ -868,6 +736,19 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
             )
             st.plotly_chart(fig, use_container_width=True, key="cmd_center_pmc_chart")
 
+            # CLEAR SUMMARY OF THE PERFORMANCE MANAGEMENT CHART
+            st.markdown("""
+            <div class="chart-summary-box">
+                <strong>💡 How to Read Your Performance Chart:</strong><br/>
+                • <span style="color:#10B981; font-weight:bold;">Green Line (Fitness / CTL):</span> 42-day rolling average of work. Rises slowly as you build aerobic stamina.<br/>
+                • <span style="color:#EF4444; font-weight:bold;">Red Line (Fatigue / ATL):</span> 7-day short-term training stress. Spikes quickly after hard blocks.<br/>
+                • <span style="color:#3B82F6; font-weight:bold;">Bars (Form / TSB = CTL - ATL):</span> Physical freshness. 
+                Keep TSB <strong>mildly negative (-10 to -25)</strong> to build fitness. 
+                Deep negative (below -30) means high injury/overtraining risk. 
+                Positive bars (+5 to +15) signal you are fresh and race-ready.
+            </div>
+            """, unsafe_allow_html=True)
+
     st.divider()
 
     if st.button("🚀 Run 90-Day Multi-Sport Trend Synthesis", type="primary", use_container_width=True):
@@ -1048,12 +929,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
-
-                        # ONLY render workout profile graphs for INDOOR TRAINING WORKOUTS
-                        if is_indoor_training_workout(item):
-                            chart_unique_key = f"mini_chart_{item['id']}_{week_idx}_{item_idx}"
-                            fig_mywhoosh = generate_mywhoosh_chart(item, seed_val=abs(hash(item["id"])) % 1000, is_greyed=is_past_incomplete)
-                            st.plotly_chart(fig_mywhoosh, use_container_width=True, config={'displayModeBar': False}, key=chart_unique_key)
 
                         # Extract & Parse Detailed Structured Steps & Target Metrics
                         raw_desc = item.get("raw", {}).get("description", "") or item.get("raw", {}).get("workout_doc", "")
