@@ -904,20 +904,44 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
                 st.toast("90-day trend synthesis complete!", icon="📈")
             except Exception as exc: st.error(str(exc))
 
-    if st.session_state.cached_trend_analyses:
+  if st.session_state.cached_trend_analyses:
         st.markdown("###### 📈 Saved Trend Reports")
         for idx, item in enumerate(st.session_state.cached_trend_analyses):
             with st.expander(f"📌 Trend Report #{len(st.session_state.cached_trend_analyses) - idx} · Generated {item['timestamp']}", expanded=(idx == 0)):
                 st.markdown(item['analysis'])
                 if st.button("💬 Discuss with Coach", key=f"trend_discuss_{idx}"):
-                    st.session_state.pending_coach_prompt = f"Let me discuss my 90-Day Trend Synthesis from {item['timestamp']}."
+                    st.session_state.pending_coach_prompt = f"Let me discuss my 90-Day Trend Synthesis from {item['timestamp']}:\n\n{item['analysis'][:2000]}"
                     st.session_state.active_nav = NAV_OPTIONS[1]
                     st.rerun()
 
 # VIEW 2: AI COACH CHAT WITH BULK WORKOUT INTERVALS.ICU SYNC
+# VIEW 2: AI COACH CHAT WITH SEAMLESS PENDING HAND-OFF
 elif st.session_state.active_nav == NAV_OPTIONS[1]:
     st.markdown(f"##### 🤖 AI Multi-Sport Coach <span style='font-size:0.85rem; color:{TEXT_MUTED};'>({st.session_state.active_session_id})</span>", unsafe_allow_html=True)
 
+    # Immediately consume pending prompt from Command Center before rendering history
+    if st.session_state.get("pending_coach_prompt"):
+        prompt_to_send = st.session_state.pending_coach_prompt
+        st.session_state.pending_coach_prompt = None
+
+        st.session_state.messages.append({"role": "user", "content": prompt_to_send})
+        save_disk_store()
+
+        with st.chat_message("user"):
+            st.markdown(prompt_to_send)
+
+        with st.chat_message("assistant"):
+            with st.spinner("🤖 Coach is analyzing your 90-day trend report..."):
+                try:
+                    res = execute_ai(build_gemini_payload(prompt_to_send, wellness_list, activities_data, planned_events))
+                    st.markdown(clean_chat_content(res))
+                    st.session_state.messages.append({"role": "assistant", "content": res})
+                    save_disk_store()
+                except Exception as e:
+                    st.error(str(e))
+        st.rerun()
+
+    # Render existing chat messages
     for idx, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             content_clean = clean_chat_content(msg["content"])
@@ -951,28 +975,8 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                     save_disk_store()
                     st.toast("Saved advice to Long-Term Coach Memory!", icon="🧠")
 
-    if st.session_state.pending_coach_prompt:
-        prompt_to_send = st.session_state.pending_coach_prompt
-        st.session_state.pending_coach_prompt = None
-
-        st.session_state.messages.append({"role": "user", "content": prompt_to_send})
-        save_disk_store()
-        
-        with st.chat_message("user"):
-            st.markdown(prompt_to_send)
-
-        with st.chat_message("assistant"):
-            with st.spinner("🤖 Coach is reviewing your activity data & performance metrics..."):
-                try:
-                    res = execute_ai(build_gemini_payload(prompt_to_send, wellness_list, activities_data, planned_events))
-                    st.markdown(clean_chat_content(res))
-                    st.session_state.messages.append({"role": "assistant", "content": res})
-                    save_disk_store()
-                except Exception as e:
-                    st.error(str(e))
-        st.rerun()
-
-    if prompt := st.chat_input("Ask your coach... (e.g. Plan my next 2 weeks of threshold workouts and schedule them)") :
+    # Standard chat input handler
+    if prompt := st.chat_input("Ask your coach..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         save_disk_store()
 
@@ -980,7 +984,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("🤖 Coach is building your structured training plan..."):
+            with st.spinner("🤖 Coach is analyzing your request..."):
                 try:
                     res = execute_ai(build_gemini_payload(prompt, wellness_list, activities_data, planned_events))
                     st.markdown(clean_chat_content(res))
