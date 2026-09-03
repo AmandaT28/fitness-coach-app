@@ -105,6 +105,8 @@ DEFAULT_COACH_MEMORY = (
     "Dura-Ace 11-34 cassette & chain, Speedplay titanium pedals, Garmin Edge 530.\n"
     "• Training Routine: Saturday club rides, Sunday recovery/social rides, mid-week structured indoor sessions.\n"
     "• Key Focus Areas: Build sustained FTP density, maintain aerobic efficiency, protect joint recovery on running sessions.\n"
+    "• Athlete Limitations & Health Constraints: Protect joint impact during run sessions (monitor high ground contact/knee load); "
+    "avoid high fatigue spikes (ACWR > 1.35); protect strict rest days (Fridays); manage neck/lower-back loading in prolonged aero positions.\n"
     "• Platforms: Intervals.icu primary hub, auto-synced to MyWhoosh for indoor virtual cycling."
 )
 
@@ -288,10 +290,6 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
 
 # --- WORKOUT STEP PARSER ---
 def parse_workout_steps(text: str) -> List[Tuple[float, float]]:
-    """
-    Parses workout syntax into a list of tuples: (duration_in_minutes, target_pct_ftp).
-    Handles repeat blocks (e.g., Main Set 4x).
-    """
     steps = []
     if not text:
         return steps
@@ -337,19 +335,24 @@ def parse_workout_steps(text: str) -> List[Tuple[float, float]]:
 
     return steps
 
+def is_indoor_training_workout(item: Dict[str, Any]) -> bool:
+    """Returns True ONLY for indoor training workouts (VirtualRide, MyWhoosh, Trainer sessions)."""
+    act_type = str(item.get("type", "")).lower()
+    device_str = str(item.get("device", "")).lower()
+    
+    if act_type in ["virtualride", "virtualrun", "indoor cycling", "indoor ride"]:
+        return True
+    if any(k in device_str for k in ["mywhoosh", "zwift", "trainer", "indoor", "smart trainer"]):
+        return True
+    if item.get("status") == "Planned" and "ride" in act_type and "virtual" in act_type:
+        return True
+    return False
+
 # --- MYWHOOSH / ZWIFT STYLE WORKOUT PROFILE CHART GENERATOR ---
 def generate_mywhoosh_chart(activity_item: Dict[str, Any], seed_val: int = 42, is_greyed: bool = False) -> go.Figure:
-    """
-    Renders structured workouts exactly like MyWhoosh / Zwift / Intervals.icu:
-    - X-Axis = Block Duration (width proportional to time in minutes)
-    - Y-Axis = Target Intensity (% FTP)
-    - Color = Power Zone (Z1 Recovery to Z6 Anaerobic)
-    """
     raw_data = activity_item.get("raw", {})
     desc = raw_data.get("description", "") or raw_data.get("workout_doc", "") or activity_item.get("name", "")
-    act_type = activity_item.get("type", "Ride")
     
-    # Standard MyWhoosh / Zwift Power Zone Colors
     zone_colors = {
         "Z1": "#808080",  # Active Recovery (<55% FTP) - Grey
         "Z2": "#38BDF8",  # Endurance (55-75% FTP) - Blue
@@ -372,11 +375,9 @@ def generate_mywhoosh_chart(activity_item: Dict[str, Any], seed_val: int = 42, i
         else: return zone_colors["Z6"]
 
     parsed_steps = parse_workout_steps(str(desc))
-
     fig = go.Figure()
 
     if parsed_steps:
-        # Render precise proportional MyWhoosh ergometer profile blocks
         curr_time = 0.0
         for dur_min, pct_ftp in parsed_steps:
             color = get_color(pct_ftp)
@@ -395,7 +396,6 @@ def generate_mywhoosh_chart(activity_item: Dict[str, Any], seed_val: int = 42, i
             ))
             curr_time += dur_min
     else:
-        # Render continuous power profile stream for completed unparsed activities
         import random
         random.seed(seed_val)
         dur_m = max(20.0, float((activity_item.get("duration_sec") or 3600) / 60.0))
@@ -649,7 +649,7 @@ ATHLETE GOALS & TARGET EVENTS:
 - Event Date: {goals.get('race_date', '2026-10-24')}
 - Primary Objective: {goals.get('target_metric', 'Build threshold power and running fatigue resistance')}
 
-COACH LONG-TERM MEMORY & CONTEXT:
+COACH LONG-TERM MEMORY & ATHLETE LIMITATIONS:
 {memory}
 
 SUPPLEMENT PROTOCOL:
@@ -657,7 +657,7 @@ SUPPLEMENT PROTOCOL:
 
     contents = [
         {"role": "user", "parts": [{"text": system_prompt}]},
-        {"role": "model", "parts": [{"text": f"Understood. I have locked in all biometrics, memory, supplement protocols, and the '{persona}' coaching style."}]}
+        {"role": "model", "parts": [{"text": f"Understood. I have locked in all biometrics, athlete limitations, memory, supplement protocols, and the '{persona}' coaching style."}]}
     ]
     history = [m for m in st.session_state.messages[:-1] if m["content"] != current_question][-8:]
     for m in history:
@@ -964,9 +964,11 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                             </div>
                         """, unsafe_allow_html=True)
 
-                        chart_unique_key = f"mini_chart_{item['id']}_{week_idx}_{item_idx}"
-                        fig_mywhoosh = generate_mywhoosh_chart(item, seed_val=abs(hash(item["id"])) % 1000, is_greyed=is_past_incomplete)
-                        st.plotly_chart(fig_mywhoosh, use_container_width=True, config={'displayModeBar': False}, key=chart_unique_key)
+                        # ONLY render workout graphs for INDOOR TRAINING WORKOUTS
+                        if is_indoor_training_workout(item):
+                            chart_unique_key = f"mini_chart_{item['id']}_{week_idx}_{item_idx}"
+                            fig_mywhoosh = generate_mywhoosh_chart(item, seed_val=abs(hash(item["id"])) % 1000, is_greyed=is_past_incomplete)
+                            st.plotly_chart(fig_mywhoosh, use_container_width=True, config={'displayModeBar': False}, key=chart_unique_key)
 
                         c_m1, c_m2 = st.columns([3, 1])
                         with c_m1:
@@ -1013,7 +1015,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
     tab_bio, tab_goals, tab_memory, tab_supps = st.tabs([
         "🧬 Biometrics & FTP",
         "🎯 Target Goals & Races",
-        "🧠 Coach Memory & Notes",
+        "🧠 Coach Memory & Limitations",
         "💊 Supplement Protocol"
     ])
 
@@ -1059,12 +1061,18 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
                 st.rerun()
 
     with tab_memory:
-        st.markdown("###### Coach Long-Term Memory & Technical Context")
-        updated_memory = st.text_area("Persistent Coach Notes", value=st.session_state.coach_memory, height=200)
-        if st.button("Save Coach Memory"):
+        st.markdown("###### Coach Long-Term Memory, Notes & Athlete Limitations")
+        st.caption("This persistent memory and health/recovery limitations guide all AI coaching recommendations.")
+        
+        updated_memory = st.text_area(
+            "Persistent Coach Notes & Athlete Limitations",
+            value=st.session_state.coach_memory,
+            height=260
+        )
+        if st.button("Save Coach Memory & Limitations"):
             st.session_state.coach_memory = updated_memory
             save_disk_store()
-            st.success("Coach long-term memory saved persistently!")
+            st.success("Coach memory and athlete limitations saved persistently!")
             st.rerun()
 
     with tab_supps:
