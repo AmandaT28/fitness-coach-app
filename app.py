@@ -456,7 +456,7 @@ class TrainingLoadCalculator:
 
         return {"score": final_score, "status": status, "recommendation": rec, "risk_factors": risk_factors}
 
-# --- AI ENGINE (Gemini 3.5, 3.6, 3.7 Integration) ---
+# --- AI ENGINE (Hardened Production Gemini Integration) ---
 def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_name: str, max_tokens: int = 4000) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
@@ -469,10 +469,13 @@ def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_
     }
     response = requests.post(url, headers=headers, json=payload, timeout=AI_TIMEOUT)
     if response.status_code != 200:
-        raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:200]}")
+        raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:300]}")
     
     resp_json = response.json()
-    candidates = resp_json.get("candidates") or [{}]
+    candidates = resp_json.get("candidates") or []
+    if not candidates:
+        raise RuntimeError(f"Gemini API returned no candidates. Raw response: {str(resp_json)[:200]}")
+        
     content_obj = candidates[0].get("content", {})
     parts = content_obj.get("parts", [])
     
@@ -486,13 +489,17 @@ def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_
     if not extracted_texts:
         extracted_texts = [p.get("text", "") for p in parts if isinstance(p, dict) and p.get("text")]
 
-    return "\n".join(extracted_texts).strip()
+    result_str = "\n".join(extracted_texts).strip()
+    if not result_str:
+        raise RuntimeError("Gemini returned an empty text payload.")
+    return result_str
 
 def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -> str:
     errors = []
-    models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]
+    models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
     for name, key in GEMINI_KEYS:
-        if not key: continue
+        if not key: 
+            continue
         for m in models:
             for attempt in range(2):
                 try:
@@ -502,11 +509,11 @@ def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -
                 except Exception as exc:
                     err_str = str(exc)
                     errors.append(f"{name} ({m}) [Attempt {attempt+1}]: {err_str}")
-                    if "503" in err_str or "timed out" in err_str.lower():
+                    if "503" in err_str or "timed out" in err_str.lower() or "429" in err_str:
                         time.sleep(2)
                     else:
                         break
-    raise RuntimeError(f"AI Connection Error: {' | '.join(errors[-3:])}")
+    raise RuntimeError(f"AI Connection Error — All endpoints exhausted. Errors: {' | '.join(errors[-3:])}")
 
 # --- 90-DAY PAST + 60-DAY FUTURE DATA FETCHING ---
 @st.cache_data(ttl=300, show_spinner=False)
