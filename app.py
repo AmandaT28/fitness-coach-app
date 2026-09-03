@@ -859,10 +859,17 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
     if not filtered_feed:
         st.info("No activities or planned workouts found matching your filters across the training window.")
 
-    # Grouping Hierarchy: Year-Month -> Week -> Day
+# Grouping Hierarchy: Year-Month -> Week -> Day
     grouped_months: Dict[Tuple[int, int], Dict[Tuple[dt.date, dt.date], Dict[str, List[Dict[str, Any]]]]] = {}
     today_date = dt.datetime.now(LOCAL_TZ).date()
 
+    # Pre-initialize Current Month + Next 2 Future Months so they always show
+    for offset in range(3):
+        target_month = (today_date.month - 1 + offset) % 12 + 1
+        target_year = today_date.year + (today_date.month - 1 + offset) // 12
+        grouped_months[(target_year, target_month)] = {}
+
+    # Populate fetched items into month/week groups
     for item in filtered_feed:
         item_date = item["datetime"].date()
         month_key = (item_date.year, item_date.month)
@@ -903,8 +910,11 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
         month_label = f"🗓️ {month_name_str}{month_tag} &nbsp;·&nbsp; {m_dur_summary} &nbsp;·&nbsp; {m_total_load} Load"
 
         with st.expander(month_label, expanded=(is_current_month or is_future_month)):
-            # Render Week Level inside Month
-            for week_idx, ((w_start, w_end), days_dict) in enumerate(sorted(month_weeks.items(), key=lambda x: x[0][0], reverse=True)):
+            if not month_weeks:
+                st.info("No workouts or events scheduled for this month yet.")
+            else:
+                # Render Week Level inside Month
+                for week_idx, ((w_start, w_end), days_dict) in enumerate(sorted(month_weeks.items(), key=lambda x: x[0][0], reverse=True)):
                 week_all_items = [item for days in days_dict.values() for item in days]
                 w_total_sec = sum(item["duration_sec"] for item in week_all_items)
                 w_hours = w_total_sec / 3600.0
