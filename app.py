@@ -457,20 +457,32 @@ class TrainingLoadCalculator:
 
         return {"score": final_score, "status": status, "recommendation": rec, "risk_factors": risk_factors}
 
-# --- AI ENGINE ---
+# --- AI ENGINE (Gemini 3.5, 3.6, 3.7 Only) ---
 def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_name: str, max_tokens: int = 4000) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-    payload = {"contents": messages_payload, "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7}}
+    payload = {
+        "contents": messages_payload,
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "temperature": 0.7,
+            "thinkingConfig": {"thinkingLevel": "medium"}
+        }
+    }
     response = requests.post(url, headers=headers, json=payload, timeout=AI_TIMEOUT)
     if response.status_code != 200:
         raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:200]}")
-    parts = (response.json().get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-    return "\n".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+    
+    resp_json = response.json()
+    candidates = resp_json.get("candidates") or [{}]
+    content_obj = candidates[0].get("content", {})
+    parts = content_obj.get("parts", [])
+    
+    return "\n".join(p.get("text", "") for p in parts if isinstance(p, dict) and p.get("text")).strip()
 
 def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -> str:
     errors = []
-    models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]
     for name, key in GEMINI_KEYS:
         if not key: continue
         for m in models:
@@ -897,15 +909,21 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
 
     if st.button("🚀 Run 90-Day Multi-Sport Trend Synthesis", type="primary", use_container_width=True):
         payload_text = f"Analyze this multi-sport athlete's 90-day training trend window. CTL {ctl:.1f}; ATL {atl:.1f}; TSB {tsb:.1f}. ACWR: {acwr}. Goal: {prof['goals']['target_metric']}."
-        with st.spinner("Analyzing 90 days of multi-sport training data..."):
+        with st.status("🧠 Coach is analyzing 90 days of multi-sport training data...", expanded=True) as status_box:
+            st.write("• Reviewing CTL/ATL/TSB balance and ACWR ramp rates...")
+            st.write("• Scanning historical activity loads and recovery indexes...")
             try:
                 new_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=4000)
                 timestamp_str = dt.datetime.now(LOCAL_TZ).strftime("%d %b %Y, %H:%M %Z")
                 st.session_state.cached_trend_analyses.insert(0, {"timestamp": timestamp_str, "analysis": new_analysis})
                 st.session_state.cached_trend_analyses = st.session_state.cached_trend_analyses[:3]
                 save_disk_store()
+                status_box.update(label="✅ 90-day trend synthesis complete!", state="complete", expanded=False)
                 st.toast("90-day trend synthesis complete!", icon="📈")
-            except Exception as exc: st.error(str(exc))
+                st.rerun()
+            except Exception as exc:
+                status_box.update(label="❌ Analysis failed", state="error")
+                st.error(str(exc))
 
     if st.session_state.cached_trend_analyses:
         st.markdown("###### 📈 Saved Trend Reports")
@@ -917,7 +935,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
                     st.session_state.active_nav = NAV_OPTIONS[1]
                     st.rerun()
 
-# VIEW 2: AI COACH CHAT WITH ONE-CLICK WORKOUT SYNC
+# VIEW 2: AI COACH CHAT WITH ONE-CLICK WORKOUT SYNC & THINKING STATUS
 elif st.session_state.active_nav == NAV_OPTIONS[1]:
     st.markdown(f"##### 🤖 AI Multi-Sport Coach <span style='font-size:0.85rem; color:{TEXT_MUTED};'>({st.session_state.active_session_id})</span>", unsafe_allow_html=True)
 
@@ -937,14 +955,16 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
 
                     btn_key = f"approve_sync_{idx}"
                     if st.button("🚀 Bulk Push All Workouts to Intervals.icu & MyWhoosh", key=btn_key, type="primary", use_container_width=True):
-                        with st.spinner("Pushing workouts to Intervals.icu..."):
+                        with st.status("🚀 Syncing workouts to Intervals.icu...", expanded=False) as sync_status:
                             ok, result_msg = push_workouts_to_intervals(
                                 proposed_workouts, ATHLETE_ID, INTERVALS_API_KEY
                             )
                             if ok:
+                                sync_status.update(label="✅ Successfully synced workouts!", state="complete")
                                 st.success(result_msg)
                                 st.toast("Synced to Intervals.icu & MyWhoosh!", icon="✅")
                             else:
+                                sync_status.update(label="❌ Sync failed", state="error")
                                 st.error(result_msg)
 
                 col_save_b, _ = st.columns([2, 5])
@@ -965,13 +985,17 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
             st.markdown(prompt_to_send)
 
         with st.chat_message("assistant"):
-            with st.spinner("🤖 Coach is reviewing your activity data & performance metrics..."):
+            with st.status("🧠 Coach is thinking & structuring your program...", expanded=True) as status_box:
+                st.write("• Analyzing current biometrics, TSB, and recent recovery data...")
+                st.write("• Synthesizing workouts with Gemini 3.7 Flash thinking engine...")
                 try:
                     res = execute_ai(build_gemini_payload(prompt_to_send, wellness_list, activities_data, planned_events))
+                    status_box.update(label="✨ Coach response ready!", state="complete", expanded=False)
                     st.markdown(clean_chat_content(res))
                     st.session_state.messages.append({"role": "assistant", "content": res})
                     save_disk_store()
                 except Exception as e:
+                    status_box.update(label="❌ Generation failed", state="error")
                     st.error(str(e))
         st.rerun()
 
@@ -983,13 +1007,17 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("🤖 Coach is analyzing your request..."):
+            with st.status("🧠 Coach is thinking & structuring your request...", expanded=True) as status_box:
+                st.write("• Reviewing athletic context, equipment constraints, and long-term memory...")
+                st.write("• Running deep reasoning and multi-sport periodization protocols...")
                 try:
                     res = execute_ai(build_gemini_payload(prompt, wellness_list, activities_data, planned_events))
+                    status_box.update(label="✨ Coach response ready!", state="complete", expanded=False)
                     st.markdown(clean_chat_content(res))
                     st.session_state.messages.append({"role": "assistant", "content": res})
                     save_disk_store()
                 except Exception as e:
+                    status_box.update(label="❌ Generation failed", state="error")
                     st.error(str(e))
         st.rerun()
 
@@ -1404,11 +1432,15 @@ elif st.session_state.active_nav == NAV_OPTIONS[4]:
         
         if st.button("⚡ Generate AI Pacing & Strategy Plan", type="primary", use_container_width=True):
             prompt = f"Create a comprehensive pacing strategy for a GPX route given my FTP of {st.session_state.profile_data.get('declared_ftp', 180)}W and target NP of {target_power}W. Optimize gear shifts, gradient-based power targets, and nutrition timing."
-            with st.spinner("Analyzing elevation profile and target pacing strategy..."):
+            with st.status("🧠 Coach is analyzing elevation profile & calculating pacing strategy...", expanded=True) as status_box:
+                st.write("• Parsing GPX topography and segment gradient profiles...")
+                st.write("• Computing power targets and nutritional fueling intervals...")
                 try:
                     pacing_plan = execute_ai(build_gemini_payload(prompt, wellness_list, activities_data, planned_events))
+                    status_box.update(label="✨ Pacing strategy ready!", state="complete", expanded=False)
                     st.markdown(pacing_plan)
                 except Exception as e:
+                    status_box.update(label="❌ Generation failed", state="error")
                     st.error(str(e))
     else:
         st.info("Upload a GPX file to analyze course gradient, segment power distribution, and nutrition pacing.")
