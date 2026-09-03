@@ -4,6 +4,7 @@ import json
 import math
 import os
 import re
+import time
 from typing import Dict, List, Any, Optional, Tuple
 from zoneinfo import ZoneInfo
 
@@ -128,6 +129,8 @@ def save_disk_store():
         "coach_persona": st.session_state.get("coach_persona"),
         "coach_memory": st.session_state.get("coach_memory"),
         "user_supplements": st.session_state.get("user_supplements"),
+        "messages": st.session_state.get("messages", []),
+        "cached_trend_analyses": st.session_state.get("cached_trend_analyses", []),
     }
     try:
         with open(PERSIST_FILE, "w") as f:
@@ -149,7 +152,7 @@ def init_state():
     defaults = {
         "user": None,
         "user_credentials": None,
-        "messages": [],
+        "messages": disk_data.get("messages", []),
         "active_nav": NAV_OPTIONS[0],
         "sidebar_nav": NAV_OPTIONS[0],
         "coach_persona": disk_data.get("coach_persona", PERSONA_OPTIONS[0]),
@@ -159,7 +162,7 @@ def init_state():
         "user_supplements": disk_data.get("user_supplements", DEFAULT_SUPPLEMENTS.copy()),
         "daily_notes": {},
         "protected_events": [],
-        "cached_trend_analyses": [],
+        "cached_trend_analyses": disk_data.get("cached_trend_analyses", []),
         "pending_coach_prompt": None,
         "ai_diagnostic": None,
         "persistent_loaded": True
@@ -463,15 +466,11 @@ def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_
     parts = (response.json().get("candidates") or [{}])[0].get("content", {}).get("parts", [])
     return "\n".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
 
-import time
-
 def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -> str:
     errors = []
     models = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"]
-
     for name, key in GEMINI_KEYS:
-        if not key: 
-            continue
+        if not key: continue
         for m in models:
             for attempt in range(2):
                 try:
@@ -481,15 +480,13 @@ def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -
                 except Exception as exc:
                     err_str = str(exc)
                     errors.append(f"{name} ({m}) [Attempt {attempt+1}]: {err_str}")
-
                     if "503" in err_str or "timed out" in err_str.lower():
                         time.sleep(2)
                     else:
                         break
-
     raise RuntimeError(f"AI Connection Error: {' | '.join(errors[-3:])}")
 
-# --- 90-DAY DATA FETCHING ---
+# --- 90-DAY PAST + 60-DAY FUTURE (2 MONTHS) DATA FETCHING ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
     if not athlete_id or not api_key:
@@ -500,7 +497,7 @@ def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dic
     today = dt.datetime.now(LOCAL_TZ).date()
     
     oldest_date = (today - dt.timedelta(days=90)).isoformat()
-    newest_date = (today + dt.timedelta(days=30)).isoformat()
+    newest_date = (today + dt.timedelta(days=62)).isoformat()  # Covers future 2 full months
     base_url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
 
     endpoints = {
@@ -517,7 +514,7 @@ def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dic
         except Exception:
             results[name] = []
 
-    return results.get("wellness", []), results.get("activities", []), results.get("events", []), "Connected to Intervals.icu (90-Day Window)"
+    return results.get("wellness", []), results.get("activities", []), results.get("events", []), "Connected to Intervals.icu"
 
 def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     items = []
@@ -665,6 +662,12 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
+    if st.button("🗑️ Clear Coach Chat History", use_container_width=True):
+        st.session_state.messages = []
+        save_disk_store()
+        st.toast("Chat history cleared!", icon="🧹")
+        st.rerun()
+
     if st.button("🧪 Test AI Connection", use_container_width=True):
         with st.spinner("Testing API connectivity..."):
             try:
@@ -749,7 +752,6 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
             )
             st.plotly_chart(fig, use_container_width=True, key="cmd_center_pmc_chart")
 
-            # CLEAR SUMMARY OF THE PERFORMANCE MANAGEMENT CHART
             st.markdown("""
             <div class="chart-summary-box">
                 <strong>💡 How to Read Your Performance Chart:</strong><br/>
@@ -772,6 +774,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
                 timestamp_str = dt.datetime.now(LOCAL_TZ).strftime("%d %b %Y, %H:%M %Z")
                 st.session_state.cached_trend_analyses.insert(0, {"timestamp": timestamp_str, "analysis": new_analysis})
                 st.session_state.cached_trend_analyses = st.session_state.cached_trend_analyses[:3]
+                save_disk_store()
                 st.toast("90-day trend synthesis complete!", icon="📈")
             except Exception as exc: st.error(str(exc))
 
@@ -798,6 +801,8 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
         st.session_state.pending_coach_prompt = None
 
         st.session_state.messages.append({"role": "user", "content": prompt_to_send})
+        save_disk_store()
+        
         with st.chat_message("user"):
             st.markdown(prompt_to_send)
 
@@ -807,12 +812,15 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                     res = execute_ai(build_gemini_payload(prompt_to_send, wellness_list, activities_data))
                     st.markdown(clean_chat_content(res))
                     st.session_state.messages.append({"role": "assistant", "content": res})
+                    save_disk_store()
                 except Exception as e:
                     st.error(str(e))
         st.rerun()
 
     if prompt := st.chat_input("Ask your coach... (e.g. Plan a 60m VO2Max workout for MyWhoosh)"):
         st.session_state.messages.append({"role": "user", "content": prompt})
+        save_disk_store()
+
         with st.chat_message("user"):
             st.markdown(prompt)
 
@@ -822,10 +830,11 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                     res = execute_ai(build_gemini_payload(prompt, wellness_list, activities_data))
                     st.markdown(clean_chat_content(res))
                     st.session_state.messages.append({"role": "assistant", "content": res})
+                    save_disk_store()
                 except Exception as e:
                     st.error(str(e))
 
-# VIEW 3: TRAINING CALENDAR
+# VIEW 3: TRAINING CALENDAR (ORGANIZED BY MONTHS -> EXPANDS TO WEEKS)
 elif st.session_state.active_nav == NAV_OPTIONS[2]:
     st.markdown("##### 📅 Multi-Sport Training Calendar")
 
@@ -850,173 +859,197 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
     if not filtered_feed:
         st.info("No activities or planned workouts found matching your filters across the training window.")
 
-    grouped_weeks: Dict[Tuple[dt.date, dt.date], Dict[str, List[Dict[str, Any]]]] = {}
+    # Grouping Hierarchy: Year-Month -> Week -> Day
+    grouped_months: Dict[Tuple[int, int], Dict[Tuple[dt.date, dt.date], Dict[str, List[Dict[str, Any]]]]] = {}
     today_date = dt.datetime.now(LOCAL_TZ).date()
 
     for item in filtered_feed:
         item_date = item["datetime"].date()
+        month_key = (item_date.year, item_date.month)
+        
         start_of_week = item_date - dt.timedelta(days=item_date.weekday())
         end_of_week = start_of_week + dt.timedelta(days=6)
         week_key = (start_of_week, end_of_week)
         
-        if week_key not in grouped_weeks:
-            grouped_weeks[week_key] = {}
-        
+        if month_key not in grouped_months:
+            grouped_months[month_key] = {}
+        if week_key not in grouped_months[month_key]:
+            grouped_months[month_key][week_key] = {}
+            
         date_str = item["date_str"]
-        if date_str not in grouped_weeks[week_key]:
-            grouped_weeks[week_key][date_str] = []
-        grouped_weeks[week_key][date_str].append(item)
+        if date_str not in grouped_months[month_key][week_key]:
+            grouped_months[month_key][week_key][date_str] = []
+        grouped_months[month_key][week_key][date_str].append(item)
 
     declared_ftp = int(st.session_state.profile_data.get("declared_ftp", 180))
 
-    for week_idx, ((w_start, w_end), days_dict) in enumerate(grouped_weeks.items()):
-        all_week_items = [item for items in days_dict.values() for item in items]
-        total_sec = sum(item["duration_sec"] for item in all_week_items)
-        total_hours = total_sec / 3600.0
-        h_part = int(total_hours)
-        m_part = int((total_hours - h_part) * 60)
-        dur_summary = f"{h_part}h {m_part}m" if h_part > 0 else f"{m_part}m"
-        total_load = int(sum(item["load"] for item in all_week_items))
+    # Render Month Level
+    for (m_year, m_month), month_weeks in sorted(grouped_months.items(), key=lambda x: x[0], reverse=True):
+        month_all_items = [
+            item for days in month_weeks.values() for day_list in days.values() for item in day_list
+        ]
+        m_total_sec = sum(item["duration_sec"] for item in month_all_items)
+        m_hours = m_total_sec / 3600.0
+        m_h_part = int(m_hours)
+        m_m_part = int((m_hours - m_h_part) * 60)
+        m_dur_summary = f"{m_h_part}h {m_m_part}m" if m_h_part > 0 else f"{m_m_part}m"
+        m_total_load = int(sum(item["load"] for item in month_all_items))
 
-        is_current_week = (w_start <= today_date <= w_end)
-        week_tag = " [CURRENT WEEK]" if is_current_week else (" [FUTURE]" if w_start > today_date else " [PAST]")
-        week_label = f"🗓️ {w_start.strftime('%b %d')} - {w_end.strftime('%b %d')}{week_tag} &nbsp;·&nbsp; {dur_summary} &nbsp;·&nbsp; {total_load} Load"
+        is_current_month = (m_year == today_date.year and m_month == today_date.month)
+        is_future_month = (m_year > today_date.year or (m_year == today_date.year and m_month > today_date.month))
+        
+        month_name_str = dt.date(m_year, m_month, 1).strftime("%B %Y")
+        month_tag = " [CURRENT MONTH]" if is_current_month else (" [FUTURE]" if is_future_month else " [PAST]")
+        month_label = f"🗓️ {month_name_str}{month_tag} &nbsp;·&nbsp; {m_dur_summary} &nbsp;·&nbsp; {m_total_load} Load"
 
-        with st.expander(week_label, expanded=is_current_week):
-            for date_str, day_items in sorted(days_dict.items(), reverse=True):
-                dt_obj = day_items[0]["datetime"]
-                day_name = dt_obj.strftime("%a")
-                day_num = dt_obj.strftime("%d")
+        with st.expander(month_label, expanded=(is_current_month or is_future_month)):
+            # Render Week Level inside Month
+            for week_idx, ((w_start, w_end), days_dict) in enumerate(sorted(month_weeks.items(), key=lambda x: x[0][0], reverse=True)):
+                week_all_items = [item for days in days_dict.values() for item in days]
+                w_total_sec = sum(item["duration_sec"] for item in week_all_items)
+                w_hours = w_total_sec / 3600.0
+                w_h_part = int(w_hours)
+                w_m_part = int((w_hours - w_h_part) * 60)
+                w_dur_summary = f"{w_h_part}h {w_m_part}m" if w_h_part > 0 else f"{w_m_part}m"
+                w_total_load = int(sum(item["load"] for item in week_all_items))
 
-                col_date, col_card = st.columns([1, 11])
-                
-                with col_date:
-                    st.markdown(f"""
-                    <div class="date-badge-col">
-                        <div class="date-day-name">{day_name}</div>
-                        <div class="date-day-number">{day_num}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                is_current_week = (w_start <= today_date <= w_end)
+                week_tag = " [CURRENT WEEK]" if is_current_week else (" [FUTURE]" if w_start > today_date else " [PAST]")
+                week_label = f"📅 Week {w_start.strftime('%b %d')} - {w_end.strftime('%b %d')}{week_tag} &nbsp;·&nbsp; {w_dur_summary} &nbsp;·&nbsp; {w_total_load} Load"
 
-                with col_card:
-                    for item_idx, item in enumerate(day_items):
-                        item_date = item["datetime"].date()
-                        is_past = item_date < today_date
-                        is_incomplete = (item["status"] == "Planned") or (item.get("status") in ["Missed", "Incomplete"])
-                        is_past_incomplete = is_past and is_incomplete
+                with st.expander(week_label, expanded=is_current_week):
+                    for date_str, day_items in sorted(days_dict.items(), reverse=True):
+                        dt_obj = day_items[0]["datetime"]
+                        day_name = dt_obj.strftime("%a")
+                        day_num = dt_obj.strftime("%d")
 
-                        act_type = item["type"]
-                        is_run = "Run" in act_type
-                        sport_icon = "🏃" if is_run else "🚴‍♂️"
+                        col_date, col_card = st.columns([1, 11])
                         
-                        duration_m = round(item["duration_sec"] / 60.0)
-                        dur_str = f"{duration_m}m" if duration_m < 60 else f"{duration_m//60}h {duration_m%60}m"
-                        dist_km = f"{item['distance_m']/1000.0:.1f}km" if item['distance_m'] > 0 else "--"
-                        
-                        third_label = "Pace" if is_run else "Power"
-                        if is_run:
-                            third_val = item["pace_str"] or "--"
-                        else:
-                            if item["power_w"]:
-                                third_val = f"{int(item['power_w'])}W"
-                            elif item.get("hr_bpm"):
-                                third_val = f"{int(item['hr_bpm'])} bpm"
-                                third_label = "Avg HR"
-                            else:
-                                third_val = "--"
-
-                        load_val = str(int(item["load"]))
-
-                        card_opacity = "0.55" if is_past_incomplete else "1.0"
-                        card_border = "#21262D" if is_past_incomplete else BORDER_SUBTLE
-                        status_label = "Incomplete" if is_past_incomplete else item['status']
-                        status_color = TEXT_MUTED if is_past_incomplete else ("#10B981" if item['status'] == "Completed" else "#3B82F6")
-
-                        st.markdown(f"""
-                        <div class="activity-card-body" style="opacity: {card_opacity}; border-color: {card_border};">
-                            <div class="card-header-row">
-                                <span class="sport-icon" style="filter: {'grayscale(100%)' if is_past_incomplete else 'none'};">{sport_icon}</span>
-                                <div>
-                                    <p class="sport-title">{item['name']} <span style="font-size:0.75rem; color:{status_color};">({status_label})</span></p>
-                                    <p class="device-subtitle">{item['device']}</p>
-                                </div>
-                            </div>
-                        """, unsafe_allow_html=True)
-
-                        # Extract & Parse Detailed Structured Steps & Target Metrics
-                        raw_desc = item.get("raw", {}).get("description", "") or item.get("raw", {}).get("workout_doc", "")
-                        workout_details = parse_workout_steps_detailed(raw_desc, declared_ftp)
-
-                        c_m1, c_m2 = st.columns([3, 1])
-                        with c_m1:
+                        with col_date:
                             st.markdown(f"""
-                            <div class="metrics-flex-group">
-                                <div class="metric-box">
-                                    <span class="metric-box-label">Duration</span>
-                                    <span class="metric-box-val">{dur_str}</span>
-                                </div>
-                                <div class="metric-box">
-                                    <span class="metric-box-label">Distance</span>
-                                    <span class="metric-box-val">{dist_km}</span>
-                                </div>
-                                <div class="metric-box">
-                                    <span class="metric-box-label">{third_label}</span>
-                                    <span class="metric-box-val">{third_val}</span>
-                                </div>
-                                <div class="metric-box">
-                                    <span class="metric-box-label">Load</span>
-                                    <span class="metric-box-val">{load_val}</span>
-                                </div>
+                            <div class="date-badge-col">
+                                <div class="date-day-name">{day_name}</div>
+                                <div class="date-day-number">{day_num}</div>
                             </div>
                             """, unsafe_allow_html=True)
 
-                        with c_m2:
-                            button_unique_key = f"rev_{item['id']}_{week_idx}_{item_idx}"
-                            if st.button("💬 Review & Inspect", key=button_unique_key, type="secondary"):
-                                st.session_state.pending_coach_prompt = (
-                                    f"Please run a deep activity inspection on my {item['name']} session "
-                                    f"from {item['date_str']} (Distance: {dist_km}, Duration: {dur_str}, "
-                                    f"Power/Pace: {third_val}, Load: {load_val}). Analyze efficiency, zones, and recovery needs."
-                                )
-                                st.session_state.active_nav = NAV_OPTIONS[1]
-                                st.rerun()
+                        with col_card:
+                            for item_idx, item in enumerate(day_items):
+                                item_date = item["datetime"].date()
+                                is_past = item_date < today_date
+                                is_incomplete = (item["status"] == "Planned") or (item.get("status") in ["Missed", "Incomplete"])
+                                is_past_incomplete = is_past and is_incomplete
 
-                        # EXPANDABLE STRUCTURED WORKOUT DETAILS & METRICS
-                        if workout_details["steps"] or workout_details["notes"]:
-                            with st.expander("📋 Detailed Workout Structure & Target Metrics"):
-                                col_d1, col_d2 = st.columns([2, 1])
+                                act_type = item["type"]
+                                is_run = "Run" in act_type
+                                sport_icon = "🏃" if is_run else "🚴‍♂️"
                                 
-                                with col_d1:
-                                    st.markdown("**Structured Workout Steps:**")
-                                    for step_str in workout_details["steps"]:
-                                        st.markdown(step_str)
-                                    
-                                    if workout_details["notes"]:
-                                        st.markdown(f"""
-                                        <div class="workout-notes-box">
-                                            {workout_details['notes']}
+                                duration_m = round(item["duration_sec"] / 60.0)
+                                dur_str = f"{duration_m}m" if duration_m < 60 else f"{duration_m//60}h {duration_m%60}m"
+                                dist_km = f"{item['distance_m']/1000.0:.1f}km" if item['distance_m'] > 0 else "--"
+                                
+                                third_label = "Pace" if is_run else "Power"
+                                if is_run:
+                                    third_val = item["pace_str"] or "--"
+                                else:
+                                    if item["power_w"]:
+                                        third_val = f"{int(item['power_w'])}W"
+                                    elif item.get("hr_bpm"):
+                                        third_val = f"{int(item['hr_bpm'])} bpm"
+                                        third_label = "Avg HR"
+                                    else:
+                                        third_val = "--"
+
+                                load_val = str(int(item["load"]))
+
+                                card_opacity = "0.55" if is_past_incomplete else "1.0"
+                                card_border = "#21262D" if is_past_incomplete else BORDER_SUBTLE
+                                status_label = "Incomplete" if is_past_incomplete else item['status']
+                                status_color = TEXT_MUTED if is_past_incomplete else ("#10B981" if item['status'] == "Completed" else "#3B82F6")
+
+                                st.markdown(f"""
+                                <div class="activity-card-body" style="opacity: {card_opacity}; border-color: {card_border};">
+                                    <div class="card-header-row">
+                                        <span class="sport-icon" style="filter: {'grayscale(100%)' if is_past_incomplete else 'none'};">{sport_icon}</span>
+                                        <div>
+                                            <p class="sport-title">{item['name']} <span style="font-size:0.75rem; color:{status_color};">({status_label})</span></p>
+                                            <p class="device-subtitle">{item['device']}</p>
                                         </div>
-                                        """, unsafe_allow_html=True)
+                                    </div>
+                                """, unsafe_allow_html=True)
 
-                                with col_d2:
-                                    m_dict = workout_details["metrics"]
-                                    if m_dict.get("avg_watts"):
-                                        st.markdown("**Calculated Targets:**")
-                                        st.write(f"• **Avg Power:** {m_dict['avg_watts']}W")
-                                        st.write(f"• **Est. NP:** {m_dict['np_watts']}W")
-                                        st.write(f"• **Work:** {m_dict['work_kj']} kJ")
+                                raw_desc = item.get("raw", {}).get("description", "") or item.get("raw", {}).get("workout_doc", "")
+                                workout_details = parse_workout_steps_detailed(raw_desc, declared_ftp)
 
-                                    z_times = workout_details["zone_times"]
-                                    tot_sec = workout_details["total_sec"]
-                                    if tot_sec > 0:
-                                        st.markdown("**Zone Breakdown:**")
-                                        for z_name, z_s in z_times.items():
-                                            if z_s > 0:
-                                                pct_z = round((z_s / tot_sec) * 100, 1)
-                                                z_m = round(z_s / 60.0, 1)
-                                                st.caption(f"{z_name}: {z_m}m ({pct_z}%)")
+                                c_m1, c_m2 = st.columns([3, 1])
+                                with c_m1:
+                                    st.markdown(f"""
+                                    <div class="metrics-flex-group">
+                                        <div class="metric-box">
+                                            <span class="metric-box-label">Duration</span>
+                                            <span class="metric-box-val">{dur_str}</span>
+                                        </div>
+                                        <div class="metric-box">
+                                            <span class="metric-box-label">Distance</span>
+                                            <span class="metric-box-val">{dist_km}</span>
+                                        </div>
+                                        <div class="metric-box">
+                                            <span class="metric-box-label">{third_label}</span>
+                                            <span class="metric-box-val">{third_val}</span>
+                                        </div>
+                                        <div class="metric-box">
+                                            <span class="metric-box-label">Load</span>
+                                            <span class="metric-box-val">{load_val}</span>
+                                        </div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
 
-                        st.markdown("</div>", unsafe_allow_html=True)
+                                with c_m2:
+                                    button_unique_key = f"rev_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"
+                                    if st.button("💬 Review & Inspect", key=button_unique_key, type="secondary"):
+                                        st.session_state.pending_coach_prompt = (
+                                            f"Please run a deep activity inspection on my {item['name']} session "
+                                            f"from {item['date_str']} (Distance: {dist_km}, Duration: {dur_str}, "
+                                            f"Power/Pace: {third_val}, Load: {load_val}). Analyze efficiency, zones, and recovery needs."
+                                        )
+                                        st.session_state.active_nav = NAV_OPTIONS[1]
+                                        st.rerun()
+
+                                if workout_details["steps"] or workout_details["notes"]:
+                                    with st.expander("📋 Detailed Workout Structure & Target Metrics"):
+                                        col_d1, col_d2 = st.columns([2, 1])
+                                        
+                                        with col_d1:
+                                            st.markdown("**Structured Workout Steps:**")
+                                            for step_str in workout_details["steps"]:
+                                                st.markdown(step_str)
+                                            
+                                            if workout_details["notes"]:
+                                                st.markdown(f"""
+                                                <div class="workout-notes-box">
+                                                    {workout_details['notes']}
+                                                </div>
+                                                """, unsafe_allow_html=True)
+
+                                        with col_d2:
+                                            m_dict = workout_details["metrics"]
+                                            if m_dict.get("avg_watts"):
+                                                st.markdown("**Calculated Targets:**")
+                                                st.write(f"• **Avg Power:** {m_dict['avg_watts']}W")
+                                                st.write(f"• **Est. NP:** {m_dict['np_watts']}W")
+                                                st.write(f"• **Work:** {m_dict['work_kj']} kJ")
+
+                                            z_times = workout_details["zone_times"]
+                                            tot_sec = workout_details["total_sec"]
+                                            if tot_sec > 0:
+                                                st.markdown("**Zone Breakdown:**")
+                                                for z_name, z_s in z_times.items():
+                                                    if z_s > 0:
+                                                        pct_z = round((z_s / tot_sec) * 100, 1)
+                                                        z_m = round(z_s / 60.0, 1)
+                                                        st.caption(f"{z_name}: {z_m}m ({pct_z}%)")
+
+                                st.markdown("</div>", unsafe_allow_html=True)
 
 # VIEW 4: ATHLETE PROFILE & MEMORY
 elif st.session_state.active_nav == NAV_OPTIONS[3]:
