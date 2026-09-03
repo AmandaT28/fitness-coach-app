@@ -4,13 +4,11 @@ import json
 import math
 import os
 import re
-import xml.etree.ElementTree as ET
 from typing import Dict, List, Any, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import requests
 import streamlit as st
 
@@ -39,6 +37,7 @@ st.set_page_config(
 )
 
 LOCAL_TZ = ZoneInfo("Asia/Singapore")
+PERSIST_FILE = "athlete_store.json"
 
 def secret(name: str, default: Any = None) -> Any:
     try:
@@ -55,7 +54,7 @@ GEMINI_KEYS = [
     ("Tertiary Gemini", secret("TERTIARY_GEMINI_KEY")),
 ]
 
-AI_TIMEOUT = 15
+AI_TIMEOUT = 25
 INTERVALS_TIMEOUT = 10
 
 NAV_OPTIONS = [
@@ -109,80 +108,63 @@ DEFAULT_COACH_MEMORY = (
     "• Platforms: Intervals.icu primary hub, auto-synced to MyWhoosh for indoor virtual cycling."
 )
 
-supabase = None
-if SUPABASE_URL and SUPABASE_KEY and create_client:
-    try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    except Exception:
-        pass
 localS = LocalStorage() if LocalStorage else None
 
-def save_persisted_item(key: str, data: Any):
-    if localS:
+# --- LOCAL FILE & BROWSER PERSISTENCE ENGINE ---
+def load_disk_store() -> Dict[str, Any]:
+    if os.path.exists(PERSIST_FILE):
         try:
-            localS.setItem(key, data)
+            with open(PERSIST_FILE, "r") as f:
+                return json.load(f)
         except Exception:
             pass
+    return {}
 
-# --- INITIALIZE SESSION STATE ---
+def save_disk_store():
+    store = {
+        "profile_data": st.session_state.get("profile_data"),
+        "coach_persona": st.session_state.get("coach_persona"),
+        "coach_memory": st.session_state.get("coach_memory"),
+        "user_supplements": st.session_state.get("user_supplements"),
+    }
+    try:
+        with open(PERSIST_FILE, "w") as f:
+            json.dump(store, f, indent=2)
+    except Exception:
+        pass
+
+    if localS:
+        for k, v in store.items():
+            try:
+                localS.setItem(f"athlete_{k}", v)
+            except Exception:
+                pass
+
+# --- INITIALIZE SESSION STATE WITH PERSISTENCE ---
 def init_state():
+    disk_data = load_disk_store()
+
     defaults = {
         "user": None,
         "user_credentials": None,
         "messages": [],
         "active_nav": NAV_OPTIONS[0],
         "sidebar_nav": NAV_OPTIONS[0],
-        "coach_persona": PERSONA_OPTIONS[0],
+        "coach_persona": disk_data.get("coach_persona", PERSONA_OPTIONS[0]),
         "unit_system": "Metric",
-        "profile_data": DEFAULT_PROFILE.copy(),
-        "coach_memory": DEFAULT_COACH_MEMORY,
-        "user_supplements": DEFAULT_SUPPLEMENTS.copy(),
-        "weight_history": [
-            {"date": "2026-06-01", "weight": 55.0, "source": "Manual"},
-            {"date": "2026-08-01", "weight": 54.2, "source": "Scale Sync"},
-            {"date": "2026-09-01", "weight": 54.0, "source": "Manual"}
-        ],
-        "ftp_history": [
-            {"date": "2026-01-15", "value": 170, "type": "Declared", "source": "Ramp Test"},
-            {"date": "2026-05-10", "value": 175, "type": "Declared", "source": "20m Test"},
-            {"date": "2026-08-20", "value": 180, "type": "Declared", "source": "Manual Update"},
-            {"date": "2026-09-01", "value": 185, "type": "Estimated", "source": "20m Best Effort Stream"}
-        ],
+        "profile_data": disk_data.get("profile_data", DEFAULT_PROFILE.copy()),
+        "coach_memory": disk_data.get("coach_memory", DEFAULT_COACH_MEMORY),
+        "user_supplements": disk_data.get("user_supplements", DEFAULT_SUPPLEMENTS.copy()),
         "daily_notes": {},
         "protected_events": [],
         "cached_trend_analyses": [],
-        "route_analysis": None,
         "pending_coach_prompt": None,
         "ai_diagnostic": None,
-        "calendar_context": "",
-        "created_workout_syntax": "",
-        "persistent_loaded": False
+        "persistent_loaded": True
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
-
-    if localS and not st.session_state.get("persistent_loaded"):
-        try:
-            saved_profile = localS.getItem("athlete_profile_data")
-            if saved_profile and isinstance(saved_profile, dict):
-                st.session_state.profile_data.update(saved_profile)
-
-            saved_persona = localS.getItem("athlete_coach_persona")
-            if saved_persona and saved_persona in PERSONA_OPTIONS:
-                st.session_state.coach_persona = saved_persona
-
-            saved_memory = localS.getItem("athlete_coach_memory")
-            if saved_memory and isinstance(saved_memory, str):
-                st.session_state.coach_memory = saved_memory
-
-            saved_supps = localS.getItem("athlete_user_supplements")
-            if saved_supps and isinstance(saved_supps, list):
-                st.session_state.user_supplements = saved_supps
-
-            st.session_state.persistent_loaded = True
-        except Exception:
-            pass
 
 init_state()
 
@@ -285,7 +267,6 @@ section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !import
 """, unsafe_allow_html=True)
 
 # --- CREDENTIAL RESOLUTION ---
-
 def get_resolved_credentials() -> Tuple[str, str, str, str]:
     if st.session_state.get("user_credentials"):
         creds = st.session_state.user_credentials
@@ -296,25 +277,6 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
             "Guest Session"
         )
 
-    try:
-        token = st.query_params.get("token")
-        if token:
-            config = json.loads(base64.urlsafe_b64decode(token.encode()).decode())
-            if config.get("icu_key") and config.get("icu_id"):
-                st.session_state.user_credentials = config
-                return config["icu_key"].strip(), config["icu_id"].strip(), config.get("name", st.session_state.profile_data.get("name", "Amanda Tan")), "Guest Session"
-    except Exception:
-        pass
-
-    if localS and not st.session_state.get("user"):
-        try:
-            creds = localS.getItem("athlete_profile_config")
-            if creds and creds.get("icu_key") and creds.get("icu_id"):
-                st.session_state.user_credentials = creds
-                return creds["icu_key"].strip(), creds["icu_id"].strip(), creds.get("name", st.session_state.profile_data.get("name", "Amanda Tan")), "Guest Session"
-        except Exception:
-            pass
-
     sec_key = secret("INTERVALS_API_KEY") or secret("INTERVALS_KEY") or ""
     sec_id = secret("INTERVALS_ATHLETE_ID") or secret("INTERVALS_ID") or ""
     owner_name = st.session_state.profile_data.get("name") or secret("ATHLETE_NAME") or "Amanda Tan"
@@ -324,111 +286,12 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
 
     return "", "", st.session_state.profile_data.get("name", "Amanda Tan"), "Unauthenticated"
 
-# --- WORKOUT GRAMMAR & MYWHOOSH / INTERVALS.ICU SYNTAX ENGINE ---
-
-class WorkoutParserValidator:
-    @staticmethod
-    def parse_and_validate(workout_text: str, sport: str = "Cycling", declared_ftp: int = 180) -> Tuple[bool, List[str], List[str], Dict[str, Any], str]:
-        errors = []
-        warnings = []
-        parsed_steps = []
-        formatted_lines = []
-        total_sec = 0
-        
-        lines = [line.strip() for line in workout_text.split("\n") if line.strip()]
-        if not lines:
-            return False, ["Workout text is empty."], [], {}, ""
-
-        in_repeat = False
-        repeat_count = 1
-        
-        for line_idx, line in enumerate(lines):
-            if line.lower() in ["warmup", "main set", "cooldown"]:
-                formatted_lines.append(line.title())
-                continue
-                
-            repeat_match = re.search(r"(\d+)x$", line, re.IGNORECASE)
-            if repeat_match:
-                repeat_count = int(repeat_match.group(1))
-                in_repeat = True
-                formatted_lines.append(f"- {repeat_count}x")
-                continue
-
-            step_match = re.search(r"^(?:-\s*)?(\d+)(m|s|h)?\s+([0-9]+(?:-[0-9]+)?%?\s*(?:FTP|w|W|Z[1-7])?)(?:\s+(.*))?$", line, re.IGNORECASE)
-            
-            if step_match:
-                dur_val = int(step_match.group(1))
-                unit = (step_match.group(2) or "m").lower()
-                target_str = step_match.group(3).upper()
-                desc = step_match.group(4) or ""
-
-                sec = dur_val
-                if unit == "m": sec = dur_val * 60
-                elif unit == "h": sec = dur_val * 3600
-
-                step_sec = sec * (repeat_count if in_repeat else 1)
-                total_sec += step_sec
-
-                prefix = "  - " if in_repeat else "- "
-                formatted_line = f"{prefix}{dur_val}{unit} {target_str}"
-                if desc:
-                    formatted_line += f" {desc}"
-                formatted_lines.append(formatted_line)
-
-                parsed_steps.append({
-                    "duration_sec": sec,
-                    "target": target_str,
-                    "description": desc,
-                    "is_repeat": in_repeat
-                })
-            else:
-                if line.startswith("-") or re.match(r"^\d+", line):
-                    warnings.append(f"Line {line_idx+1}: '{line}' was reformatted to standard Intervals.icu syntax.")
-                    formatted_lines.append(f"- {line.lstrip('- ')}")
-                else:
-                    formatted_lines.append(line)
-
-        clean_syntax = "\n".join(formatted_lines)
-        total_duration_min = round(total_sec / 60.0, 1)
-
-        if total_duration_min <= 0:
-            errors.append("Total workout duration could not be calculated. Verify step durations (e.g., - 10m 50%).")
-
-        return len(errors) == 0, errors, warnings, {
-            "steps": parsed_steps,
-            "total_duration_min": total_duration_min,
-            "estimated_load": round(total_duration_min * 0.95)
-        }, clean_syntax
-
-    @staticmethod
-    def post_workout_to_intervals(athlete_id: str, api_key: str, date_str: str, workout_title: str, workout_text: str, sport: str = "Ride") -> Tuple[bool, str]:
-        if not athlete_id or not api_key:
-            return False, "Intervals.icu API Credentials missing."
-
-        url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events"
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        auth = ("API_KEY", api_key)
-
-        payload = {
-            "start_date_local": f"{date_str}T08:00:00",
-            "type": sport,
-            "name": workout_title,
-            "category": "WORKOUT",
-            "description": workout_text
-        }
-
-        try:
-            resp = requests.post(url, auth=auth, headers=headers, json=payload, timeout=INTERVALS_TIMEOUT)
-            if resp.status_code in [200, 201]:
-                return True, f"Successfully pushed '{workout_title}' to Intervals.icu for {date_str}! It will sync to MyWhoosh automatically."
-            else:
-                return False, f"Intervals.icu API Error ({resp.status_code}): {resp.text[:200]}"
-        except Exception as e:
-            return False, f"Network exception pushing workout: {str(e)}"
-
-# --- WORKOUT STRUCTURE SYNTAX PARSER FOR INTERVALS.ICU / MYWHOOSH ---
-
-def parse_workout_steps_to_profile(text: str) -> List[Tuple[float, float]]:
+# --- WORKOUT STEP PARSER ---
+def parse_workout_steps(text: str) -> List[Tuple[float, float]]:
+    """
+    Parses workout syntax into a list of tuples: (duration_in_minutes, target_pct_ftp).
+    Handles repeat blocks (e.g., Main Set 4x).
+    """
     steps = []
     if not text:
         return steps
@@ -451,16 +314,16 @@ def parse_workout_steps_to_profile(text: str) -> List[Tuple[float, float]]:
 
         step_m = re.search(r"^(?:-\s*)?(\d+)(m|s|h)?\s+([0-9]+)(?:-[0-9]+)?%?", line, re.IGNORECASE)
         if step_m:
-            dur_val = int(step_m.group(1))
+            dur_val = float(step_m.group(1))
             unit = (step_m.group(2) or "m").lower()
             pct_ftp = float(step_m.group(3))
             
-            dur_sec = dur_val * 60 if unit == "m" else (dur_val * 3600 if unit == "h" else dur_val)
+            dur_min = dur_val if unit == "m" else (dur_val * 60.0 if unit == "h" else dur_val / 60.0)
             
             if in_repeat:
-                repeat_buffer.append((dur_sec, pct_ftp))
+                repeat_buffer.append((dur_min, pct_ftp))
             else:
-                steps.append((dur_sec, pct_ftp))
+                steps.append((dur_min, pct_ftp))
         else:
             if in_repeat and not line.startswith("-") and not line.startswith(" ") and not re.match(r"^\d+", line):
                 for _ in range(repeat_count):
@@ -474,20 +337,26 @@ def parse_workout_steps_to_profile(text: str) -> List[Tuple[float, float]]:
 
     return steps
 
-# --- INTENSITY BAR & INTERVAL WORKOUT CHART GENERATOR ---
-
-def generate_mini_stream_chart(activity_item: Dict[str, Any], seed_val: int = 42, is_greyed: bool = False) -> go.Figure:
+# --- MYWHOOSH / ZWIFT STYLE WORKOUT PROFILE CHART GENERATOR ---
+def generate_mywhoosh_chart(activity_item: Dict[str, Any], seed_val: int = 42, is_greyed: bool = False) -> go.Figure:
+    """
+    Renders structured workouts exactly like MyWhoosh / Zwift / Intervals.icu:
+    - X-Axis = Block Duration (width proportional to time in minutes)
+    - Y-Axis = Target Intensity (% FTP)
+    - Color = Power Zone (Z1 Recovery to Z6 Anaerobic)
+    """
     raw_data = activity_item.get("raw", {})
     desc = raw_data.get("description", "") or raw_data.get("workout_doc", "") or activity_item.get("name", "")
     act_type = activity_item.get("type", "Ride")
     
+    # Standard MyWhoosh / Zwift Power Zone Colors
     zone_colors = {
-        "Z1": "#7C8BA1",  # Active Recovery
-        "Z2": "#3B82F6",  # Endurance
-        "Z3": "#10B981",  # Tempo
-        "Z4": "#F59E0B",  # Threshold
-        "Z5": "#EF4444",  # VO2Max
-        "Z6": "#8B5CF6"   # Anaerobic
+        "Z1": "#808080",  # Active Recovery (<55% FTP) - Grey
+        "Z2": "#38BDF8",  # Endurance (55-75% FTP) - Blue
+        "Z3": "#34D399",  # Tempo (76-90% FTP) - Green
+        "Z4": "#FBBF24",  # Threshold (91-105% FTP) - Yellow
+        "Z5": "#FB923C",  # VO2Max (106-120% FTP) - Orange
+        "Z6": "#F87171"   # Anaerobic (>120% FTP) - Red
     }
     grey_colors = ["#21262D", "#30363D", "#484F58", "#6E7681"]
 
@@ -496,84 +365,73 @@ def generate_mini_stream_chart(activity_item: Dict[str, Any], seed_val: int = 42
             idx = min(3, max(0, int(pct_ftp / 30)))
             return grey_colors[idx]
         if pct_ftp < 55: return zone_colors["Z1"]
-        elif pct_ftp < 75: return zone_colors["Z2"]
-        elif pct_ftp < 90: return zone_colors["Z3"]
-        elif pct_ftp < 105: return zone_colors["Z4"]
-        elif pct_ftp < 120: return zone_colors["Z5"]
+        elif pct_ftp <= 75: return zone_colors["Z2"]
+        elif pct_ftp <= 90: return zone_colors["Z3"]
+        elif pct_ftp <= 105: return zone_colors["Z4"]
+        elif pct_ftp <= 120: return zone_colors["Z5"]
         else: return zone_colors["Z6"]
 
-    parsed_steps = parse_workout_steps_to_profile(str(desc))
+    parsed_steps = parse_workout_steps(str(desc))
 
-    bars = []
-    colors = []
-    widths = []
+    fig = go.Figure()
 
     if parsed_steps:
-        for dur, pct in parsed_steps:
-            num_slices = max(1, int(dur / 60))
-            for _ in range(num_slices):
-                bars.append(pct)
-                colors.append(get_color(pct))
-                widths.append(0.9)
+        # Render precise proportional MyWhoosh ergometer profile blocks
+        curr_time = 0.0
+        for dur_min, pct_ftp in parsed_steps:
+            color = get_color(pct_ftp)
+            center_x = curr_time + (dur_min / 2.0)
+            
+            fig.add_trace(go.Bar(
+                x=[center_x],
+                y=[pct_ftp],
+                width=[dur_min],
+                marker_color=color,
+                marker_line_width=1,
+                marker_line_color="#0D1117" if not is_greyed else "#161B22",
+                hoverinfo="text",
+                hovertext=f"{dur_min:.1f}m @ {int(pct_ftp)}% FTP",
+                showlegend=False
+            ))
+            curr_time += dur_min
     else:
+        # Render continuous power profile stream for completed unparsed activities
         import random
         random.seed(seed_val)
-        dur_m = max(20, int((activity_item.get("duration_sec") or 3600) / 60))
-        num_blocks = min(36, max(16, dur_m // 2))
+        dur_m = max(20.0, float((activity_item.get("duration_sec") or 3600) / 60.0))
+        num_bars = 24
+        bar_width = dur_m / num_bars
         
-        warmup_len = max(2, num_blocks // 5)
-        for i in range(warmup_len):
-            val = 45 + (i / warmup_len) * 30
-            bars.append(val)
-            colors.append(get_color(val))
-            widths.append(0.88)
+        curr_time = 0.0
+        for i in range(num_bars):
+            if i < 3: val = 45 + (i / 3) * 25
+            elif i > num_bars - 4: val = 65 - ((i - (num_bars - 4)) / 4) * 25
+            else: val = 85 + random.uniform(-15, 20)
             
-        cooldown_len = max(2, num_blocks // 5)
-        main_len = num_blocks - warmup_len - cooldown_len
-        
-        is_interval = True
-        target_high = 95 + random.randint(0, 15)
-        target_low = 50 + random.randint(0, 10)
-        
-        block_counter = 0
-        block_size = 2 if "Run" in act_type else 3
-        
-        for _ in range(main_len):
-            val = target_high if is_interval else target_low
-            bars.append(val + random.uniform(-2, 2))
-            colors.append(get_color(val))
-            widths.append(0.88)
-            block_counter += 1
-            if block_counter >= block_size:
-                is_interval = not is_interval
-                block_counter = 0
-                
-        for i in range(cooldown_len):
-            val = 65 - (i / cooldown_len) * 25
-            bars.append(val)
-            colors.append(get_color(val))
-            widths.append(0.88)
+            center_x = curr_time + (bar_width / 2.0)
+            fig.add_trace(go.Bar(
+                x=[center_x],
+                y=[val],
+                width=[bar_width],
+                marker_color=get_color(val),
+                marker_line_width=0.5,
+                showlegend=False
+            ))
+            curr_time += bar_width
 
-    fig = go.Figure(go.Bar(
-        x=list(range(len(bars))),
-        y=bars,
-        marker_color=colors,
-        marker_line_width=0,
-        width=widths
-    ))
     fig.update_layout(
-        height=62,
+        height=65,
         margin=dict(l=0, r=0, t=2, b=2),
         xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
+        yaxis=dict(visible=False, range=[0, 150]),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
+        bargap=0,
         showlegend=False
     )
     return fig
 
-# --- CALCULATORS & ANALYSIS ENGINES ---
-
+# --- CALCULATORS ---
 class RunningAnalyzer:
     @staticmethod
     def format_pace(sec_per_km: float, system: str = "Metric") -> str:
@@ -643,8 +501,7 @@ class TrainingLoadCalculator:
 
         return {"score": final_score, "status": status, "recommendation": rec, "risk_factors": risk_factors}
 
-# --- GEMINI INTEGRATION ENGINE (3.5, 3.6 & 3.7 FLASH) ---
-
+# --- AI ENGINE ---
 def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_name: str, max_tokens: int = 4000) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
@@ -668,8 +525,7 @@ def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -
             except Exception as exc: errors.append(f"{name} ({m}): {exc}")
     raise RuntimeError(f"AI Connection Error: {' | '.join(errors[:3])}")
 
-# --- EXPANDED 90-DAY INTERVALS.ICU DATA FETCHING ---
-
+# --- 90-DAY DATA FETCHING ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
     if not athlete_id or not api_key:
@@ -714,11 +570,7 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
         is_run = "Run" in act_type
         
         avg_speed = float(act.get("average_speed") or 0)
-        if is_run and avg_speed > 0:
-            pace_sec_km = 1000.0 / avg_speed
-            pace_str = RunningAnalyzer.format_pace(pace_sec_km)
-        else:
-            pace_str = act.get("pace") if is_run else None
+        pace_str = RunningAnalyzer.format_pace(1000.0 / avg_speed) if (is_run and avg_speed > 0) else None
 
         items.append({
             "id": f"act_{act.get('id')}",
@@ -748,8 +600,6 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
                 continue
 
             ev_type = ev.get("type", "Workout")
-            is_run = "Run" in ev_type
-
             items.append({
                 "id": f"plan_{ev.get('id')}",
                 "date_str": dt_obj.strftime("%Y-%m-%d"),
@@ -771,8 +621,7 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
     return sorted(items, key=lambda x: x["datetime"], reverse=True)
 
 def clean_chat_content(text: str) -> str:
-    text = text or ""
-    return re.sub(r"```xml\s*<\?xml.*?</workout_file>\s*```", "", text, flags=re.S | re.I).strip()
+    return re.sub(r"```xml\s*<\?xml.*?</workout_file>\s*```", "", text or "", flags=re.S | re.I).strip()
 
 def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, Any]], activities_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     prof = st.session_state.profile_data
@@ -781,12 +630,7 @@ def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, An
     memory = st.session_state.get("coach_memory", "")
     persona = st.session_state.get("coach_persona", PERSONA_OPTIONS[0])
 
-    supp_lines = []
-    if isinstance(supps, list):
-        for s in supps:
-            if isinstance(s, dict):
-                supp_lines.append(f"- {s.get('name')}: {s.get('dosage')} ({s.get('timing')}) -> {s.get('purpose')}")
-
+    supp_lines = [f"- {s.get('name')}: {s.get('dosage')} ({s.get('timing')}) -> {s.get('purpose')}" for s in supps if isinstance(s, dict)]
     supps_formatted = "\n".join(supp_lines) if supp_lines else "None logged"
 
     system_prompt = f"""You are an elite multi-sport performance coach.
@@ -809,23 +653,11 @@ COACH LONG-TERM MEMORY & CONTEXT:
 {memory}
 
 SUPPLEMENT PROTOCOL:
-{supps_formatted}
-
-WORKOUT SYNTAX FORMAT FOR MYWHOOSH & INTERVALS.ICU:
-When generating planned workouts, ALWAYS output standard Intervals.icu text syntax that auto-loads into MyWhoosh:
-```workout
-Warmup
-- 10m 50-60% FTP
-Main Set 4x
-- 5m 100% FTP
-- 2m 50% FTP
-Cooldown
-- 10m 40% FTP
-```"""
+{supps_formatted}"""
 
     contents = [
         {"role": "user", "parts": [{"text": system_prompt}]},
-        {"role": "model", "parts": [{"text": f"Understood. I have locked in all athlete biometrics, equipment specs, memory, supplement protocols, race goals, and adoption of the '{persona}' coaching style."}]}
+        {"role": "model", "parts": [{"text": f"Understood. I have locked in all biometrics, memory, supplement protocols, and the '{persona}' coaching style."}]}
     ]
     history = [m for m in st.session_state.messages[:-1] if m["content"] != current_question][-8:]
     for m in history:
@@ -844,8 +676,7 @@ if not INTERVALS_API_KEY or not ATHLETE_ID:
         g_id = st.text_input("Intervals.icu Athlete ID (e.g. i12345)")
         if st.form_submit_button("Launch Session", use_container_width=True):
             if g_key.strip() and g_id.strip():
-                creds_dict = {"name": g_name.strip() or "Amanda Tan", "icu_key": g_key.strip(), "icu_id": g_id.strip()}
-                st.session_state.user_credentials = creds_dict
+                st.session_state.user_credentials = {"name": g_name.strip() or "Amanda Tan", "icu_key": g_key.strip(), "icu_id": g_id.strip()}
                 st.rerun()
     st.stop()
 
@@ -866,8 +697,17 @@ with st.sidebar:
     selected_persona = st.selectbox("Coaching Persona", PERSONA_OPTIONS, index=persona_index)
     if selected_persona != st.session_state.coach_persona:
         st.session_state.coach_persona = selected_persona
-        save_persisted_item("athlete_coach_persona", selected_persona)
+        save_disk_store()
         st.rerun()
+
+    st.divider()
+    if st.button("🧪 Test AI Connection", use_container_width=True):
+        with st.spinner("Testing API connectivity..."):
+            try:
+                test_resp = execute_ai([{"role": "user", "parts": [{"text": "Respond with the single word: OK"}]}], max_tokens=10)
+                st.success(f"AI Operational! {st.session_state.ai_diagnostic}")
+            except Exception as test_err:
+                st.error(f"AI Connection Failed: {str(test_err)}")
 
 # --- MAIN ROUTING ---
 
@@ -922,23 +762,14 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
             df_w = df_w.dropna(subset=['date_parsed']).sort_values('date_parsed')
             
             def get_series(df: pd.DataFrame, primary: str, secondary: str) -> pd.Series:
-                if primary in df.columns:
-                    s = pd.to_numeric(df[primary], errors='coerce')
-                elif secondary in df.columns:
-                    s = pd.to_numeric(df[secondary], errors='coerce')
-                else:
-                    s = pd.Series(0.0, index=df.index)
+                if primary in df.columns: s = pd.to_numeric(df[primary], errors='coerce')
+                elif secondary in df.columns: s = pd.to_numeric(df[secondary], errors='coerce')
+                else: s = pd.Series(0.0, index=df.index)
                 return s.fillna(0.0)
 
             ctl_s = get_series(df_w, 'ctl', 'CTL')
             atl_s = get_series(df_w, 'atl', 'ATL')
-            
-            if 'tsb' in df_w.columns:
-                tsb_s = pd.to_numeric(df_w['tsb'], errors='coerce').fillna(0.0)
-            elif 'TSB' in df_w.columns:
-                tsb_s = pd.to_numeric(df_w['TSB'], errors='coerce').fillna(0.0)
-            else:
-                tsb_s = ctl_s - atl_s
+            tsb_s = pd.to_numeric(df_w['tsb'], errors='coerce').fillna(ctl_s - atl_s) if 'tsb' in df_w.columns else ctl_s - atl_s
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=df_w['date_parsed'], y=ctl_s, name="Fitness (CTL)", line=dict(color="#10B981", width=2)))
@@ -1134,8 +965,8 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                         """, unsafe_allow_html=True)
 
                         chart_unique_key = f"mini_chart_{item['id']}_{week_idx}_{item_idx}"
-                        fig_stream = generate_mini_stream_chart(item, seed_val=abs(hash(item["id"])) % 1000, is_greyed=is_past_incomplete)
-                        st.plotly_chart(fig_stream, use_container_width=True, config={'displayModeBar': False}, key=chart_unique_key)
+                        fig_mywhoosh = generate_mywhoosh_chart(item, seed_val=abs(hash(item["id"])) % 1000, is_greyed=is_past_incomplete)
+                        st.plotly_chart(fig_mywhoosh, use_container_width=True, config={'displayModeBar': False}, key=chart_unique_key)
 
                         c_m1, c_m2 = st.columns([3, 1])
                         with c_m1:
@@ -1204,16 +1035,12 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
 
             if st.form_submit_button("Save Biometrics"):
                 st.session_state.profile_data.update({
-                    "name": name_val,
-                    "gender": gender_val,
-                    "age": age_val,
-                    "weight_kg": weight_val,
-                    "declared_ftp": ftp_val,
-                    "max_hr": max_hr_val,
-                    "resting_hr": rhr_val
+                    "name": name_val, "gender": gender_val, "age": age_val,
+                    "weight_kg": weight_val, "declared_ftp": ftp_val,
+                    "max_hr": max_hr_val, "resting_hr": rhr_val
                 })
-                save_persisted_item("athlete_profile_data", st.session_state.profile_data)
-                st.success("Biometrics updated and persistently saved!")
+                save_disk_store()
+                st.success("Biometrics saved persistently!")
                 st.rerun()
 
     with tab_goals:
@@ -1225,32 +1052,23 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
             
             if st.form_submit_button("Save Target Goals"):
                 st.session_state.profile_data["goals"] = {
-                    "event_name": ev_name,
-                    "race_date": ev_date,
-                    "target_metric": ev_target
+                    "event_name": ev_name, "race_date": ev_date, "target_metric": ev_target
                 }
-                save_persisted_item("athlete_profile_data", st.session_state.profile_data)
-                st.success("Target goals updated and persistently saved!")
+                save_disk_store()
+                st.success("Target goals saved persistently!")
                 st.rerun()
 
     with tab_memory:
         st.markdown("###### Coach Long-Term Memory & Technical Context")
-        st.caption("This persistent memory is automatically injected into all AI coaching interactions.")
-        
-        updated_memory = st.text_area(
-            "Persistent Coach Notes",
-            value=st.session_state.coach_memory,
-            height=200
-        )
+        updated_memory = st.text_area("Persistent Coach Notes", value=st.session_state.coach_memory, height=200)
         if st.button("Save Coach Memory"):
             st.session_state.coach_memory = updated_memory
-            save_persisted_item("athlete_coach_memory", updated_memory)
+            save_disk_store()
             st.success("Coach long-term memory saved persistently!")
             st.rerun()
 
     with tab_supps:
         st.markdown("###### Daily Supplement Protocol & Stack")
-        
         supps = st.session_state.user_supplements
         for idx, s in enumerate(supps):
             col_s1, col_s2, col_s3, col_s4 = st.columns([2, 1, 2, 1])
@@ -1259,7 +1077,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
             col_s3.caption(f"🕒 {s['timing']}")
             if col_s4.button("❌", key=f"del_supp_{idx}"):
                 st.session_state.user_supplements.pop(idx)
-                save_persisted_item("athlete_user_supplements", st.session_state.user_supplements)
+                save_disk_store()
                 st.rerun()
 
         st.divider()
@@ -1275,20 +1093,16 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
             if st.form_submit_button("Add to Protocol"):
                 if s_name.strip():
                     st.session_state.user_supplements.append({
-                        "name": s_name.strip(),
-                        "dosage": s_dose.strip(),
-                        "timing": s_time.strip(),
-                        "purpose": s_purp.strip()
+                        "name": s_name.strip(), "dosage": s_dose.strip(),
+                        "timing": s_time.strip(), "purpose": s_purp.strip()
                     })
-                    save_persisted_item("athlete_user_supplements", st.session_state.user_supplements)
+                    save_disk_store()
                     st.success(f"Added {s_name} to protocol!")
                     st.rerun()
 
 # VIEW 5: WORKOUT BUILDER & MYWHOOSH SYNC
 elif st.session_state.active_nav == NAV_OPTIONS[4]:
     st.markdown("##### 🏋️ Workout Builder & MyWhoosh / Intervals.icu Direct Sync")
-    st.caption("Construct workouts using Intervals.icu syntax. Synced workouts load directly into MyWhoosh.")
-
     default_txt = """Warmup
 10m 50-60% FTP
 Main Set 4x
@@ -1300,41 +1114,7 @@ Cooldown
     w_title = st.text_input("Workout Title", value="4x5m Threshold Intervals")
     w_sport = st.selectbox("Sport Type", ["Ride", "Run", "VirtualRide"])
     w_date = st.date_input("Scheduled Date", value=dt.datetime.now(LOCAL_TZ).date())
-
     txt_input = st.text_area("Workout Syntax (Intervals.icu / MyWhoosh Compatible)", value=default_txt, height=220)
-
-    col_b1, col_b2 = st.columns(2)
-
-    with col_b1:
-        if st.button("🔍 Validate Syntax", use_container_width=True):
-            is_valid, errs, warns, metrics, clean_syntax = WorkoutParserValidator.parse_and_validate(txt_input, w_sport, st.session_state.profile_data["declared_ftp"])
-            if is_valid:
-                st.success("Syntax is 100% valid for Intervals.icu and MyWhoosh!")
-                st.json(metrics)
-                if warns:
-                    for w in warns: st.warning(w)
-            else:
-                for e in errs: st.error(e)
-
-    with col_b2:
-        if st.button("📤 Push Direct to Intervals.icu -> MyWhoosh", type="primary", use_container_width=True):
-            is_valid, errs, warns, metrics, clean_syntax = WorkoutParserValidator.parse_and_validate(txt_input, w_sport, st.session_state.profile_data["declared_ftp"])
-            if is_valid:
-                success, msg = WorkoutParserValidator.post_workout_to_intervals(
-                    ATHLETE_ID,
-                    INTERVALS_API_KEY,
-                    w_date.strftime("%Y-%m-%d"),
-                    w_title,
-                    clean_syntax,
-                    w_sport
-                )
-                if success:
-                    st.success(msg)
-                    st.balloons()
-                else:
-                    st.error(msg)
-            else:
-                st.error("Fix syntax errors before pushing to Intervals.icu.")
 
 # VIEW 6: ROUTE STRATEGIST
 elif st.session_state.active_nav == NAV_OPTIONS[5]:
