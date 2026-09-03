@@ -82,7 +82,7 @@ DEFAULT_PROFILE = {
     "estimated_ftp": 185,
     "max_hr": 182,
     "resting_hr": 52,
-    "running_threshold_pace_sec": 300,  # 5:00 /km
+    "running_threshold_pace_sec": 300,
     "unit_system": "Metric",
     "rest_days": ["Friday"],
     "primary_sports": ["Cycling", "Running"],
@@ -117,6 +117,13 @@ if SUPABASE_URL and SUPABASE_KEY and create_client:
         pass
 localS = LocalStorage() if LocalStorage else None
 
+def save_persisted_item(key: str, data: Any):
+    if localS:
+        try:
+            localS.setItem(key, data)
+        except Exception:
+            pass
+
 # --- INITIALIZE SESSION STATE ---
 def init_state():
     defaults = {
@@ -148,11 +155,34 @@ def init_state():
         "pending_coach_prompt": None,
         "ai_diagnostic": None,
         "calendar_context": "",
-        "created_workout_syntax": ""
+        "created_workout_syntax": "",
+        "persistent_loaded": False
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+    if localS and not st.session_state.get("persistent_loaded"):
+        try:
+            saved_profile = localS.getItem("athlete_profile_data")
+            if saved_profile and isinstance(saved_profile, dict):
+                st.session_state.profile_data.update(saved_profile)
+
+            saved_persona = localS.getItem("athlete_coach_persona")
+            if saved_persona and saved_persona in PERSONA_OPTIONS:
+                st.session_state.coach_persona = saved_persona
+
+            saved_memory = localS.getItem("athlete_coach_memory")
+            if saved_memory and isinstance(saved_memory, str):
+                st.session_state.coach_memory = saved_memory
+
+            saved_supps = localS.getItem("athlete_user_supplements")
+            if saved_supps and isinstance(saved_supps, list):
+                st.session_state.user_supplements = saved_supps
+
+            st.session_state.persistent_loaded = True
+        except Exception:
+            pass
 
 init_state()
 
@@ -262,7 +292,7 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
         return (
             creds.get("icu_key", "").strip(),
             creds.get("icu_id", "").strip(),
-            creds.get("name", "Amanda Tan").strip(),
+            creds.get("name", st.session_state.profile_data.get("name", "Amanda Tan")).strip(),
             "Guest Session"
         )
 
@@ -272,7 +302,7 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
             config = json.loads(base64.urlsafe_b64decode(token.encode()).decode())
             if config.get("icu_key") and config.get("icu_id"):
                 st.session_state.user_credentials = config
-                return config["icu_key"].strip(), config["icu_id"].strip(), config.get("name", "Amanda Tan"), "Guest Session"
+                return config["icu_key"].strip(), config["icu_id"].strip(), config.get("name", st.session_state.profile_data.get("name", "Amanda Tan")), "Guest Session"
     except Exception:
         pass
 
@@ -281,18 +311,18 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
             creds = localS.getItem("athlete_profile_config")
             if creds and creds.get("icu_key") and creds.get("icu_id"):
                 st.session_state.user_credentials = creds
-                return creds["icu_key"].strip(), creds["icu_id"].strip(), creds.get("name", "Amanda Tan"), "Guest Session"
+                return creds["icu_key"].strip(), creds["icu_id"].strip(), creds.get("name", st.session_state.profile_data.get("name", "Amanda Tan")), "Guest Session"
         except Exception:
             pass
 
     sec_key = secret("INTERVALS_API_KEY") or secret("INTERVALS_KEY") or ""
     sec_id = secret("INTERVALS_ATHLETE_ID") or secret("INTERVALS_ID") or ""
-    owner_name = secret("ATHLETE_NAME") or "Amanda Tan"
+    owner_name = st.session_state.profile_data.get("name") or secret("ATHLETE_NAME") or "Amanda Tan"
     
     if sec_key and sec_id:
         return str(sec_key).strip(), str(sec_id).strip(), owner_name, "Owner (Auto-Secrets)"
 
-    return "", "", "Amanda Tan", "Unauthenticated"
+    return "", "", st.session_state.profile_data.get("name", "Amanda Tan"), "Unauthenticated"
 
 # --- WORKOUT GRAMMAR & MYWHOOSH / INTERVALS.ICU SYNTAX ENGINE ---
 
@@ -412,10 +442,18 @@ def generate_mini_stream_chart(activity_item: Dict[str, Any], seed_val: int = 42
         "#EC4899"   # Z7 Neuromuscular (Pink)
     ]
 
-    zone_times = raw_data.get("icu_zone_times") or raw_data.get("icu_hr_zone_times") or raw_data.get("zone_times")
+    raw_zone_times = raw_data.get("icu_zone_times") or raw_data.get("icu_hr_zone_times") or raw_data.get("zone_times")
     
-    if isinstance(zone_times, list) and len(zone_times) > 0 and sum(zone_times) > 0:
-        bars = [float(t) / 60.0 for t in zone_times[:7]]
+    safe_zone_times = []
+    if isinstance(raw_zone_times, list):
+        for item in raw_zone_times:
+            try:
+                safe_zone_times.append(float(item) if item is not None else 0.0)
+            except (ValueError, TypeError):
+                safe_zone_times.append(0.0)
+
+    if safe_zone_times and sum(safe_zone_times) > 0:
+        bars = [t / 60.0 for t in safe_zone_times[:7]]
         colors = [zone_colors[i % len(zone_colors)] for i in range(len(bars))]
         max_b = max(bars) if max(bars) > 0 else 1.0
         widths = [max(0.4, min(1.0, b / max_b)) for b in bars]
@@ -534,7 +572,7 @@ class TrainingLoadCalculator:
 
         return {"score": final_score, "status": status, "recommendation": rec, "risk_factors": risk_factors}
 
-# --- GEMINI INTEGRATION ENGINE ---
+# --- GEMINI INTEGRATION ENGINE (3.5, 3.6 & 3.7 FLASH) ---
 
 def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_name: str, max_tokens: int = 4000) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
@@ -548,7 +586,7 @@ def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_
 
 def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -> str:
     errors = []
-    models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+    models = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"]
     for name, key in GEMINI_KEYS:
         if not key: continue
         for m in models:
@@ -670,6 +708,7 @@ def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, An
     goals = prof.get("goals", {})
     supps = st.session_state.get("user_supplements", [])
     memory = st.session_state.get("coach_memory", "")
+    persona = st.session_state.get("coach_persona", PERSONA_OPTIONS[0])
 
     supp_lines = []
     if isinstance(supps, list):
@@ -680,6 +719,9 @@ def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, An
     supps_formatted = "\n".join(supp_lines) if supp_lines else "None logged"
 
     system_prompt = f"""You are an elite multi-sport performance coach.
+
+SELECTED COACHING PERSONA:
+{persona}
 
 ATHLETE BIOMETRICS & BENCHMARKS:
 - Name: {prof.get('name', 'Amanda Tan')} | Gender: {prof.get('gender', 'Female')} | Age: {prof.get('age', 43)} | Weight: {prof.get('weight_kg', 54.0)} kg
@@ -712,9 +754,8 @@ Cooldown
 
     contents = [
         {"role": "user", "parts": [{"text": system_prompt}]},
-        {"role": "model", "parts": [{"text": "Understood. I have locked in all athlete biometrics, equipment specs, memory, supplement protocols, race goals, and MyWhoosh/Intervals.icu workout syntax requirements."}]}
+        {"role": "model", "parts": [{"text": f"Understood. I have locked in all athlete biometrics, equipment specs, memory, supplement protocols, race goals, and adoption of the '{persona}' coaching style."}]}
     ]
-    # Filter past history excluding the latest user message to avoid duplication
     history = [m for m in st.session_state.messages[:-1] if m["content"] != current_question][-8:]
     for m in history:
         contents.append({"role": "user" if m["role"] == "user" else "model", "parts": [{"text": clean_chat_content(str(m["content"]))[:2000]}]})
@@ -727,7 +768,7 @@ INTERVALS_API_KEY, ATHLETE_ID, display_name, auth_mode = get_resolved_credential
 if not INTERVALS_API_KEY or not ATHLETE_ID:
     st.markdown("##### 🔐 AI Performance Coach • Guest Setup")
     with st.form("guest_onboarding_form"):
-        g_name = st.text_input("Your Name", value="Amanda Tan")
+        g_name = st.text_input("Your Name", value=st.session_state.profile_data.get("name", "Amanda Tan"))
         g_key = st.text_input("Intervals.icu API Key", type="password")
         g_id = st.text_input("Intervals.icu Athlete ID (e.g. i12345)")
         if st.form_submit_button("Launch Session", use_container_width=True):
@@ -737,13 +778,12 @@ if not INTERVALS_API_KEY or not ATHLETE_ID:
                 st.rerun()
     st.stop()
 
-st.session_state.profile_data["name"] = display_name
 wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data_16weeks(ATHLETE_ID, INTERVALS_API_KEY)
 
 # --- SIDEBAR NAVIGATION ---
 with st.sidebar:
     st.markdown("##### ⚡ AI Multi-Sport Coach")
-    st.caption(f"Athlete: {display_name} | Mode: {auth_mode}")
+    st.caption(f"Athlete: {st.session_state.profile_data.get('name', display_name)} | Mode: {auth_mode}")
 
     for nav_item in NAV_OPTIONS:
         if st.button(nav_item, use_container_width=True, type="primary" if st.session_state.active_nav == nav_item else "secondary"):
@@ -751,16 +791,19 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    selected_persona = st.selectbox("Coaching Persona", PERSONA_OPTIONS, index=PERSONA_OPTIONS.index(st.session_state.coach_persona))
+    persona_index = PERSONA_OPTIONS.index(st.session_state.coach_persona) if st.session_state.coach_persona in PERSONA_OPTIONS else 0
+    selected_persona = st.selectbox("Coaching Persona", PERSONA_OPTIONS, index=persona_index)
     if selected_persona != st.session_state.coach_persona:
         st.session_state.coach_persona = selected_persona
+        save_persisted_item("athlete_coach_persona", selected_persona)
         st.rerun()
 
 # --- MAIN ROUTING ---
 
 # VIEW 1: COMMAND CENTER
 if st.session_state.active_nav == NAV_OPTIONS[0]:
-    st.markdown(f"##### ☀️ Command Center for {display_name}")
+    curr_name = st.session_state.profile_data.get("name", display_name)
+    st.markdown(f"##### ☀️ Command Center for {curr_name}")
     prof = st.session_state.profile_data
 
     latest_w = wellness_list[-1] if wellness_list else {}
@@ -1076,7 +1119,8 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
                     "max_hr": max_hr_val,
                     "resting_hr": rhr_val
                 })
-                st.success("Biometrics updated successfully!")
+                save_persisted_item("athlete_profile_data", st.session_state.profile_data)
+                st.success("Biometrics updated and persistently saved!")
                 st.rerun()
 
     with tab_goals:
@@ -1092,7 +1136,8 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
                     "race_date": ev_date,
                     "target_metric": ev_target
                 }
-                st.success("Target goals updated!")
+                save_persisted_item("athlete_profile_data", st.session_state.profile_data)
+                st.success("Target goals updated and persistently saved!")
                 st.rerun()
 
     with tab_memory:
@@ -1106,7 +1151,8 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
         )
         if st.button("Save Coach Memory"):
             st.session_state.coach_memory = updated_memory
-            st.success("Coach long-term memory saved!")
+            save_persisted_item("athlete_coach_memory", updated_memory)
+            st.success("Coach long-term memory saved persistently!")
             st.rerun()
 
     with tab_supps:
@@ -1120,6 +1166,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
             col_s3.caption(f"🕒 {s['timing']}")
             if col_s4.button("❌", key=f"del_supp_{idx}"):
                 st.session_state.user_supplements.pop(idx)
+                save_persisted_item("athlete_user_supplements", st.session_state.user_supplements)
                 st.rerun()
 
         st.divider()
@@ -1140,6 +1187,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
                         "timing": s_time.strip(),
                         "purpose": s_purp.strip()
                     })
+                    save_persisted_item("athlete_user_supplements", st.session_state.user_supplements)
                     st.success(f"Added {s_name} to protocol!")
                     st.rerun()
 
