@@ -904,7 +904,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
                 st.toast("90-day trend synthesis complete!", icon="📈")
             except Exception as exc: st.error(str(exc))
 
-  if st.session_state.cached_trend_analyses:
+if st.session_state.cached_trend_analyses:
         st.markdown("###### 📈 Saved Trend Reports")
         for idx, item in enumerate(st.session_state.cached_trend_analyses):
             with st.expander(f"📌 Trend Report #{len(st.session_state.cached_trend_analyses) - idx} · Generated {item['timestamp']}", expanded=(idx == 0)):
