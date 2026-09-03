@@ -54,7 +54,7 @@ GEMINI_KEYS = [
     ("Tertiary Gemini", secret("TERTIARY_GEMINI_KEY")),
 ]
 
-AI_TIMEOUT = 25
+AI_TIMEOUT = 45
 INTERVALS_TIMEOUT = 10
 
 NAV_OPTIONS = [
@@ -463,18 +463,31 @@ def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_
     parts = (response.json().get("candidates") or [{}])[0].get("content", {}).get("parts", [])
     return "\n".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
 
+import time
+
 def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -> str:
     errors = []
     models = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"]
+
     for name, key in GEMINI_KEYS:
-        if not key: continue
+        if not key: 
+            continue
         for m in models:
-            try:
-                res = gemini_generate(messages_payload, key, m, max_tokens=max_tokens)
-                st.session_state.ai_diagnostic = f"Connected via {name} ({m})"
-                return res
-            except Exception as exc: errors.append(f"{name} ({m}): {exc}")
-    raise RuntimeError(f"AI Connection Error: {' | '.join(errors[:3])}")
+            for attempt in range(2):
+                try:
+                    res = gemini_generate(messages_payload, key, m, max_tokens=max_tokens)
+                    st.session_state.ai_diagnostic = f"Connected via {name} ({m})"
+                    return res
+                except Exception as exc:
+                    err_str = str(exc)
+                    errors.append(f"{name} ({m}) [Attempt {attempt+1}]: {err_str}")
+
+                    if "503" in err_str or "timed out" in err_str.lower():
+                        time.sleep(2)
+                    else:
+                        break
+
+    raise RuntimeError(f"AI Connection Error: {' | '.join(errors[-3:])}")
 
 # --- 90-DAY DATA FETCHING ---
 @st.cache_data(ttl=300, show_spinner=False)
