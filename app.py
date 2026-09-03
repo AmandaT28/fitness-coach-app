@@ -591,6 +591,24 @@ def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, An
     supps = st.session_state.get("user_supplements", [])
     memory = st.session_state.get("coach_memory", "")
     persona = st.session_state.get("coach_persona", PERSONA_OPTIONS[0])
+    protected_events = st.session_state.get("protected_events", [])
+
+    # Format planned life events & trips for coach context
+    if protected_events:
+        event_lines = [
+            f"- [{e.get('category', 'Event')}] {e.get('title')}: {e.get('start_date')} to {e.get('end_date')} (Notes: {e.get('notes', 'None')})"
+            for e in protected_events
+        ]
+        events_formatted = "\n".join(event_lines)
+    else:
+        events_formatted = "No upcoming trips or travel blocks logged."
+
+    # Format upcoming planned workouts from calendar feed
+    upcoming_planned = [
+        f"- {ev.get('start_date_local', '')[:10]}: {ev.get('name', 'Workout')} ({ev.get('type', 'Ride')})"
+        for ev in planned_events[:10]
+    ] if 'planned_events' in globals() and planned_events else []
+    planned_formatted = "\n".join(upcoming_planned) if upcoming_planned else "No structured workouts planned yet."
 
     supp_lines = [f"- {s.get('name')}: {s.get('dosage')} ({s.get('timing')}) -> {s.get('purpose')}" for s in supps if isinstance(s, dict)]
     supps_formatted = "\n".join(supp_lines) if supp_lines else "None logged"
@@ -611,6 +629,12 @@ ATHLETE GOALS & TARGET EVENTS:
 - Event Date: {goals.get('race_date', '2026-10-24')}
 - Primary Objective: {goals.get('target_metric', 'Build threshold power and running fatigue resistance')}
 
+UPCOMING TRIPS, TRAVEL & PROTECTED EVENTS:
+{events_formatted}
+
+NEXT UPCOMING PLANNED WORKOUTS:
+{planned_formatted}
+
 COACH LONG-TERM MEMORY & ATHLETE LIMITATIONS:
 {memory}
 
@@ -619,7 +643,7 @@ SUPPLEMENT PROTOCOL:
 
     contents = [
         {"role": "user", "parts": [{"text": system_prompt}]},
-        {"role": "model", "parts": [{"text": f"Understood. I have locked in all biometrics, athlete limitations, memory, supplement protocols, and the '{persona}' coaching style."}]}
+        {"role": "model", "parts": [{"text": f"Understood. I have full vision of your biometrics, upcoming trips, planned calendar, athlete limitations, and the '{persona}' coaching style."}]}
     ]
     history = [m for m in st.session_state.messages[:-1] if m["content"] != current_question][-8:]
     for m in history:
