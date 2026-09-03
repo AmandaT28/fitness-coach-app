@@ -49,7 +49,7 @@ GEMINI_KEYS = [
     ("Tertiary Gemini", secret("TERTIARY_GEMINI_KEY")),
 ]
 
-AI_TIMEOUT = 35  
+AI_TIMEOUT = 15
 INTERVALS_TIMEOUT = 6
 NAV_OPTIONS = [
     "☀️ Command Center", 
@@ -79,12 +79,11 @@ def init_state():
         "active_nav": NAV_OPTIONS[0], "sidebar_nav": NAV_OPTIONS[0],
         "coach_persona": "Collaborative Peer (Balanced & Brainstorming)",
         "athlete_gear": "", "athlete_limitations": "", "goals": DEFAULT_GOALS.copy(),
-        "user_supplements": [], "cached_trend_analysis": None,
-        "trend_analysis_timestamp": None, "selected_activity_analysis": None,
-        "selected_activity_label": None, "route_analysis": None,
-        "pending_coach_prompt": None, "ai_diagnostic": None, "coach_reference_notice": None,
-        "trend_loaded": False, "calendar_context": "", "profile_loaded": False,
-        "coach_memory": "", "auto_compliance_cache": {},
+        "user_supplements": [], "cached_trend_analyses": [],
+        "selected_activity_analysis": None, "selected_activity_label": None, 
+        "route_analysis": None, "pending_coach_prompt": None, "ai_diagnostic": None, 
+        "coach_reference_notice": None, "trend_loaded": False, "calendar_context": "", 
+        "profile_loaded": False, "coach_memory": "", "auto_compliance_cache": {},
         "primary_discipline": "Cycling & Running (Multi-Sport)"
     }
     for key, value in defaults.items():
@@ -357,7 +356,7 @@ def clean_chat_content(text):
     text = re.sub(r"<icu_weekly_plan>.*?</icu_weekly_plan>", "", text, flags=re.S | re.I)
     return text.strip()
 
-def gemini_generate(messages_payload, api_key, model_name, max_tokens=9000):
+def gemini_generate(messages_payload, api_key, model_name, max_tokens=4000):
     if not api_key:
         raise RuntimeError("Gemini API key is not configured.")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
@@ -380,12 +379,13 @@ def gemini_generate(messages_payload, api_key, model_name, max_tokens=9000):
         raise RuntimeError("Empty response (Safety Block / Filtered).")
     return text
 
-def execute_ai(messages_payload, max_tokens=9000):
+def execute_ai(messages_payload, max_tokens=4000):
     errors = []
+    # Updated to active, fast Google Gemini model endpoints
     models = [
-        "gemini-3.7-flash", 
-        "gemini-3.6-flash", 
-        "gemini-3.5-flash"
+        "gemini-2.5-flash", 
+        "gemini-2.0-flash", 
+        "gemini-1.5-flash"
     ]
     
     for name, key in GEMINI_KEYS:
@@ -415,11 +415,9 @@ def push_bulk_workouts_to_intervals(athlete_id, api_key, workout_list):
     for idx, item in enumerate(workout_list):
         raw_date = str(item.get("start_date_local", dt.datetime.now(LOCAL_TZ).date().isoformat()))[:10]
         
-        # Track daily frequency to handle double sessions / bricks cleanly
         date_counts[raw_date] = date_counts.get(raw_date, 0) + 1
         session_num = date_counts[raw_date]
         
-        # Stagger start times: 1st session at 08:00, 2nd at 17:00, subsequent spaced out
         if session_num == 1:
             time_slot = "08:00:00"
         elif session_num == 2:
@@ -428,7 +426,6 @@ def push_bulk_workouts_to_intervals(athlete_id, api_key, workout_list):
             time_slot = f"{12 + session_num}:00:00"
 
         w_type = item.get("type", "Ride")
-        # Guarantee a globally unique external_id for every single list item
         ext_id = f"AI_COACH_{raw_date}_{w_type.upper()}_{session_num}_{idx}"
 
         payload.append({
@@ -500,11 +497,6 @@ def load_persisted_trend(athlete_id, display_name):
         except Exception: pass
     if isinstance(saved, list) and saved:
         st.session_state.cached_trend_analyses = saved
-    elif st.session_state.get("cached_trend_analysis"):
-        st.session_state.cached_trend_analyses = [{
-            "timestamp": st.session_state.get("trend_analysis_timestamp", "Previous"),
-            "analysis": st.session_state.cached_trend_analysis
-        }]
 
 def persist_trend(athlete_id, display_name):
     payload = st.session_state.cached_trend_analyses
@@ -574,7 +566,7 @@ def parse_gpx(raw):
             tag = elem.tag.split("}")[-1].lower()
             if tag not in ("trkpt", "rtept") or not elem.attrib.get("lat") or not elem.attrib.get("lon"):
                 continue
-            points.append((float(elem.attrib["lat"], float(elem.attrib["lon"]))))
+            points.append((float(elem.attrib["lat"]), float(elem.attrib["lon"])))
             elevations.append(next((float(c.text) for c in elem if c.tag.split("}")[-1].lower() in ("ele", "elevation", "alt") and c.text), 0.0))
         if not points: return None
         distance = sum(6371 * 2 * math.asin(math.sqrt(math.sin(math.radians(points[i][0]-points[i-1][0])/2)**2 + math.cos(math.radians(points[i-1][0]))*math.cos(math.radians(points[i][0]))*math.sin(math.radians(points[i][1]-points[i-1][1])/2)**2)) for i in range(1, len(points)))
@@ -586,7 +578,7 @@ def parse_gpx(raw):
     except Exception:
         return None
 
-def build_gemini_payload(current_question, display_name, wellness_list):
+def build_gemini_payload(current_question, display_name, wellness_list, activities_data=None):
     today = dt.datetime.now(LOCAL_TZ).date()
     next_monday = today + dt.timedelta(days=(0 - today.weekday()) % 7)
     if next_monday == today: next_monday += dt.timedelta(days=7)
@@ -621,7 +613,18 @@ def build_gemini_payload(current_question, display_name, wellness_list):
     else:
         gatekeeper_directive = f"Readiness Status: CLEAR (TSB: {current_tsb:.1f}, Sleep: {current_sleep:.0f}, ACWR: {acwr_val}). Multi-sport load balanced."
 
-    trend_ctx = (st.session_state.get('cached_trend_analysis') or 'No Trend Analysis.')[:1200]
+    # FIX BUG 1: Properly reference trend reports from cached_trend_analyses list
+    trend_reports = st.session_state.get('cached_trend_analyses', [])
+    if trend_reports:
+        latest_trend = trend_reports[0]
+        trend_ctx = f"[{latest_trend.get('timestamp', '')}] {latest_trend.get('analysis', '')}"[:1500]
+    else:
+        trend_ctx = "No 90-Day Trend Analysis generated yet."
+
+    # FIX BUG 2: Format and pass recent synced activities (Garmin / Intervals)
+    recent_acts_summary = [activity_summary(act) for act in (activities_data or [])[:5]]
+    recent_acts_ctx = json.dumps(recent_acts_summary, ensure_ascii=False) if recent_acts_summary else "No recent completed activities found."
+
     calendar_ctx = (st.session_state.get('calendar_context') or 'Not loaded')[:1500]
     memory_ctx = st.session_state.get('coach_memory') or 'No long-term memory logged yet.'
     supplements_str = json.dumps(st.session_state.user_supplements, ensure_ascii=False) if st.session_state.user_supplements else 'N/A'
@@ -629,7 +632,7 @@ def build_gemini_payload(current_question, display_name, wellness_list):
     limits_str = st.session_state.athlete_limitations or 'N/A'
 
     system_instructions = (
-        f"You are an elite multi-sport (cycling and running) coach with full calendar integration.\n"
+        f"You are an elite multi-sport (cycling and running) coach with full calendar and activity integration.\n"
         f"Persona: {st.session_state.coach_persona}\n"
         f"Athlete: {display_name} | Discipline Focus: {st.session_state.primary_discipline}\n"
         f"Today: {today_str} | Next Monday: {next_monday_str}\n"
@@ -639,87 +642,40 @@ def build_gemini_payload(current_question, display_name, wellness_list):
         f"LONG-TERM COACHING MEMORY & ATHLETE PROFILE:\n{memory_ctx}\n\n"
         f"Gear: {gear_str} | Limitations: {limits_str}\n"
         f"Supplements & Fueling: {supplements_str}\n"
-        f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n\n"
-        f"CALENDAR CONTEXT:\n{calendar_ctx}\n\n"
+        f"90-DAY TREND REPORT:\n{trend_ctx}\n\n"
+        f"RECENT COMPLETED ACTIVITIES (MOST RECENT SYNCED ACTIVITIES):\n{recent_acts_ctx}\n\n"
+        f"PLANNED CALENDAR CONTEXT:\n{calendar_ctx}\n\n"
         "CRITICAL INTERVALS.ICU WORKOUT SYNTAX FOR MYWHOOSH (INDOOR CYCLING) AND GARMIN (RUNNING):\n"
-        "To ensure workouts parse correctly into structured step charts for MyWhoosh and Garmin, follow these strict Intervals.icu formatting rules:\n"
         "1. Section headers (Warmup, Main Set, Cooldown) must be on their own separate lines.\n"
-        "2. Repeat blocks must use the exact format where the multiplier sits on its own line followed by the indented steps, with empty lines between sections:\n"
-        "   - Correct Cycling Syntax Example (MyWhoosh compatible):\n"
-        "     Warmup\n"
-        "     - 10m 50%\n"
-        "     - 5m 70%\n\n"
-        "     Main Set\n"
-        "     8x\n"
-        "     - 30s 130%\n"
-        "     - 30s 50%\n\n"
-        "     Cooldown\n"
-        "     - 10m 50%\n\n"
-        "   - Correct Running Syntax Example (Garmin compatible):\n"
-        "     Warmup\n"
-        "     - 15m Z2 Pace\n\n"
-        "     Main Set\n"
-        "     4x\n"
-        "     - 1km Threshold Pace\n"
-        "     - 90s Jog Recovery\n\n"
-        "     Cooldown\n"
-        "     - 10m Easy\n\n"
-        "IF PRESCRIBING A WEEKLY SCHEDULE OR MACROCYCLE, APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags:\n"
-        "<icu_weekly_plan>\n"
-        "[\n"
-        "  {\n"
-        f"    \"name\": \"MyWhoosh Micro-Intervals\",\n"
-        f"    \"type\": \"Ride\",\n"
-        f"    \"start_date_local\": \"{next_monday_str}\",\n"
-        f"    \"description\": \"Warmup\\n- 10m 50%\\n- 5m 70%\\n\\nMain Set\\n8x\\n- 30s 130%\\n- 30s 50%\\n\\nCooldown\\n- 10m 50%\"\n"
-        "  }\n"
-        "]\n"
-        "</icu_weekly_plan>"
+        "2. Repeat blocks must use exact multiplier format on its own line followed by indented steps:\n"
+        "   Warmup\n   - 10m 50%\n\n   Main Set\n   8x\n   - 30s 130%\n   - 30s 50%\n\n   Cooldown\n   - 10m 50%\n\n"
+        "IF PRESCRIBING A WEEKLY SCHEDULE OR MACROCYCLE, APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags."
     )
 
     contents = [
         {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
-        {"role": "model", "parts": [{"text": "Understood. I will output precise Intervals.icu syntax so workouts parse cleanly for MyWhoosh cycling and Garmin running sync."}]}
+        {"role": "model", "parts": [{"text": "Understood. I have reviewed your profile, 90-day trend report, recent activity data, and calendar. Ready to assist."}]}
     ]
 
-    for m in st.session_state.messages[-15:]:
+    for m in st.session_state.messages[-12:]:
         role = "user" if m["role"] == "user" else "model"
         msg_text = clean_chat_content(str(m["content"])) if role == "model" else str(m["content"])
-        contents.append({"role": role, "parts": [{"text": msg_text[:2500]}]})
+        contents.append({"role": role, "parts": [{"text": msg_text[:2000]}]})
 
     contents.append({"role": "user", "parts": [{"text": str(current_question)[:2000]}]})
     return contents
 
-    contents = [
-        {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
-        {"role": "model", "parts": [{"text": "Understood. I will ensure all cycling workouts use structured percentage-based steps for MyWhoosh/Intervals sync, and running workouts use Garmin-compatible pace/HR blocks."}]}
-    ]
-
-    for m in st.session_state.messages[-15:]:
-        role = "user" if m["role"] == "user" else "model"
-        msg_text = clean_chat_content(str(m["content"])) if role == "model" else str(m["content"])
-        contents.append({"role": role, "parts": [{"text": msg_text[:2500]}]})
-
-    contents.append({"role": "user", "parts": [{"text": str(current_question)[:2000]}]})
-    return contents
-
-def render_coach_reply(question, display_name, wellness_list, athlete_id, intervals_api_key):
+def render_coach_reply(question, display_name, wellness_list, athlete_id, intervals_api_key, activities_data):
     st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"):
         st.markdown(question)
     with st.chat_message("assistant"):
         placeholder = st.empty()
-        steps = [
-            "Analyzing multi-sport load & formatting MyWhoosh/Garmin blocks...",
-            "Cross-referencing sleep quality and recent fatigue ratios...",
-            "Drafting structured workout prescription..."
-        ]
-        for step in steps:
-            placeholder.markdown(f"*(Thinking)* &bull; {step}")
+        placeholder.markdown("*(Thinking)* &bull; Analyzing multi-sport load & recent activity metrics...")
             
         try:
-            payload = build_gemini_payload(question, display_name, wellness_list)
-            response = execute_ai(payload, max_tokens=9000)
+            payload = build_gemini_payload(question, display_name, wellness_list, activities_data)
+            response = execute_ai(payload, max_tokens=4000)
             placeholder.markdown(clean_chat_content(response))
             
             icu_payload = extract_icu_workout(response)
@@ -742,17 +698,22 @@ def render_coach_reply(question, display_name, wellness_list, athlete_id, interv
         except Exception as exc:
             placeholder.error(f"⚠️ {exc}")
 
-# --- RUNTIME AUTHENTICATION & INITIALIZATION ---
+# --- RUNTIME AUTHENTICATION & SESSION PERSISTENCE (BUG 4 FIX) ---
 
+# Maintain token in URL parameters to survive mobile background tab sleeps / page refreshes
 try:
     token = st.query_params.get("token")
     if token and not st.session_state.user_credentials:
         config = json.loads(base64.urlsafe_b64decode(token.encode()).decode())
-        if config.get("icu_key") and config.get("icu_id"): st.session_state.user_credentials = config
+        if config.get("icu_key") and config.get("icu_id"): 
+            st.session_state.user_credentials = config
 except Exception: pass
 
 if not st.session_state.user and not st.session_state.user_credentials and localS:
-    try: st.session_state.user_credentials = localS.getItem("athlete_profile_config")
+    try: 
+        creds = localS.getItem("athlete_profile_config")
+        if creds:
+            st.session_state.user_credentials = creds
     except Exception: pass
 
 if not st.session_state.user and not st.session_state.user_credentials:
@@ -777,8 +738,11 @@ if not st.session_state.user and not st.session_state.user_credentials:
             if st.form_submit_button("Save & Launch Guest Session", use_container_width=True):
                 if not icu_key or not icu_id: st.error("Intervals.icu credentials required.")
                 else:
-                    st.session_state.user_credentials = {"name": name.strip() or "Guest Athlete", "icu_key": icu_key.strip(), "icu_id": icu_id.strip()}
-                    if localS: localS.setItem("athlete_profile_config", st.session_state.user_credentials)
+                    creds_dict = {"name": name.strip() or "Guest Athlete", "icu_key": icu_key.strip(), "icu_id": icu_id.strip()}
+                    st.session_state.user_credentials = creds_dict
+                    encoded_token = base64.urlsafe_b64encode(json.dumps(creds_dict).encode()).decode()
+                    st.query_params["token"] = encoded_token
+                    if localS: localS.setItem("athlete_profile_config", creds_dict)
                     st.rerun()
     st.stop()
 
@@ -919,7 +883,6 @@ if selected_nav == NAV_OPTIONS[0]:
     current_hour = dt.datetime.now(LOCAL_TZ).hour
     time_greeting = "Good morning" if current_hour < 12 else ("Good afternoon" if current_hour < 18 else "Good evening")
     
-    # --- FIND TODAY'S ACTIVITY FROM PLANNED EVENTS ---
     today_date_str = dt.datetime.now(LOCAL_TZ).date().isoformat()
     todays_workouts = [ev for ev in planned_events if event_date(ev) and event_date(ev).isoformat() == today_date_str]
     
@@ -934,7 +897,6 @@ if selected_nav == NAV_OPTIONS[0]:
     st.markdown(f"##### ☀️ {time_greeting}, {display_name}! Here is your training briefing.")
     st.caption(f"Intervals.icu connection status: {intervals_status}")
     
-    # --- TODAY'S ACTIVITY SPOTLIGHT BANNER ---
     st.markdown(f"""
     <div style="background: linear-gradient(135deg, rgba(37, 99, 235, 0.15), rgba(37, 99, 235, 0.03)); border: 1px solid rgba(37, 99, 235, 0.35); border-radius: 10px; padding: 16px 20px; margin-bottom: 1.2rem; color: {TEXT_PRIMARY};">
         <h4 style="margin:0 0 4px 0; font-size:1.1rem; color: #58A6FF;">🎯 Today's Focus ({today_date_str})</h4>
@@ -1005,14 +967,11 @@ if selected_nav == NAV_OPTIONS[0]:
             except Exception as e:
                 st.caption(f"Chart render warning: {e}")
     
-    if "cached_trend_analyses" not in st.session_state:
-        st.session_state.cached_trend_analyses = []
-
     if st.button("🚀 Run 90-Day Multi-Sport Trend Synthesis", type="primary"):
         payload_text = f"Analyze this multi-sport athlete's last 90 days. CTL {ctl}; ATL {atl}; TSB {tsb}. ACWR: {acwr_val}. Goal: {st.session_state.goals['target_metric']}."
         with st.spinner("Analyzing 90 days of multi-sport training data..."):
             try:
-                new_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=9000)
+                new_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=4000)
                 timestamp_str = dt.datetime.now(LOCAL_TZ).strftime("%d %b %Y, %H:%M %Z")
                 st.session_state.cached_trend_analyses.insert(0, {"timestamp": timestamp_str, "analysis": new_analysis})
                 st.session_state.cached_trend_analyses = st.session_state.cached_trend_analyses[:3]
@@ -1062,11 +1021,10 @@ elif selected_nav == COACH_PAGE:
     pending = st.session_state.pending_coach_prompt
     if pending:
         st.session_state.pending_coach_prompt = None
-        render_coach_reply(pending, display_name, wellness_list, ATHLETE_ID, INTERVALS_API_KEY)
+        render_coach_reply(pending, display_name, wellness_list, ATHLETE_ID, INTERVALS_API_KEY, activities_data)
     
-    # --- STATIC CHAT INPUT WITH PERMANENT KEY ---
     if question := st.chat_input("Ask your coach anything... e.g. 'Balance my bike intervals and weekend long run'", key="persistent_coach_chat_input"):
-        render_coach_reply(question.strip(), display_name, wellness_list, ATHLETE_ID, INTERVALS_API_KEY)
+        render_coach_reply(question.strip(), display_name, wellness_list, ATHLETE_ID, INTERVALS_API_KEY, activities_data)
         st.rerun()
 
 elif selected_nav == NAV_OPTIONS[2]:
@@ -1097,9 +1055,8 @@ elif selected_nav == NAV_OPTIONS[2]:
             grouped_items.setdefault(event_date(item).isoformat(), []).append(item)
             
         for date_str, sessions in sorted(grouped_items.items()):
-            # Parse date string to get weekday name (e.g., Monday, Tuesday)
             d_obj = dt.date.fromisoformat(date_str)
-            weekday_name = d_obj.strftime("%A") # e.g. "Monday"
+            weekday_name = d_obj.strftime("%A")
             formatted_date_label = f"{weekday_name}, {d_obj.strftime('%d %b %Y')}"
             
             session_names = [event.get("name") or "Planned workout" for event in sessions]
@@ -1141,7 +1098,7 @@ elif selected_nav == NAV_OPTIONS[2]:
             with st.spinner("Synthesizing multi-sport periodized block..."):
                 try:
                     macro_prompt = f"Generate a strict {macro_weeks}-week multi-sport (cycling & running) training skeleton leading up to my race on {st.session_state.goals['race_date']}. Return a JSON array inside <icu_weekly_plan> tags containing structured rides and runs."
-                    response = execute_ai([{"role": "user", "parts": [{"text": macro_prompt}]}], max_tokens=9000)
+                    response = execute_ai([{"role": "user", "parts": [{"text": macro_prompt}]}], max_tokens=4000)
                     macro_payload = extract_icu_workout(response)
                     if macro_payload:
                         push_bulk_workouts_to_intervals(ATHLETE_ID, INTERVALS_API_KEY, macro_payload)
@@ -1186,7 +1143,7 @@ elif selected_nav == NAV_OPTIONS[3]:
             with st.spinner("Analyzing multi-sport performance data..."):
                 try:
                     prompt_text = f"Give a concise multi-sport performance debrief for this activity: {json.dumps(compact_activity)}. Calculated Compliance: {compliance}. Goal: {st.session_state.goals['target_metric']}."
-                    st.session_state.selected_activity_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=9000)
+                    st.session_state.selected_activity_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=4000)
                     st.session_state.selected_activity_label = label
                     st.toast("Debrief generated successfully!", icon="✅")
                 except Exception as exc: st.error(str(exc))
@@ -1229,7 +1186,7 @@ elif selected_nav == NAV_OPTIONS[4]:
                 with st.spinner("Analyzing profile & fueling requirements..."):
                     try:
                         prompt_text = f"Analyze this route profile: {json.dumps(metrics)}. Est Duration: {est_hours}h. Goal: {st.session_state.goals['target_metric']}. Guide with practical pacing, climbing, and hourly nutrition guidelines."
-                        st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=9000)
+                        st.session_state.route_analysis = execute_ai([{"role": "user", "parts": [{"text": prompt_text}]}], max_tokens=4000)
                         st.toast("Strategy generated!", icon="🏔️")
                     except Exception as exc: st.error(str(exc))
                     
