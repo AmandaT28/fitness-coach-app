@@ -474,31 +474,42 @@ def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
     payload = {"contents": messages_payload, "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7}}
+    
     response = requests.post(url, headers=headers, json=payload, timeout=AI_TIMEOUT)
     if response.status_code != 200:
-        raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:200]}")
-    parts = (response.json().get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+        raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:250]}")
+    
+    data = response.json()
+    candidates = data.get("candidates", [])
+    if not candidates:
+        raise RuntimeError(f"Gemini API returned empty response: {data}")
+        
+    parts = candidates[0].get("content", {}).get("parts", [])
     return "\n".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
 
 def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -> str:
     errors = []
+    # Strict enforcement of 3.5 / 3.6 / 3.7 variants as requested
     models = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"]
+    
     for name, key in GEMINI_KEYS:
-        if not key: continue
+        if not key: 
+            continue
         for m in models:
-            for attempt in range(2):
-                try:
-                    res = gemini_generate(messages_payload, key, m, max_tokens=max_tokens)
+            try:
+                res = gemini_generate(messages_payload, key, m, max_tokens=max_tokens)
+                if res:
                     st.session_state.ai_diagnostic = f"Connected via {name} ({m})"
                     return res
-                except Exception as exc:
-                    err_str = str(exc)
-                    errors.append(f"{name} ({m}) [Attempt {attempt+1}]: {err_str}")
-                    if "503" in err_str or "timed out" in err_str.lower():
-                        time.sleep(2)
-                    else:
-                        break
-    raise RuntimeError(f"AI Connection Error: {' | '.join(errors[-3:])}")
+            except Exception as exc:
+                err_str = str(exc)
+                errors.append(f"{name} ({m}): {err_str}")
+                if "503" in err_str or "timed out" in err_str.lower():
+                    time.sleep(1)
+                continue
+                
+    error_summary = " | ".join(errors[-3:]) if errors else "No API keys configured or all models rejected request."
+    raise RuntimeError(f"AI Coach Communication Error. Details: {error_summary}")
 
 # --- 90-DAY PAST + 60-DAY FUTURE DATA FETCHING ---
 @st.cache_data(ttl=300, show_spinner=False)
