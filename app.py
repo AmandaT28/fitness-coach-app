@@ -63,7 +63,6 @@ NAV_OPTIONS = [
     "🤖 AI Coach & Sparring",
     "📅 Training Calendar",
     "👤 Athlete Profile & Memory",
-    "🏋️ Workout Builder & MyWhoosh Sync",
     "🗺️ Route Strategist"
 ]
 
@@ -624,12 +623,15 @@ def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: st
     
     events_to_post = []
     for item in events_list:
+        raw_date = str(item.get("date") or dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d"))
+        start_local = f"{raw_date}T08:00:00" if "T" not in raw_date else raw_date
+
         events_to_post.append({
             "category": "WORKOUT",
             "type": item.get("type", "Ride"),
             "name": item.get("title") or item.get("name", "Planned Session"),
             "description": item.get("description", ""),
-            "start_date_local": f"{item.get('date')}T08:00:00"
+            "start_date_local": start_local
         })
 
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events/bulk?upsert=true"
@@ -638,7 +640,7 @@ def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: st
     try:
         resp = requests.post(url, auth=auth, json=events_to_post, timeout=15)
         if resp.status_code in [200, 201]:
-            return True, f"Successfully synced {len(events_to_post)} workout(s) to Intervals.icu & MyWhoosh!"
+            return True, f"Successfully synced {len(events_to_post)} structured workout(s) to Intervals.icu calendar!"
         return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
     except Exception as e:
         return False, str(e)
@@ -667,7 +669,7 @@ def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, An
     planned_formatted = "\n".join(upcoming_planned) if upcoming_planned else "No structured workouts planned yet."
 
     supp_lines = [f"- {s.get('name')}: {s.get('dosage')} ({s.get('timing')}) -> {s.get('purpose')}" for s in supps if isinstance(s, dict)]
-    supps_formatted = "\n".join(supp_lines) if supp_lines else "None logged"
+    supps_formatted = "\n".join(supp_lines) if supps_formatted else "None logged"
 
     system_prompt = f"""You are an elite multi-sport performance coach.
 
@@ -697,29 +699,28 @@ COACH LONG-TERM MEMORY & ATHLETE LIMITATIONS:
 SUPPLEMENT PROTOCOL:
 {supps_formatted}
 
-WORKOUT GENERATION RULE (CRITICAL FOR MYWHOOSH & INTERVALS.ICU SYNC):
-Whenever you prescribe or adjust workouts, ALWAYS include a valid JSON block at the very end of your response inside ```json:workouts ... ```.
-The `description` field MUST follow native Intervals.icu plain text workout syntax so it syncs directly to MyWhoosh:
-
+BULK WORKOUT GENERATION RULE (CRITICAL FOR INTERVALS.ICU CALENDAR SYNC):
+Whenever the user asks for a training program, weekly schedule, or structured workouts, you MUST include a valid JSON block at the very end of your response inside ```json:workouts ... ``` containing an array of workout objects. Each object must have `date` (YYYY-MM-DD), `title`, `type` ("Ride", "Run", or "VirtualRide"), and `description`.
+The `description` field MUST follow native Intervals.icu plain text workout syntax:
 - Warmup & Cooldown: `Warmup\n- 10m 50%` or `Cooldown\n- 10m 40%`
-- Repeats / Sets: `4x\n- 5m 100% FTP\n- 2m 50% FTP`
+- Intervals/Sets: `4x\n- 5m 100% FTP\n- 2m 50% FTP`
 - Do NOT include HTML, XML, or markdown bullet sub-formatting inside `description`.
 
 EXAMPLE:
 ```json:workouts
 [
-  {{
+  {
     "date": "2026-09-05",
     "title": "Threshold 4x5m",
     "type": "Ride",
     "description": "Warmup\\n- 10m 50%\\n\\n4x\\n- 5m 100%\\n- 2m 50%\\n\\nCooldown\\n- 10m 40%"
-  }}
+  }
 ]
 ```"""
 
     contents = [
         {"role": "user", "parts": [{"text": system_prompt}]},
-        {"role": "model", "parts": [{"text": f"Understood. I have full vision of your biometrics, upcoming trips, planned calendar, athlete limitations, and the '{persona}' coaching style."}]}
+        {"role": "model", "parts": [{"text": f"Understood. I have full vision of your biometrics, upcoming trips, planned calendar, athlete limitations, and the '{persona}' coaching style. I can now generate bulk structured workout schedules that sync directly to your Intervals.icu calendar from chat."}]}
     ]
     
     history = [m for m in st.session_state.messages[:-1] if m["content"] != current_question][-30:]
@@ -776,7 +777,7 @@ with st.sidebar:
         st.rerun()
 
     with st.popover("➕ New Chat Thread", use_container_width=True):
-        new_thread_title = st.text_input("Thread Title", placeholder="e.g. Jeju Trip Planning")
+        new_thread_title = st.text_input("Thread Title", placeholder="e.g. Bintan Prep Block")
         if st.button("Create Thread", use_container_width=True):
             title_clean = new_thread_title.strip()
             if title_clean and title_clean not in st.session_state.chat_sessions:
@@ -888,18 +889,6 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
             )
             st.plotly_chart(fig, use_container_width=True, key="cmd_center_pmc_chart")
 
-            st.markdown("""
-            <div class="chart-summary-box">
-                <strong>💡 How to Read Your Performance Chart:</strong><br/>
-                • <span style="color:#10B981; font-weight:bold;">Green Line (Fitness / CTL):</span> 42-day rolling average of work. Rises slowly as you build aerobic stamina.<br/>
-                • <span style="color:#EF4444; font-weight:bold;">Red Line (Fatigue / ATL):</span> 7-day short-term training stress. Spikes quickly after hard blocks.<br/>
-                • <span style="color:#3B82F6; font-weight:bold;">Bars (Form / TSB = CTL - ATL):</span> Physical freshness. 
-                Keep TSB <strong>mildly negative (-10 to -25)</strong> to build fitness. 
-                Deep negative (below -30) means high injury/overtraining risk. 
-                Positive bars (+5 to +15) signal you are fresh and race-ready.
-            </div>
-            """, unsafe_allow_html=True)
-
     st.divider()
 
     if st.button("🚀 Run 90-Day Multi-Sport Trend Synthesis", type="primary", use_container_width=True):
@@ -924,7 +913,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
                     st.session_state.active_nav = NAV_OPTIONS[1]
                     st.rerun()
 
-# VIEW 2: AI COACH CHAT WITH ONE-CLICK WORKOUT SYNC
+# VIEW 2: AI COACH CHAT WITH BULK WORKOUT INTERVALS.ICU SYNC
 elif st.session_state.active_nav == NAV_OPTIONS[1]:
     st.markdown(f"##### 🤖 AI Multi-Sport Coach <span style='font-size:0.85rem; color:{TEXT_MUTED};'>({st.session_state.active_session_id})</span>", unsafe_allow_html=True)
 
@@ -937,20 +926,20 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                 proposed_workouts = extract_json_workouts(msg["content"])
                 if proposed_workouts:
                     st.markdown("---")
-                    st.markdown(f"###### 📋 Proposed Workout Plan ({len(proposed_workouts)} Session{'s' if len(proposed_workouts)>1 else ''})")
+                    st.markdown(f"###### 📋 Proposed Bulk Training Schedule ({len(proposed_workouts)} Workout{'s' if len(proposed_workouts)>1 else ''})")
                     
                     for w_item in proposed_workouts:
                         st.caption(f"📅 **{w_item.get('date')}** | {w_item.get('type', 'Ride')} — **{w_item.get('title')}**")
 
                     btn_key = f"approve_sync_{idx}"
-                    if st.button("🚀 Bulk Push All Workouts to Intervals.icu & MyWhoosh", key=btn_key, type="primary", use_container_width=True):
-                        with st.spinner("Pushing workouts to Intervals.icu..."):
+                    if st.button("🚀 Sync Bulk Workouts Directly to Intervals.icu Calendar", key=btn_key, type="primary", use_container_width=True):
+                        with st.spinner("Pushing bulk workouts directly to Intervals.icu calendar..."):
                             ok, result_msg = push_workouts_to_intervals(
                                 proposed_workouts, ATHLETE_ID, INTERVALS_API_KEY
                             )
                             if ok:
                                 st.success(result_msg)
-                                st.toast("Synced to Intervals.icu & MyWhoosh!", icon="✅")
+                                st.toast("Synced workouts to Intervals.icu calendar!", icon="✅")
                             else:
                                 st.error(result_msg)
 
@@ -982,7 +971,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                     st.error(str(e))
         st.rerun()
 
-    if prompt := st.chat_input("Ask your coach... (e.g. Plan my next 2 weeks of threshold workouts)"):
+    if prompt := st.chat_input("Ask your coach... (e.g. Plan my next 2 weeks of threshold workouts and schedule them)") :
         st.session_state.messages.append({"role": "user", "content": prompt})
         save_disk_store()
 
@@ -990,7 +979,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("🤖 Coach is analyzing your request..."):
+            with st.spinner("🤖 Coach is building your structured training plan..."):
                 try:
                     res = execute_ai(build_gemini_payload(prompt, wellness_list, activities_data, planned_events))
                     st.markdown(clean_chat_content(res))
@@ -1398,61 +1387,8 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
                     st.success(f"Added {s_name} to protocol!")
                     st.rerun()
 
-# VIEW 5: WORKOUT BUILDER & MYWHOOSH SYNC
+# VIEW 5: ROUTE STRATEGIST
 elif st.session_state.active_nav == NAV_OPTIONS[4]:
-    st.markdown("##### 🏋️ Workout Builder & MyWhoosh / Intervals.icu Direct Sync")
-    
-    default_txt = """Warmup
-- 10m 50%
-
-4x
-- 5m 100%
-- 2m 50%
-
-Cooldown
-- 10m 40%"""
-
-    col_w1, col_w2 = st.columns([1, 1])
-    
-    with col_w1:
-        st.markdown("###### Custom Workout Editor")
-        w_title = st.text_input("Workout Title", value="4x5m Threshold Intervals")
-        w_sport = st.selectbox("Sport Type", ["Ride", "Run", "VirtualRide"])
-        w_date = st.date_input("Scheduled Date", value=dt.datetime.now(LOCAL_TZ).date())
-        txt_input = st.text_area("Workout Syntax (Intervals.icu / MyWhoosh Compatible)", value=default_txt, height=220)
-
-        if st.button("🚀 Direct Push Single Workout to Intervals.icu & MyWhoosh", type="primary", use_container_width=True):
-            single_payload = [{
-                "title": w_title,
-                "type": w_sport,
-                "date": w_date.strftime("%Y-%m-%d"),
-                "description": txt_input
-            }]
-            with st.spinner("Pushing workout to Intervals.icu..."):
-                ok, res_msg = push_workouts_to_intervals(single_payload, ATHLETE_ID, INTERVALS_API_KEY)
-                if ok:
-                    st.success(res_msg)
-                else:
-                    st.error(res_msg)
-
-    with col_w2:
-        st.markdown("###### Target Metrics & Zone Preview")
-        parsed = parse_workout_steps_detailed(txt_input, int(st.session_state.profile_data.get("declared_ftp", 180)))
-        
-        if parsed["steps"]:
-            st.markdown("**Structured Breakdown:**")
-            for step in parsed["steps"]:
-                st.markdown(step)
-            
-            m = parsed["metrics"]
-            st.markdown("---")
-            st.markdown(f"• **Duration:** {m['duration_min']} mins")
-            st.markdown(f"• **Average Power:** {m['avg_watts']} W")
-            st.markdown(f"• **Estimated NP:** {m['np_watts']} W")
-            st.markdown(f"• **Total Work:** {m['work_kj']} kJ")
-
-# VIEW 6: ROUTE STRATEGIST
-elif st.session_state.active_nav == NAV_OPTIONS[5]:
     st.markdown("##### 🗺️ Route Pacing Strategist")
     uploaded_file = st.file_uploader("Upload GPX Route", type=["gpx"])
     
