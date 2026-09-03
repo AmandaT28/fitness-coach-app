@@ -456,7 +456,7 @@ class TrainingLoadCalculator:
 
         return {"score": final_score, "status": status, "recommendation": rec, "risk_factors": risk_factors}
 
-# --- AI ENGINE ---
+# --- AI ENGINE (Gemini 3.5, 3.6, 3.7 Integration) ---
 def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_name: str, max_tokens: int = 4000) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
@@ -470,13 +470,23 @@ def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_
     response = requests.post(url, headers=headers, json=payload, timeout=AI_TIMEOUT)
     if response.status_code != 200:
         raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:200]}")
-
+    
     resp_json = response.json()
     candidates = resp_json.get("candidates") or [{}]
     content_obj = candidates[0].get("content", {})
     parts = content_obj.get("parts", [])
+    
+    extracted_texts = []
+    for p in parts:
+        if isinstance(p, dict):
+            txt = p.get("text") or p.get("content")
+            if txt and not p.get("thought"):
+                extracted_texts.append(txt)
+                
+    if not extracted_texts:
+        extracted_texts = [p.get("text", "") for p in parts if isinstance(p, dict) and p.get("text")]
 
-    return "\n".join(p.get("text", "") for p in parts if isinstance(p, dict) and p.get("text")).strip()
+    return "\n".join(extracted_texts).strip()
 
 def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -> str:
     errors = []
