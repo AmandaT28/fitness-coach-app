@@ -174,7 +174,6 @@ def save_disk_store():
 def init_state():
     master_disk = load_disk_store()
     
-    # Handle backward compatibility if store is a raw user dict
     if "user_store" not in master_disk:
         user_store_data = master_disk if master_disk else {}
         last_user = "owner_primary"
@@ -245,7 +244,6 @@ header[data-testid="stHeader"] {{ background-color: {BG_APP} !important; z-index
 section[data-testid="stSidebar"] {{ background-color: {BG_SIDEBAR} !important; border-right: 1px solid {BORDER_SUBTLE} !important; }}
 section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !important; }}
 
-/* UI/UX OPTIMIZED METRIC CARD TYPOGRAPHY (SCALED DOWN FOR MOBILE/DESKTOP) */
 div[data-testid="stMetric"] {{ background-color: {BG_CARD}; border: 1px solid {BORDER_SUBTLE}; padding: 10px 14px; border-radius: 10px; }}
 div[data-testid="stMetric"] label {{ font-size: 0.75rem !important; color: {TEXT_MUTED} !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: 0.04em; }}
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {{ font-size: 1.25rem !important; font-weight: 700 !important; color: {TEXT_PRIMARY} !important; }}
@@ -260,7 +258,6 @@ div[data-testid="stMetric"] [data-testid="stMetricDelta"] {{ font-size: 0.72rem 
 .metric-box-val {{ font-size: 0.92rem; font-weight: 700; color: {TEXT_PRIMARY}; }}
 .stButton > button[kind="secondary"] {{ background-color: #000000 !important; color: #FFFFFF !important; border: 1px solid #30363D !important; border-radius: 20px !important; padding: 4px 14px !important; font-size: 0.8rem !important; font-weight: 600 !important; }}
 
-/* MOBILE RESPONSIVE MEDIA QUERIES */
 @media screen and (max-width: 768px) {{
     .main .block-container {{ padding-left: 0.5rem !important; padding-right: 0.5rem !important; padding-top: 1rem !important; }}
     .metrics-flex-group {{ gap: 10px; }}
@@ -272,6 +269,56 @@ div[data-testid="stMetric"] [data-testid="stMetricDelta"] {{ font-size: 0.72rem 
 }}
 </style>
 """, unsafe_allow_html=True)
+
+# --- ZWO EXPORTER HELPER FOR MYWHOOSH & INTERVALS.ICU ---
+def html_escape(text: str) -> str:
+    return (str(text).replace("&", "&amp;")
+                     .replace("<", "&lt;")
+                     .replace(">", "&gt;")
+                     .replace('"', "&quot;")
+                     .replace("'", "&apos;"))
+
+def generate_zwo_xml(workout_item: Dict[str, Any], athlete_name: str = "Athlete") -> str:
+    title = workout_item.get("title") or workout_item.get("name", "Structured Workout")
+    desc = workout_item.get("description", "Generated via AI Performance Coach")
+    
+    xml_lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<workout_file>',
+        f'  <author>{html_escape(athlete_name)}</author>',
+        f'  <name>{html_escape(title)}</name>',
+        f'  <description>{html_escape(desc)}</description>',
+        '  <sportType>bike</sportType>',
+        '  <workout>'
+    ]
+    
+    desc_lines = desc.split("\n")
+    for line in desc_lines:
+        l_clean = line.strip()
+        if "warmup" in l_clean.lower():
+            xml_lines.append('    <Warmup Duration="600" PowerLow="0.50" PowerHigh="0.70">')
+            xml_lines.append('      <textevent timeoffset="0" message="Warmup: Ease into cadence."/>')
+            xml_lines.append('    </Warmup>')
+        elif "cooldown" in l_clean.lower():
+            xml_lines.append('    <Cooldown Duration="600" PowerLow="0.70" PowerHigh="0.50">')
+            xml_lines.append('      <textevent timeoffset="0" message="Cooldown: Flush the legs."/>')
+            xml_lines.append('    </Cooldown>')
+        elif re.search(r"^(\d+)x$", l_clean, re.IGNORECASE):
+            pass 
+        else:
+            step_m = re.search(r"^(?:-\s*)?(\d+)(m|s|h)?\s+([0-9]+)(?:-[0-9]+)?%?\s*(.*)$", l_clean, re.IGNORECASE)
+            if step_m:
+                dur_val = float(step_m.group(1))
+                unit = (step_m.group(2) or "m").lower()
+                pct_ftp = float(step_m.group(3)) / 100.0
+                dur_sec = int(dur_val * 60.0 if unit == "m" else (dur_val * 3600.0 if unit == "h" else dur_val))
+                xml_lines.append(f'    <SteadyState Duration="{dur_sec}" Power="{pct_ftp:.2f}"/>')
+
+    xml_lines.extend([
+        '  </workout>',
+        '</workout_file>'
+    ])
+    return "\n".join(xml_lines)
 
 # --- CREDENTIAL RESOLUTION ---
 def get_resolved_credentials() -> Tuple[str, str, str, str]:
@@ -1184,10 +1231,21 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                 proposed_workouts = extract_json_workouts(msg["content"])
                 if proposed_workouts:
                     st.markdown("---")
-                    st.markdown(f"###### 📋 Plan Approved! Ready for Calendar Sync ({len(proposed_workouts)} Workout{'s' if len(proposed_workouts)>1 else ''})")
+                    st.markdown(f"###### 📋 Plan Approved! Ready for Calendar Sync & MyWhoosh ({len(proposed_workouts)} Workout{'s' if len(proposed_workouts)>1 else ''})")
                     
-                    for w_item in proposed_workouts:
-                        st.caption(f"📅 **{w_item.get('date', w_item.get('start_date_local', ''))}** | {w_item.get('type', 'Ride')} — **{w_item.get('title', w_item.get('name', 'Workout'))}**")
+                    for w_idx, w_item in enumerate(proposed_workouts):
+                        w_name = w_item.get('title', w_item.get('name', 'Workout'))
+                        st.caption(f"📅 **{w_item.get('date', w_item.get('start_date_local', ''))}** | {w_item.get('type', 'Ride')} — **{w_name}**")
+                        
+                        # ZWO File Download for MyWhoosh / Zwift
+                        zwo_content = generate_zwo_xml(w_item, st.session_state.profile_data.get("name", "Athlete"))
+                        st.download_button(
+                            label=f"📥 Download .zwo File for MyWhoosh ({w_name})",
+                            data=zwo_content,
+                            file_name=f"{w_name.replace(' ', '_')}.zwo",
+                            mime="application/xml",
+                            key=f"dl_zwo_{idx}_{w_idx}"
+                        )
 
                     btn_key = f"approve_sync_{idx}"
                     if st.button("🚀 Sync Bulk Workouts Directly to Intervals.icu Calendar", key=btn_key, type="primary", use_container_width=True):
