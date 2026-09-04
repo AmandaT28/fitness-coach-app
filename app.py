@@ -926,8 +926,8 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
         f"Supplements & Fueling: {supplements_str}\n"
         f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n"
         f"{gpx_injection}\n\n"
-        "CRITICAL INTERVALS.ICU & MYWHOOSH STRUCTURED WORKOUT SYNTAX:\n"
-        "When writing structured workout descriptions for indoor cycling (MyWhoosh) and running to ensure Intervals.icu parses them accurately into step graphs, you MUST adhere strictly to this format:\n"
+        "MANDATORY WORKOUT FORMATTING INSTRUCTION:\n"
+        "- Structured workout syntax need to follow the exact strict line-item formatting required by Intervals.icu so that power graphs, target zones, cadence and interval steps display accurately and auto-sync directly to MyWhoosh without parser errors.\n"
         "- Use exact duration units: 'm' for minutes, 's' for seconds, 'h' for hours (e.g., 10m, 30s).\n"
         "- Use percentage of FTP or target zone directly next to the duration (e.g., 50% or 50-75%).\n"
         "- For intervals, declare the repetition count on its own line followed by 'x' (e.g., 4x), with each step inside the set starting with a hyphen '-' and indented or listed on successive lines.\n"
@@ -945,7 +945,7 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
 
     contents = [
         {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
-        {"role": "model", "parts": [{"text": "Understood. I will format all indoor workout descriptions using strict Intervals.icu/MyWhoosh-compatible syntax and include the <icu_weekly_plan> JSON block whenever prescribing workouts."}]}
+        {"role": "model", "parts": [{"text": "Understood. I will strictly follow Intervals.icu line-item formatting for all workout descriptions so they parse accurately into step graphs and sync cleanly to MyWhoosh, and I will include the <icu_weekly_plan> JSON block whenever prescribing workouts."}]}
     ]
 
     for m in st.session_state.messages[-15:]:
