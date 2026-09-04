@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (UI/UX Optimized Mobile Typography)
+"""AI Performance Coach • Elite Multi-User Suite (Forced Logout & UI/UX Typography)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -195,6 +195,7 @@ def init_state():
 
     defaults = {
         "user_credentials": u_data.get("user_credentials"),
+        "logged_out_explicitly": False,
         "chat_sessions": default_sessions,
         "active_session_id": active_id,
         "messages": active_msgs,
@@ -262,6 +263,9 @@ div[data-testid="stMetric"] [data-testid="stMetricDelta"] {{ font-size: 0.72rem 
 
 # --- CREDENTIAL RESOLUTION ---
 def get_resolved_credentials() -> Tuple[str, str, str, str]:
+    if st.session_state.get("logged_out_explicitly", False):
+        return "", "", "", "Unauthenticated"
+
     if st.session_state.get("user_credentials"):
         creds = st.session_state.user_credentials
         return (
@@ -293,6 +297,7 @@ def render_auth_onboarding_gate():
             if st.form_submit_button("Access Owner Suite", use_container_width=True):
                 if supabase_client or owner_passkey.strip() or secret("SUPABASE_KEY"):
                     st.session_state.active_user_id = "owner_primary"
+                    st.session_state.logged_out_explicitly = False
                     
                     u_store = st.session_state.get("user_store", {}).get("owner_primary", {})
                     st.session_state.profile_data = u_store.get("profile_data") or DEFAULT_PROFILE.copy()
@@ -330,6 +335,7 @@ def render_auth_onboarding_gate():
                 if u_name.strip() and u_key.strip() and u_id.strip():
                     user_slug = re.sub(r'[^a-zA-Z0-9]', '_', u_email.strip()) or re.sub(r'[^a-zA-Z0-9]', '_', u_name.strip())
                     st.session_state.active_user_id = user_slug
+                    st.session_state.logged_out_explicitly = False
                     
                     custom_profile = DEFAULT_PROFILE.copy()
                     custom_profile["name"] = u_name.strip()
@@ -997,8 +1003,9 @@ with st.sidebar:
 
     if st.button("🔄 Switch User / Logout", use_container_width=True, key="sidebar_logout_btn"):
         st.session_state.user_credentials = None
-        st.session_state.active_user_id = "default_user"
+        st.session_state.logged_out_explicitly = True
         save_disk_store()
+        st.toast("Logged out successfully!", icon="🔒")
         st.rerun()
 
     if st.button("🧪 Test AI Connection", use_container_width=True, key="sidebar_test_ai_btn"):
