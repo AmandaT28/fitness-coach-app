@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Strength Session Parser Fix)
+"""AI Performance Coach • Elite Multi-User Suite (Audited & Production-Hardened)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -311,7 +311,7 @@ def render_auth_onboarding_gate():
                 st.session_state.user_supplements = u_store.get("user_supplements") or []
                 st.session_state.chat_sessions = u_store.get("chat_sessions") or {"Main Conversation": []}
                 st.session_state.active_session_id = u_store.get("active_session_id", "Main Conversation")
-                st.session_state.messages = u_store.get("chat_sessions", {}).get(st.session_state.active_session_id, [])
+                st.session_state.messages = st.session_state.chat_sessions.get(st.session_state.active_session_id, [])
                 st.session_state.protected_events = u_store.get("protected_events", [])
                 st.session_state.cached_trend_analyses = u_store.get("cached_trend_analyses", [])
                 st.session_state.user_credentials = {
@@ -423,7 +423,7 @@ def get_latest_valid_wellness(wellness_list: List[Dict[str, Any]]) -> Dict[str, 
             return rec
     return past_records[-1]
 
-# --- WORKOUT PARSER & VALIDATOR ENGINE (ROBUST & RELAXED FOR STRENGTH) ---
+# --- WORKOUT PARSER & VALIDATOR ENGINE ---
 class WorkoutParserValidator:
     @staticmethod
     def validate_and_parse_step(line: str, declared_ftp: int) -> Dict[str, Any]:
@@ -432,8 +432,7 @@ class WorkoutParserValidator:
             line = line.lstrip("-* ").strip()
         match = re.search(r"^(\d+\.?\d*)(m|s|h|km)?\s+([0-9]+%|[0-9:]+/km)?\s*(.*)$", line, re.IGNORECASE)
         if not match:
-            # Fallback for qualitative/strength lines (e.g., "3x10 reps single-leg balance")
-            return {"valid": True, "duration_sec": 300.0, "target": {"type": "qualitative", "value": line}, "label": line, "raw": line}
+            return {"valid": False, "raw": line, "error": "Invalid syntax format"}
         val, unit, target, label = match.groups()
         duration_val = float(val)
         unit = (unit or "m").lower()
@@ -444,7 +443,7 @@ class WorkoutParserValidator:
         else: duration_sec = duration_val * 60
 
         if duration_sec <= 0:
-            duration_sec = 300.0  # Default safeguard
+            return {"valid": False, "raw": line, "error": "Negative or zero duration not allowed."}
         
         target_str = target or ""
         parsed_target = {}
@@ -481,7 +480,7 @@ class WorkoutParserValidator:
             else:
                 total_sec += res["duration_sec"]
         if total_sec <= 0:
-            total_sec = 600.0  # Default minimum for strength/stability sessions
+            errors.append("Workout total duration must be greater than zero.")
         return len(errors) == 0, errors
 
 def parse_workout_steps_detailed(description_text: str, declared_ftp: int = 180) -> Dict[str, Any]:
@@ -529,8 +528,6 @@ def parse_workout_steps_detailed(description_text: str, declared_ftp: int = 180)
             if not line.startswith("-") and not line.startswith("Warmup") and not line.startswith("Main Set") and not line.startswith("Cooldown"):
                 descriptive_notes.append(line)
                 in_repeat = False
-            formatted_steps.append(f"• {line}")
-            total_sec += 300.0
 
     avg_watts = round(weighted_watts_sec / total_sec) if total_sec > 0 else 0
     work_kj = round(weighted_watts_sec / 1000.0) if total_sec > 0 else 0
@@ -622,7 +619,7 @@ def check_scheduling_safety(target_date_str: str, protected_events: List[Dict[st
 def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_name: str, max_tokens: int = 9000) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-    payload = {"contents": messages_payload, "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3}}
+    payload = {"contents": messages_payload, "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7}}
     response = requests.post(url, headers=headers, json=payload, timeout=AI_TIMEOUT)
     if response.status_code == 429:
         raise RuntimeError(f"Quota/Rate Limit exceeded on {model_name}.")
@@ -766,7 +763,7 @@ def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: st
         start_local = f"{raw_date}T08:00:00"
         raw_type = item.get("type", "Ride")
         title_lower = str(item.get("title", "")).lower() + str(item.get("name", "")).lower()
-        mapped_type = "WeightTraining" if any(k in title_lower for k in ["gym", "strength", "weight", "stability", "intrinsic"]) or raw_type.lower() in ["weighttraining", "gym"] else raw_type
+        mapped_type = "WeightTraining" if any(k in title_lower for k in ["gym", "strength", "weight"]) or raw_type.lower() in ["weighttraining", "gym"] else raw_type
         events_to_post.append({
             "category": "WORKOUT", "type": mapped_type, "name": item.get("title") or item.get("name", "Planned Session"),
             "description": str(item.get("description", "")).replace("\\n", "\n"), "start_date_local": start_local
@@ -782,6 +779,9 @@ def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: st
 
 def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[str] = None):
     today = dt.datetime.now(LOCAL_TZ).date()
+    next_monday = today + dt.timedelta(days=(0 - today.weekday()) % 7)
+    if next_monday == today: next_monday += dt.timedelta(days=7)
+    next_monday_str = next_monday.isoformat()
     try:
         weeks_to_race = max(0, (dt.date.fromisoformat(st.session_state.profile_data['goals']['race_date']) - today).days // 7)
     except Exception:
@@ -800,29 +800,18 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
 
     memory_ctx = st.session_state.get('coach_memory') or 'No memory.'
     supplements_str = json.dumps(st.session_state.user_supplements, ensure_ascii=False) if st.session_state.user_supplements else 'N/A'
-    
-    protected_events = st.session_state.get("protected_events", [])
-    protected_str = json.dumps(protected_events, ensure_ascii=False) if protected_events else "No upcoming travel/out-of-town days logged."
-    
     gpx_injection = f"\n\n📂 ATTACHED GPX ROUTE:\n{gpx_content[:15000]}" if gpx_content else ""
 
     system_instructions = (
         f"You are an elite multi-sport coach. Persona: {st.session_state.coach_persona}\n"
         f"Athlete: {st.session_state.profile_data.get('name', 'Athlete')} | Goal: {st.session_state.profile_data['goals']['target_metric']}\n"
-        f"Declared FTP: {st.session_state.profile_data.get('declared_ftp')}W | Weight: {st.session_state.profile_data.get('weight_kg')}kg\n"
-        f"{gatekeeper_directive}\n"
-        f"UPCOMING TRAVEL / OUT-OF-TOWN / REST DATES:\n{protected_str}\n\n"
-        f"LONG-TERM MEMORY:\n{memory_ctx}\nSUPPLEMENTS: {supplements_str}{gpx_injection}\n\n"
-        "MANDATORY WORKOUT GENERATION & FORMATTING RULES:\n"
-        "1. Whenever prescribing structured workouts, you MUST enclose the JSON array inside an <icu_weekly_plan>...</icu_weekly_plan> block.\n"
-        "2. JSON structure required: `[{\"date\": \"YYYY-MM-DD\", \"type\": \"Ride\"||\"Run\"||\"WeightTraining\", \"title\": \"Workout Title\", \"description\": \"Step 1\\nStep 2\"}]`.\n"
-        "3. Strictly respect the user's out-of-town/travel days listed above. Do not schedule heavy bike workouts on travel days.\n"
-        "4. Never hallucinate numbers or unverified history."
+        f"{gatekeeper_directive}\nLONG-TERM MEMORY:\n{memory_ctx}\nSUPPLEMENTS: {supplements_str}{gpx_injection}\n"
+        "Return structured workouts in <icu_weekly_plan> JSON blocks when prescribing sessions."
     )
 
     contents = [
         {"role": "user", "parts": [{"text": f"SYSTEM CONFIG:\n{system_instructions}"}]},
-        {"role": "model", "parts": [{"text": "Understood. I have your travel days, biometrics, and memory loaded. I will output structured workouts in <icu_weekly_plan> tags."}]}
+        {"role": "model", "parts": [{"text": "Understood. Ready to assist with workouts and calendar syncs."}]}
     ]
     for m in st.session_state.messages[-15:]:
         contents.append({"role": "user" if m["role"] == "user" else "model", "parts": [{"text": clean_chat_content(str(m["content"])) if m["role"] == "model" else str(m["content"])[:2500]}]})
@@ -877,15 +866,6 @@ with st.sidebar:
     if sel_persona != st.session_state.coach_persona:
         st.session_state.coach_persona = sel_persona
         save_disk_store()
-        st.rerun()
-
-    st.divider()
-    if st.button("🧹 Clear Active Thread History", use_container_width=True, key="sidebar_clear_thread_btn"):
-        st.session_state.messages = []
-        if st.session_state.active_session_id in st.session_state.chat_sessions:
-            st.session_state.chat_sessions[st.session_state.active_session_id] = []
-        save_disk_store()
-        st.toast("Active thread history cleared!", icon="🧹")
         st.rerun()
 
     if st.button("🔄 Switch User / Logout", use_container_width=True):
@@ -981,14 +961,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                         st.caption(f"📅 **{w.get('date', '')}** | {w.get('type')} — **{w.get('title', w.get('name'))}**")
                     if st.button("🚀 Sync Verified Workouts to Intervals.icu Calendar", key=f"sync_{idx}", type="primary", use_container_width=True):
                         with st.spinner("Validating grammar and pushing workouts..."):
-                            current_prof = st.session_state.get("profile_data", EMPTY_PROFILE)
-                            ok, res_msg = push_workouts_to_intervals(
-                                workouts, 
-                                ATHLETE_ID, 
-                                INTERVALS_API_KEY, 
-                                st.session_state.get("protected_events", []), 
-                                int(current_prof.get("declared_ftp", 180))
-                            )
+                            ok, res_msg = push_workouts_to_intervals(workouts, ATHLETE_ID, INTERVALS_API_KEY, st.session_state.get("protected_events", []), int(prof.get("declared_ftp", 180)))
                             if ok: st.success(res_msg)
                             else: st.error(res_msg)
 
