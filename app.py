@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (All 5 Core Bugs Fixed)
+"""AI Performance Coach • Elite Multi-User Suite (Intervals.icu Sleep/HRV & Logic Fixed)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -264,7 +264,7 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
 
     return "", "", st.session_state.profile_data.get("name", ""), "Unauthenticated"
 
-# --- BULLETPROOF WELLNESS & METRICS ENGINE (CTL/ATL/TSB) ---
+# --- BULLETPROOF DATA SCIENTIST WELLNESS & METRICS ENGINE (SLEEP/HRV/CTL/ATL/TSB) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
     if not athlete_id or not api_key:
@@ -302,7 +302,9 @@ def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dic
         if not rec_date:
             continue
         
-        # Robust metric extraction across all possible Intervals.icu key variations
+        date_str = str(rec_date)[:10]
+        
+        # Comprehensive aliasing across all webhook providers (Garmin, Oura, Whoop, Apple Health)
         ctl_val = float(rec.get("ctl") or rec.get("CTL") or rec.get("Fitness") or rec.get("fitness") or 0.0)
         atl_val = float(rec.get("atl") or rec.get("ATL") or rec.get("Fatigue") or rec.get("fatigue") or 0.0)
         
@@ -312,13 +314,16 @@ def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dic
         else:
             tsb_val = ctl_val - atl_val
 
-        sleep_val = float(rec.get("sleepScore") or rec.get("sleep_score") or rec.get("sleep") or 0.0)
-        hrv_val = float(rec.get("hrv") or rec.get("HRV") or 0.0)
+        sleep_val = float(
+            rec.get("sleepScore") or rec.get("sleep_score") or rec.get("sleep") or 
+            rec.get("sleepDuration") or rec.get("sleep_duration") or rec.get("dur") or 0.0
+        )
+        hrv_val = float(rec.get("hrv") or rec.get("HRV") or rec.get("rmssd") or rec.get("sdnn") or 0.0)
         rhr_val = float(rec.get("restingHR") or rec.get("rhr") or rec.get("resting_hr") or 0.0)
         load_val = float(rec.get("training_load") or rec.get("Load") or rec.get("load") or rec.get("icu_training_load") or 0.0)
 
         normalized_wellness.append({
-            "date": str(rec_date)[:10],
+            "date": date_str,
             "ctl": ctl_val,
             "atl": atl_val,
             "tsb": tsb_val,
@@ -331,6 +336,26 @@ def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dic
 
     normalized_wellness = sorted(normalized_wellness, key=lambda x: x["date"])
     return normalized_wellness, results.get("activities", []), results.get("events", []), "Connected to Intervals.icu"
+
+def get_latest_valid_wellness(wellness_list: List[Dict[str, Any]]) -> Dict[str, float]:
+    """Scans backward from today's date to find the most recent fully populated wellness record."""
+    today_str = dt.datetime.now(LOCAL_TZ).date().isoformat()
+    
+    # Filter out future dates
+    past_records = [w for w in wellness_list if w.get("date", "") <= today_str]
+    if not past_records:
+        past_records = wellness_list
+
+    if not past_records:
+        return {"ctl": 0.0, "atl": 0.0, "tsb": 0.0, "sleepScore": 0.0, "hrv": 0.0, "restingHR": 0.0}
+
+    # Scan backward from the end of past records to find the first entry with valid data
+    for rec in reversed(past_records):
+        if rec.get("sleepScore", 0) > 0 or rec.get("hrv", 0) > 0 or rec.get("ctl", 0) > 0:
+            return rec
+
+    # Fallback to absolute latest
+    return past_records[-1]
 
 # --- ADVANCED WORKOUT DETAILS PARSER ENGINE ---
 def parse_workout_steps_detailed(description_text: str, declared_ftp: int = 180) -> Dict[str, Any]:
@@ -448,13 +473,13 @@ class TrainingLoadCalculator:
             risk_factors.append(f"Heavy Accumulated Fatigue (TSB {tsb:.1f})")
         elif tsb < -10:
             score -= 10
-        if sleep_score and sleep_score < 65:
+        if sleep_score and sleep_score > 0 and sleep_score < 65:
             score -= 20
             risk_factors.append(f"Suboptimal Sleep ({sleep_score:.0f}/100)")
-        if hrv and hrv < 50:
+        if hrv and hrv > 0 and hrv < 50:
             score -= 15
             risk_factors.append(f"Suppressed HRV ({hrv:.0f} ms)")
-        if rhr and rhr > 58:
+        if rhr and rhr > 0 and rhr > 58:
             score -= 10
             risk_factors.append(f"Elevated Resting HR ({rhr:.0f} bpm)")
 
@@ -586,7 +611,6 @@ def clean_chat_content(text: str) -> str:
     return cleaned.strip()
 
 def extract_json_workouts(text: str) -> List[Dict[str, Any]]:
-    # Search within <icu_weekly_plan> tags first
     plan_match = re.search(r"<icu_weekly_plan>\s*(\[.*?\])\s*</icu_weekly_plan>", text, re.S | re.I)
     if plan_match:
         try:
@@ -594,7 +618,6 @@ def extract_json_workouts(text: str) -> List[Dict[str, Any]]:
         except Exception:
             pass
 
-    # Fallback to markdown JSON code blocks
     match = re.search(r"```(?:json:workouts|json)\s*(\[.*?\])\s*```", text, re.S | re.I)
     if not match:
         match = re.search(r"(\[\s*\{\s*\"date\".*?\}\s*\])", text, re.S)
@@ -659,26 +682,25 @@ def build_gemini_payload(current_question, wellness_list):
     else:
         periodization_phase = "TAPER & PEAK PHASE (Focus on reducing volume while maintaining intensity, prioritizing recovery and race freshness)."
 
-    ctl, atl, tsb = 0.0, 0.0, 0.0
-    sleep_score = 80.0
-    if wellness_list:
-        latest = wellness_list[-1]
-        ctl = float(latest.get("ctl", 0.0))
-        atl = float(latest.get("atl", 0.0))
-        tsb = float(latest.get("tsb", ctl - atl))
-        sleep_score = float(latest.get("sleepScore", 80.0))
+    latest_w = get_latest_valid_wellness(wellness_list)
+    ctl = float(latest_w.get("ctl", 0.0))
+    atl = float(latest_w.get("atl", 0.0))
+    tsb = float(latest_w.get("tsb", ctl - atl))
+    sleep_score = float(latest_w.get("sleepScore", 80.0))
+    hrv = float(latest_w.get("hrv", 0.0))
+    rhr = float(latest_w.get("restingHR", 0.0))
 
     acwr_val, acwr_status = TrainingLoadCalculator.calculate_acwr(wellness_list)
     
-    gatekeeper_active = (tsb < -20) or (sleep_score < 60) or (acwr_val > 1.35)
+    gatekeeper_active = (tsb < -20) or (0 < sleep_score < 60) or (acwr_val > 1.35)
     if gatekeeper_active:
         gatekeeper_directive = (
-            f"⚠️ MULTI-SPORT LOAD & IMPACT RECOVERY DIRECTIVE ⚠️\n"
-            f"Current TSB is {tsb:.1f}, Sleep Score is {sleep_score:.0f}/100, and ACWR is {acwr_val} ({acwr_status}).\n"
-            f"MANDATORY RULE: Differentiate between mechanical running impact fatigue and indoor cycling load. If running volume is high, proactively safeguard orthopedic joints by suggesting low-impact cross-training or rest."
+            f"⚠️ MULTI-SPORT LOAD & RECOVERY GATEKEEPER ⚠️\n"
+            f"Current TSB is {tsb:.1f}, Sleep Score is {sleep_score:.0f}/100, HRV is {hrv:.0f}ms, and ACWR is {acwr_val} ({acwr_status}).\n"
+            f"MANDATORY RULE: Differentiate between mechanical running impact fatigue and indoor cycling load. If recovery metrics are suppressed, proactively safeguard orthopedic joints and nervous system by suggesting low-impact cross-training or rest."
         )
     else:
-        gatekeeper_directive = f"Readiness Status: CLEAR (TSB: {tsb:.1f}, Sleep: {sleep_score:.0f}, ACWR: {acwr_val}). Multi-sport load balanced."
+        gatekeeper_directive = f"Readiness Status: CLEAR (TSB: {tsb:.1f}, Sleep: {sleep_score:.0f}, HRV: {hrv:.0f}ms, ACWR: {acwr_val})."
 
     trend_reports = st.session_state.get('cached_trend_analyses', [])
     trend_ctx = (trend_reports[0]['analysis'] if trend_reports else 'No Trend Analysis.')[:1200]
@@ -886,17 +908,13 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
     st.markdown(f"##### ☀️ Command Center — {today_str_ui}")
     prof = st.session_state.profile_data
 
-    ctl, atl, tsb = 0.0, 0.0, 0.0
-    sleep, hrv, rhr = 0.0, 0.0, 0.0
-    
-    if wellness_list:
-        latest = wellness_list[-1]
-        ctl = float(latest.get("ctl", 0.0))
-        atl = float(latest.get("atl", 0.0))
-        tsb = float(latest.get("tsb", ctl - atl))
-        sleep = float(latest.get("sleepScore", 0.0))
-        hrv = float(latest.get("hrv", 0.0))
-        rhr = float(latest.get("restingHR", 0.0))
+    latest_w = get_latest_valid_wellness(wellness_list)
+    ctl = float(latest_w.get("ctl", 0.0))
+    atl = float(latest_w.get("atl", 0.0))
+    tsb = float(latest_w.get("tsb", ctl - atl))
+    sleep = float(latest_w.get("sleepScore", 0.0))
+    hrv = float(latest_w.get("hrv", 0.0))
+    rhr = float(latest_w.get("restingHR", 0.0))
 
     rec = TrainingLoadCalculator.calculate_recovery_status(tsb, sleep if sleep > 0 else 82, hrv if hrv > 0 else 65, rhr if rhr > 0 else 52, "")
     acwr, acwr_status = TrainingLoadCalculator.calculate_acwr(wellness_list)
@@ -906,7 +924,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
     <div style="background:{BG_CARD}; border:1px solid {card_border}; border-radius:10px; padding:14px; margin-bottom:15px;">
         <h5 style="margin:0; color:{card_border};">💡 {rec['status']} (Readiness Index: {rec['score']}/100)</h5>
         <p style="margin:4px 0 0 0; font-size:0.9rem;"><strong>Recommendation:</strong> {rec['recommendation']}</p>
-        <p style="margin:2px 0 0 0; font-size:0.8rem; color:{TEXT_MUTED};">ACWR: {acwr} ({acwr_status}) | TSB: {tsb:.1f} | Sleep: {int(sleep) if sleep > 0 else 'N/A'}/100 | HRV: {int(hrv) if hrv > 0 else 'N/A'}ms</p>
+        <p style="margin:2px 0 0 0; font-size:0.8rem; color:{TEXT_MUTED};">ACWR: {acwr} ({acwr_status}) | TSB: {tsb:.1f} | Sleep: {int(sleep) if sleep > 0 else 'N/A'}/100 | HRV: {int(hrv) if hrv > 0 else 'N/A'}ms | RHR: {int(rhr) if rhr > 0 else 'N/A'}bpm</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -960,7 +978,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
     st.divider()
 
     if st.button("🚀 Run 90-Day Multi-Sport Trend Synthesis", type="primary", use_container_width=True):
-        payload_text = f"Analyze this multi-sport athlete's 90-day training trend window. CTL {ctl:.1f}; ATL {atl:.1f}; TSB {tsb:.1f}. ACWR: {acwr}. Goal: {prof['goals']['target_metric']}."
+        payload_text = f"Analyze this multi-sport athlete's 90-day training trend window. CTL {ctl:.1f}; ATL {atl:.1f}; TSB {tsb:.1f}. HRV: {hrv}ms. Sleep: {sleep}/100. ACWR: {acwr}. Goal: {prof['goals']['target_metric']}."
         with st.spinner("Analyzing 90 days of multi-sport training data..."):
             try:
                 new_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=9000)
