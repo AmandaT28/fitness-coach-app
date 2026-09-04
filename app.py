@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Fully Tested & Production-Ready)
+"""AI Performance Coach • Elite Multi-User Suite (All 5 Core Bugs Fixed)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -264,7 +264,7 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
 
     return "", "", st.session_state.profile_data.get("name", ""), "Unauthenticated"
 
-# --- BULLETPROOF DATA SCIENTIST WELLNESS & METRICS PARSER ---
+# --- BULLETPROOF WELLNESS & METRICS ENGINE (CTL/ATL/TSB) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
     if not athlete_id or not api_key:
@@ -302,9 +302,11 @@ def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dic
         if not rec_date:
             continue
         
-        ctl_val = float(rec.get("ctl") or rec.get("CTL") or rec.get("Fitness") or 0.0)
-        atl_val = float(rec.get("atl") or rec.get("ATL") or rec.get("Fatigue") or 0.0)
-        tsb_val = rec.get("tsb") or rec.get("TSB") or rec.get("Form")
+        # Robust metric extraction across all possible Intervals.icu key variations
+        ctl_val = float(rec.get("ctl") or rec.get("CTL") or rec.get("Fitness") or rec.get("fitness") or 0.0)
+        atl_val = float(rec.get("atl") or rec.get("ATL") or rec.get("Fatigue") or rec.get("fatigue") or 0.0)
+        
+        tsb_val = rec.get("tsb") or rec.get("TSB") or rec.get("Form") or rec.get("form")
         if tsb_val is not None:
             tsb_val = float(tsb_val)
         else:
@@ -313,7 +315,7 @@ def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dic
         sleep_val = float(rec.get("sleepScore") or rec.get("sleep_score") or rec.get("sleep") or 0.0)
         hrv_val = float(rec.get("hrv") or rec.get("HRV") or 0.0)
         rhr_val = float(rec.get("restingHR") or rec.get("rhr") or rec.get("resting_hr") or 0.0)
-        load_val = float(rec.get("training_load") or rec.get("Load") or rec.get("load") or 0.0)
+        load_val = float(rec.get("training_load") or rec.get("Load") or rec.get("load") or rec.get("icu_training_load") or 0.0)
 
         normalized_wellness.append({
             "date": str(rec_date)[:10],
@@ -578,12 +580,21 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
 
 def clean_chat_content(text: str) -> str:
     cleaned = re.sub(r"```xml\s*<\?xml.*?</workout_file>\s*```", "", text or "", flags=re.S | re.I)
-    cleaned = re.sub(r"```json:workouts\s*.*?\s*```", "", cleaned, flags=re.S | re.I)
+    cleaned = re.sub(r"```(?:json:workouts|json)\s*\[.*?\]\s*```", "", cleaned, flags=re.S | re.I)
     cleaned = re.sub(r"<icu_weekly_plan>.*?</icu_weekly_plan>", "", cleaned, flags=re.S | re.I)
     cleaned = re.sub(r"<icu_workout>.*?</icu_workout>", "", cleaned, flags=re.S | re.I)
     return cleaned.strip()
 
 def extract_json_workouts(text: str) -> List[Dict[str, Any]]:
+    # Search within <icu_weekly_plan> tags first
+    plan_match = re.search(r"<icu_weekly_plan>\s*(\[.*?\])\s*</icu_weekly_plan>", text, re.S | re.I)
+    if plan_match:
+        try:
+            return json.loads(plan_match.group(1).strip())
+        except Exception:
+            pass
+
+    # Fallback to markdown JSON code blocks
     match = re.search(r"```(?:json:workouts|json)\s*(\[.*?\])\s*```", text, re.S | re.I)
     if not match:
         match = re.search(r"(\[\s*\{\s*\"date\".*?\}\s*\])", text, re.S)
@@ -689,14 +700,14 @@ def build_gemini_payload(current_question, wellness_list):
         "To ensure workouts parse correctly into structured step graphs on Intervals.icu:\n"
         "1. Section headers (Warmup, Main Set, Cooldown) must be on their own separate lines.\n"
         "2. Repeat blocks must use native syntax where multiplier is declared followed by steps starting with '-'.\n"
-        "IF PRESCRIBING A WEEKLY SCHEDULE OR MACROCYCLE, APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags:\n"
+        "MANDATORY: IF PRESCRIBING WORKOUTS FOR CALENDAR SYNC, ALWAYS APPEND A VALID JSON ARRAY inside <icu_weekly_plan> tags like this:\n"
         "<icu_weekly_plan>\n"
         "[\n"
         "  {\n"
-        f"    \"name\": \"MyWhoosh Micro-Intervals\",\n"
+        f"    \"name\": \"MyWhoosh Threshold Intervals\",\n"
         f"    \"type\": \"Ride\",\n"
-        f"    \"start_date_local\": \"{next_monday_str}\",\n"
-        f"    \"description\": \"Warmup\\n- 10m 50%\\n- 5m 70%\\n\\nMain Set 8x\\n- 30s 130%\\n- 30s 50%\\n\\nCooldown\\n- 10m 50%\"\n"
+        f"    \"date\": \"{next_monday_str}\",\n"
+        f"    \"description\": \"Warmup\\n- 10m 50%\\n- 5m 70%\\n\\nMain Set 4x\\n- 5m 100%\\n- 3m 50%\\n\\nCooldown\\n- 10m 50%\"\n"
         "  }\n"
         "]\n"
         "</icu_weekly_plan>"
@@ -704,7 +715,7 @@ def build_gemini_payload(current_question, wellness_list):
 
     contents = [
         {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
-        {"role": "model", "parts": [{"text": "Understood. I will use native Intervals.icu inline repeat notation so the parser renders accurate graphical step charts for MyWhoosh and Garmin."}]}
+        {"role": "model", "parts": [{"text": "Understood. I will include the <icu_weekly_plan> JSON block whenever prescribing workouts so they can be synced directly to Intervals.icu."}]}
     ]
 
     for m in st.session_state.messages[-15:]:
@@ -817,17 +828,24 @@ with st.sidebar:
         st.rerun()
 
     with st.popover("➕ New Chat Thread", use_container_width=True):
-        new_thread_title = st.text_input("Thread Title", placeholder="e.g. Bintan Prep Block")
-        if st.button("Create Thread", use_container_width=True):
-            title_clean = new_thread_title.strip()
-            if title_clean and title_clean not in st.session_state.chat_sessions:
-                st.session_state.chat_sessions[st.session_state.active_session_id] = st.session_state.messages
-                st.session_state.chat_sessions[title_clean] = []
-                st.session_state.active_session_id = title_clean
-                st.session_state.messages = []
-                save_disk_store()
-                st.toast(f"Created '{title_clean}'", icon="💬")
-                st.rerun()
+        with st.form("create_thread_form"):
+            new_thread_title = st.text_input("Thread Title", placeholder="e.g. Bintan Prep Block")
+            if st.form_submit_button("Create Thread", use_container_width=True):
+                title_clean = new_thread_title.strip()
+                if title_clean:
+                    if title_clean not in st.session_state.chat_sessions:
+                        st.session_state.chat_sessions[st.session_state.active_session_id] = st.session_state.messages
+                        st.session_state.chat_sessions[title_clean] = []
+                        st.session_state.active_session_id = title_clean
+                        st.session_state.messages = []
+                        save_disk_store()
+                        st.success(f"Created '{title_clean}'")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("Thread title already exists.")
+                else:
+                    st.error("Please enter a valid title.")
 
     st.divider()
     persona_index = PERSONA_OPTIONS.index(st.session_state.coach_persona) if st.session_state.coach_persona in PERSONA_OPTIONS else 0
@@ -838,9 +856,17 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
+    if st.button("🧹 Clear Active Thread History", use_container_width=True):
+        st.session_state.messages = []
+        st.session_state.chat_sessions[st.session_state.active_session_id] = []
+        save_disk_store()
+        st.toast("Active thread history cleared!", icon="🧹")
+        st.rerun()
+
     if st.button("🔄 Switch User / Logout", use_container_width=True):
         st.session_state.user_credentials = None
         st.session_state.active_user_id = "default_user"
+        save_disk_store()
         st.rerun()
 
     if st.button("🧪 Test AI Connection", use_container_width=True):
