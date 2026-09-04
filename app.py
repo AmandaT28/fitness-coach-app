@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Inline Calendar Event Edit/Delete & GPX Chat)
+"""AI Performance Coach • Elite Multi-User Suite (Fixed Expander Title Formatting & Integrated GPX Chat Coaching)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -758,7 +758,7 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
         "To ensure workouts parse correctly into structured step graphs on Intervals.icu:\n"
         "1. Section headers (Warmup, Main Set, Cooldown) must be on their own separate lines.\n"
         "2. Repeat blocks must use native syntax where multiplier is declared followed by steps starting with '-'.\n"
-        "MANDATORY: IF PRESCRIBING WORKOUTS FOR CALENDAR SYNC, ALWAYS APPEND A VALID JSON ARRAY inside <icu_weekly_plan> tags like this:\n"
+        "MANDATORY: IF PRESCRIBING WORKOUTS FOR CALENDAR SYNC, ALWAYS INSTALL A VALID JSON ARRAY inside <icu_weekly_plan> tags like this:\n"
         "<icu_weekly_plan>\n"
         "[\n"
         "  {\n"
@@ -1166,6 +1166,53 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                 time.sleep(1)
                 st.rerun()
 
+    if st.session_state.get("protected_events"):
+        with st.expander("⚙️ Manage / Edit / Delete Logged Events", expanded=False):
+            for p_idx, p_ev in enumerate(st.session_state.protected_events):
+                st.markdown(f"**{p_ev.get('title')}** ({p_ev.get('category')} · {p_ev.get('start_date')} to {p_ev.get('end_date')})")
+                with st.form(f"edit_prot_event_{p_idx}"):
+                    ed_title = st.text_input("Event Name", value=p_ev.get("title", ""), key=f"ed_t_{p_idx}")
+                    ed_cat = st.selectbox("Category", ["Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"], index=["Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"].index(p_ev.get("category", "Race / Event")) if p_ev.get("category") in ["Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"] else 0, key=f"ed_c_{p_idx}")
+                    
+                    ec1, ec2 = st.columns(2)
+                    try:
+                        def_start = dt.date.fromisoformat(p_ev.get("start_date", dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")))
+                    except Exception:
+                        def_start = dt.datetime.now(LOCAL_TZ).date()
+                    try:
+                        def_end = dt.date.fromisoformat(p_ev.get("end_date", def_start.isoformat()))
+                    except Exception:
+                        def_end = def_start
+
+                    ed_start = ec1.date_input("Start Date", value=def_start, key=f"ed_sd_{p_idx}")
+                    ed_end = ec2.date_input("End Date", value=def_end, key=f"ed_ed_{p_idx}")
+                    ed_notes = st.text_area("Details", value=p_ev.get("notes", ""), key=f"ed_n_{p_idx}")
+
+                    col_u, col_d = st.columns(2)
+                    update_clicked = col_u.form_submit_button("💾 Update Event", use_container_width=True)
+                    delete_clicked = col_d.form_submit_button("🗑️ Delete Event", use_container_width=True)
+
+                    if update_clicked:
+                        st.session_state.protected_events[p_idx] = {
+                            "title": ed_title.strip() or f"[{ed_cat}]",
+                            "category": ed_cat,
+                            "start_date": ed_start.isoformat(),
+                            "end_date": ed_end.isoformat(),
+                            "notes": ed_notes
+                        }
+                        save_disk_store()
+                        st.success("Event updated successfully!")
+                        time.sleep(0.8)
+                        st.rerun()
+
+                    if delete_clicked:
+                        st.session_state.protected_events.pop(p_idx)
+                        save_disk_store()
+                        st.success("Event deleted successfully!")
+                        time.sleep(0.8)
+                        st.rerun()
+                st.divider()
+
     col_f1, col_f2 = st.columns(2)
     sport_filter = col_f1.selectbox("Filter Sport", ["All Sports", "Cycling", "Running", "Events & Trips"])
     status_filter = col_f2.selectbox("Filter Status", ["All Sessions", "Completed", "Planned", "Event / Trip"])
@@ -1317,9 +1364,9 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
 
                                     load_val = str(int(item["load"]))
                                     status_label = "Trip / Event" if is_event else ("Incomplete" if is_past_incomplete else item['status'])
-                                    status_color = "#F59E0B" if is_event else (TEXT_MUTED if is_past_incomplete else ("#10B981" if item['status'] == "Completed" else "#3B82F6"))
 
-                                    expander_title = f"{sport_icon} &nbsp; **{item['name']}** &nbsp;·&nbsp; <span style='color:{status_color}; font-size:0.82rem;'>({status_label})</span> &nbsp;·&nbsp; <span style='color:{TEXT_MUTED}; font-size:0.82rem;'>{dur_str if not is_event else 'All Day'}</span>"
+                                    # Fixed: Removed raw HTML strings so expander header renders cleanly without text leaks
+                                    expander_title = f"{sport_icon}  {item['name']}  ·  {status_label}  ·  {dur_str if not is_event else 'All Day'}"
                                     
                                     with st.expander(expander_title, expanded=False):
                                         st.markdown(f"<p style='margin:0 0 6px 0; font-size:0.85rem; color:{TEXT_MUTED};'><strong>Device/Source:</strong> {item['device']}</p>", unsafe_allow_html=True)
@@ -1327,7 +1374,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                         raw_desc = item.get("raw", {}).get("description", "") or item.get("raw", {}).get("workout_doc", "")
                                         workout_details = parse_workout_steps_detailed(raw_desc, declared_ftp)
 
-                                        c_m1, c_m2, c_m3 = st.columns([3, 1, 1])
+                                        c_m1, c_m2 = st.columns([3, 1])
                                         with c_m1:
                                             st.markdown(f"""
                                             <div class="metrics-flex-group">
@@ -1360,58 +1407,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                                 )
                                                 st.session_state.active_nav = NAV_OPTIONS[1]
                                                 st.rerun()
-
-                                        with c_m3:
-                                            # Check if this item exists in protected_events for local editing
-                                            p_match_idx = None
-                                            for p_i, p_e in enumerate(st.session_state.get("protected_events", [])):
-                                                if p_e.get("title") == item["name"] and p_e.get("start_date") <= item["date_str"] <= p_e.get("end_date", p_e.get("start_date")):
-                                                    p_match_idx = p_i
-                                                    break
-
-                                            with st.popover("✏️ Edit / Delete"):
-                                                if p_match_idx is not None:
-                                                    p_ev_data = st.session_state.protected_events[p_match_idx]
-                                                    with st.form(f"inline_edit_{item['id']}"):
-                                                        ed_t = st.text_input("Title", value=p_ev_data.get("title", item["name"]))
-                                                        ed_c = st.selectbox("Category", ["Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"], index=0)
-                                                        ec_1, ec_2 = st.columns(2)
-                                                        ed_sd = ec_1.date_input("Start", value=dt.date.fromisoformat(p_ev_data.get("start_date", item["date_str"])))
-                                                        ed_ed = ec_2.date_input("End", value=dt.date.fromisoformat(p_ev_data.get("end_date", item["date_str"])))
-                                                        ed_n = st.text_area("Notes", value=p_ev_data.get("notes", ""))
-
-                                                        sub_u, sub_d = st.columns(2)
-                                                        if sub_u.form_submit_button("💾 Save", use_container_width=True):
-                                                            st.session_state.protected_events[p_match_idx] = {
-                                                                "title": ed_t, "category": ed_c,
-                                                                "start_date": ed_sd.isoformat(), "end_date": ed_ed.isoformat(),
-                                                                "notes": ed_n
-                                                            }
-                                                            save_disk_store()
-                                                            st.success("Updated!")
-                                                            time.sleep(0.5)
-                                                            st.rerun()
-                                                        if sub_d.form_submit_button("🗑️ Delete", use_container_width=True):
-                                                            st.session_state.protected_events.pop(p_match_idx)
-                                                            save_disk_store()
-                                                            st.success("Deleted!")
-                                                            time.sleep(0.5)
-                                                            st.rerun()
-                                                else:
-                                                    st.markdown("###### Log as Custom Event to Enable Editing")
-                                                    with st.form(f"inline_convert_{item['id']}"):
-                                                        conv_t = st.text_input("Event Name", value=item["name"])
-                                                        conv_cat = st.selectbox("Category", ["Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"])
-                                                        if st.form_submit_button("Convert & Save", use_container_width=True):
-                                                            st.session_state.protected_events.append({
-                                                                "title": conv_t, "category": conv_cat,
-                                                                "start_date": item["date_str"], "end_date": item["date_str"],
-                                                                "notes": item["device"]
-                                                            })
-                                                            save_disk_store()
-                                                            st.success("Converted to editable event!")
-                                                            time.sleep(0.5)
-                                                            st.rerun()
 
                                         if workout_details["steps"]:
                                             st.markdown("---")
