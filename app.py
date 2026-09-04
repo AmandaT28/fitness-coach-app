@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Calendar Event & Local State Fixes)
+"""AI Performance Coach • Elite Multi-User Suite (Collapsible Workout Cards & Calendar Improvements)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -230,16 +230,10 @@ section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !import
 .date-badge-col {{ width: 50px; text-align: center; padding-top: 6px; flex-shrink: 0; }}
 .date-day-name {{ font-size: 0.82rem; color: {TEXT_MUTED}; font-weight: 600; text-transform: capitalize; }}
 .date-day-number {{ font-size: 1.5rem; font-weight: 800; color: {TEXT_PRIMARY}; line-height: 1.1; }}
-.activity-card-body {{ background-color: {BG_CARD}; border: 1px solid {BORDER_SUBTLE}; border-radius: 16px; padding: 16px 18px; width: 100%; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.18); }}
-.card-header-row {{ display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }}
-.sport-icon {{ font-size: 1.2rem; }}
-.sport-title {{ font-size: 1.1rem; font-weight: 700; color: {TEXT_PRIMARY}; margin: 0; line-height: 1.2; }}
-.device-subtitle {{ font-size: 0.8rem; color: {TEXT_MUTED}; margin: 0; }}
-.metrics-flex-group {{ display: flex; flex-wrap: wrap; gap: 20px; }}
+.metrics-flex-group {{ display: flex; flex-wrap: wrap; gap: 20px; margin-top: 8px; }}
 .metric-box {{ display: flex; flex-direction: column; }}
 .metric-box-label {{ font-size: 0.75rem; color: {TEXT_MUTED}; margin-bottom: 2px; }}
 .metric-box-val {{ font-size: 0.98rem; font-weight: 700; color: {TEXT_PRIMARY}; }}
-.workout-notes-box {{ margin-top: 10px; font-style: italic; color: {TEXT_MUTED}; border-left: 2px solid #3B82F6; padding-left: 8px; }}
 .stButton > button[kind="secondary"] {{ background-color: #000000 !important; color: #FFFFFF !important; border: 1px solid #30363D !important; border-radius: 20px !important; padding: 4px 16px !important; font-size: 0.85rem !important; font-weight: 600 !important; }}
 </style>
 """, unsafe_allow_html=True)
@@ -264,7 +258,7 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
 
     return "", "", st.session_state.profile_data.get("name", ""), "Unauthenticated"
 
-# --- BULLETPROOF WELLNESS & METRICS ENGINE (SLEEP/HRV/CTL/ATL/TSB) ---
+# --- BULLETPROOF WELLNESS & METRICS ENGINE ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
     if not athlete_id or not api_key:
@@ -569,56 +563,75 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
 
     for ev in events:
         if ev.get("category") in ["WORKOUT", "TARGET", "NOTE"] or ev.get("type") in ["Ride", "Run", "VirtualRide", "VirtualRun"]:
-            raw_dt = str(ev.get("start_date_local") or ev.get("start_date") or "")
-            if not raw_dt: continue
+            raw_start = str(ev.get("start_date_local") or ev.get("start_date") or "")
+            if not raw_start: continue
             try:
-                dt_obj = dt.datetime.fromisoformat(raw_dt[:19])
+                start_dt = dt.datetime.fromisoformat(raw_start[:19])
             except Exception:
                 continue
 
-            ev_type = ev.get("type", "Workout")
+            raw_end = str(ev.get("end_date_local") or ev.get("end_date") or raw_start)
+            try:
+                end_dt = dt.datetime.fromisoformat(raw_end[:19])
+            except Exception:
+                end_dt = start_dt
+
+            curr_dt = start_dt.date()
+            final_end_date = end_dt.date()
+            while curr_dt <= final_end_date:
+                dt_obj = dt.datetime(curr_dt.year, curr_dt.month, curr_dt.day, start_dt.hour, start_dt.minute, start_dt.second)
+                ev_type = ev.get("type", "Workout")
+                is_note = ev.get("category") == "NOTE"
+                
+                items.append({
+                    "id": f"plan_{ev.get('id')}_{curr_dt.isoformat()}",
+                    "date_str": dt_obj.strftime("%Y-%m-%d"),
+                    "datetime": dt_obj,
+                    "status": "Planned" if not is_note else "Event / Trip",
+                    "type": ev_type,
+                    "name": ev.get("name") or f"Planned {ev_type}",
+                    "sport_title": f"Planned {ev_type}" if not is_note else ev.get("name", "Event / Trip"),
+                    "device": ev.get("description") or "Intervals.icu / MyWhoosh Planned Workout",
+                    "duration_sec": float(ev.get("moving_time") or ev.get("duration") or 0),
+                    "distance_m": float(ev.get("distance") or 0),
+                    "power_w": None,
+                    "hr_bpm": None,
+                    "pace_str": None,
+                    "load": float(ev.get("icu_training_load") or 0),
+                    "raw": ev
+                })
+                curr_dt += dt.timedelta(days=1)
+
+    for idx, p_ev in enumerate(protected_events):
+        raw_start = str(p_ev.get("start_date") or dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d"))
+        raw_end = str(p_ev.get("end_date") or raw_start)
+        try:
+            start_date = dt.date.fromisoformat(raw_start[:10])
+            end_date = dt.date.fromisoformat(raw_end[:10])
+        except Exception:
+            continue
+
+        curr_dt = start_date
+        while curr_dt <= end_date:
+            dt_obj = dt.datetime(curr_dt.year, curr_dt.month, curr_dt.day, 8, 0, 0)
             items.append({
-                "id": f"plan_{ev.get('id')}",
+                "id": f"prot_{idx}_{curr_dt.isoformat()}",
                 "date_str": dt_obj.strftime("%Y-%m-%d"),
                 "datetime": dt_obj,
-                "status": "Planned" if ev.get("category") != "NOTE" else "Event / Trip",
-                "type": ev_type,
-                "name": ev.get("name") or f"Planned {ev_type}",
-                "sport_title": f"Planned {ev_type}",
-                "device": ev.get("description") or "Intervals.icu / MyWhoosh Planned Workout",
-                "duration_sec": float(ev.get("moving_time") or ev.get("duration") or 0),
-                "distance_m": float(ev.get("distance") or 0),
+                "status": "Event / Trip",
+                "type": p_ev.get("category", "Event / Trip"),
+                "name": p_ev.get("title", "Event / Sickness / Travel"),
+                "sport_title": p_ev.get("category", "Event / Trip"),
+                "device": p_ev.get("notes") or "Logged in App",
+                "duration_sec": 0.0,
+                "distance_m": 0.0,
                 "power_w": None,
                 "hr_bpm": None,
                 "pace_str": None,
-                "load": float(ev.get("icu_training_load") or 0),
-                "raw": ev
+                "load": 0.0,
+                "raw": p_ev
             })
-
-    # Merge locally logged protected/travel/sickness events so they appear immediately in app calendar
-    for idx, p_ev in enumerate(protected_events):
-        raw_dt = str(p_ev.get("start_date") or dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d"))
-        try:
-            dt_obj = dt.datetime.fromisoformat(raw_dt[:10] + "T08:00:00")
-        except Exception:
-            continue
-        items.append({
-            "id": f"prot_{idx}_{raw_dt}",
-            "date_str": dt_obj.strftime("%Y-%m-%d"),
-            "datetime": dt_obj,
-            "status": "Event / Trip",
-            "type": p_ev.get("category", "Event / Trip"),
-            "name": p_ev.get("title", "Event / Sickness / Travel"),
-            "sport_title": p_ev.get("category", "Event / Trip"),
-            "device": p_ev.get("notes") or "Logged in App",
-            "duration_sec": 0.0,
-            "distance_m": 0.0,
-            "power_w": None,
-            "hr_bpm": None,
-            "pace_str": None,
-            "load": 0.0,
-            "raw": p_ev
-        })
+            curr_dt += dt.timedelta(days=1)
 
     return sorted(items, key=lambda x: x["datetime"], reverse=True)
 
@@ -1118,7 +1131,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                 }
                 res = requests.post(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events", json=payload, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
                 
-                # Always save locally so it appears instantly in the app calendar feed
                 st.session_state.protected_events.append({
                     "title": final_title,
                     "category": status_type,
@@ -1129,12 +1141,60 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                 save_disk_store()
 
                 if res.status_code in [200, 201]:
-                    st.success(f"Successfully logged '{final_title}' to app calendar & Intervals.icu!")
+                    st.success(f"Successfully logged '{final_title}' across {start_d} to {end_d}!")
                 else:
-                    st.warning(f"Saved locally to app calendar, but Intervals.icu sync returned HTTP {res.status_code}: {res.text[:150]}")
+                    st.warning(f"Saved locally, but Intervals.icu sync returned HTTP {res.status_code}")
                 
                 time.sleep(1)
                 st.rerun()
+
+    # --- EDIT & DELETE LOGGED EVENTS MANAGER ---
+    if st.session_state.get("protected_events"):
+        with st.expander("⚙️ Manage / Edit / Delete Logged Events", expanded=False):
+            for p_idx, p_ev in enumerate(st.session_state.protected_events):
+                st.markdown(f"**{p_ev.get('title')}** ({p_ev.get('category')} · {p_ev.get('start_date')} to {p_ev.get('end_date')})")
+                with st.form(f"edit_prot_event_{p_idx}"):
+                    ed_title = st.text_input("Event Name", value=p_ev.get("title", ""), key=f"ed_t_{p_idx}")
+                    ed_cat = st.selectbox("Category", ["Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"], index=["Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"].index(p_ev.get("category", "Race / Event")) if p_ev.get("category") in ["Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"] else 0, key=f"ed_c_{p_idx}")
+                    
+                    ec1, ec2 = st.columns(2)
+                    try:
+                        def_start = dt.date.fromisoformat(p_ev.get("start_date", dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")))
+                    except Exception:
+                        def_start = dt.datetime.now(LOCAL_TZ).date()
+                    try:
+                        def_end = dt.date.fromisoformat(p_ev.get("end_date", def_start.isoformat()))
+                    except Exception:
+                        def_end = def_start
+
+                    ed_start = ec1.date_input("Start Date", value=def_start, key=f"ed_sd_{p_idx}")
+                    ed_end = ec2.date_input("End Date", value=def_end, key=f"ed_ed_{p_idx}")
+                    ed_notes = st.text_area("Details", value=p_ev.get("notes", ""), key=f"ed_n_{p_idx}")
+
+                    col_u, col_d = st.columns(2)
+                    update_clicked = col_u.form_submit_button("💾 Update Event", use_container_width=True)
+                    delete_clicked = col_d.form_submit_button("🗑️ Delete Event", use_container_width=True)
+
+                    if update_clicked:
+                        st.session_state.protected_events[p_idx] = {
+                            "title": ed_title.strip() or f"[{ed_cat}]",
+                            "category": ed_cat,
+                            "start_date": ed_start.isoformat(),
+                            "end_date": ed_end.isoformat(),
+                            "notes": ed_notes
+                        }
+                        save_disk_store()
+                        st.success("Event updated successfully!")
+                        time.sleep(0.8)
+                        st.rerun()
+
+                    if delete_clicked:
+                        st.session_state.protected_events.pop(p_idx)
+                        save_disk_store()
+                        st.success("Event deleted successfully!")
+                        time.sleep(0.8)
+                        st.rerun()
+                st.divider()
 
     col_f1, col_f2 = st.columns(2)
     sport_filter = col_f1.selectbox("Filter Sport", ["All Sports", "Cycling", "Running", "Events & Trips"])
@@ -1161,11 +1221,22 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
     grouped_months = {}
     today_date = dt.datetime.now(LOCAL_TZ).date()
 
+    feed_by_date = {}
     for item in filtered_feed:
-        item_date = item["datetime"].date()
-        month_key = (item_date.year, item_date.month)
+        d_str = item["date_str"]
+        if d_str not in feed_by_date:
+            feed_by_date[d_str] = []
+        feed_by_date[d_str].append(item)
+
+    start_range = today_date - dt.timedelta(days=30)
+    end_range = today_date + dt.timedelta(days=60)
+
+    curr_loop_date = start_range
+    while curr_loop_date <= end_range:
+        date_str = curr_loop_date.isoformat()
+        month_key = (curr_loop_date.year, curr_loop_date.month)
         
-        start_of_week = item_date - dt.timedelta(days=item_date.weekday())
+        start_of_week = curr_loop_date - dt.timedelta(days=curr_loop_date.weekday())
         end_of_week = start_of_week + dt.timedelta(days=6)
         week_key = (start_of_week, end_of_week)
         
@@ -1174,18 +1245,10 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
         if week_key not in grouped_months[month_key]:
             grouped_months[month_key][week_key] = {}
             
-        date_str = item["date_str"]
         if date_str not in grouped_months[month_key][week_key]:
-            grouped_months[month_key][week_key][date_str] = []
-        grouped_months[month_key][week_key][date_str].append(item)
+            grouped_months[month_key][week_key][date_str] = feed_by_date.get(date_str, [])
 
-    for i in range(3):
-        target_m = today_date.month + i
-        target_y = today_date.year + (target_m - 1) // 12
-        target_m = ((target_m - 1) % 12) + 1
-        m_key = (target_y, target_m)
-        if m_key not in grouped_months:
-            grouped_months[m_key] = {}
+        curr_loop_date += dt.timedelta(days=1)
 
     declared_ftp = int(st.session_state.profile_data.get("declared_ftp", 180))
 
@@ -1208,39 +1271,50 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
         month_label = f"🗓️ {month_name_str}{month_tag} &nbsp;·&nbsp; {m_dur_summary} &nbsp;·&nbsp; {m_total_load} Load"
 
         with st.expander(month_label, expanded=(is_current_month or is_future_month)):
-            if not month_weeks:
-                st.info("📌 No workouts or events logged for this month yet.")
-            else:
-                for week_idx, ((w_start, w_end), days_dict) in enumerate(sorted(month_weeks.items(), key=lambda x: x[0][0], reverse=True)):
-                    week_all_items = [item for day_list in days_dict.values() for item in day_list]
-                    w_total_sec = sum(item["duration_sec"] for item in week_all_items)
-                    w_hours = w_total_sec / 3600.0
-                    w_h_part = int(w_hours)
-                    w_m_part = int((w_hours - w_h_part) * 60)
-                    w_dur_summary = f"{w_h_part}h {w_m_part}m" if w_h_part > 0 else f"{w_m_part}m"
-                    w_total_load = int(sum(item["load"] for item in week_all_items))
+            for week_idx, ((w_start, w_end), days_dict) in enumerate(sorted(month_weeks.items(), key=lambda x: x[0][0], reverse=True)):
+                week_all_items = [item for day_list in days_dict.values() for item in day_list]
+                w_total_sec = sum(item["duration_sec"] for item in week_all_items)
+                w_hours = w_total_sec / 3600.0
+                w_h_part = int(w_hours)
+                w_m_part = int((w_hours - w_h_part) * 60)
+                w_dur_summary = f"{w_h_part}h {w_m_part}m" if w_h_part > 0 else f"{w_m_part}m"
+                w_total_load = int(sum(item["load"] for item in week_all_items))
 
-                    is_current_week = (w_start <= today_date <= w_end)
-                    week_tag = " [CURRENT WEEK]" if is_current_week else (" [FUTURE]" if w_start > today_date else " [PAST]")
-                    week_label = f"📅 Week {w_start.strftime('%b %d')} - {w_end.strftime('%b %d')}{week_tag} &nbsp;·&nbsp; {w_dur_summary} &nbsp;·&nbsp; {w_total_load} Load"
+                is_current_week = (w_start <= today_date <= w_end)
+                week_tag = " [CURRENT WEEK]" if is_current_week else (" [FUTURE]" if w_start > today_date else " [PAST]")
+                week_label = f"📅 Week {w_start.strftime('%b %d')} - {w_end.strftime('%b %d')}{week_tag} &nbsp;·&nbsp; {w_dur_summary} &nbsp;·&nbsp; {w_total_load} Load"
 
-                    with st.expander(week_label, expanded=is_current_week):
-                        for date_str, day_items in sorted(days_dict.items(), reverse=True):
-                            dt_obj = day_items[0]["datetime"]
-                            day_name = dt_obj.strftime("%a")
-                            day_num = dt_obj.strftime("%d")
+                with st.expander(week_label, expanded=is_current_week):
+                    for date_str, day_items in sorted(days_dict.items(), reverse=True):
+                        dt_obj = dt.date.fromisoformat(date_str)
+                        day_name = dt_obj.strftime("%a")
+                        day_num = dt_obj.strftime("%d")
 
-                            col_date, col_card = st.columns([1, 11])
-                            
-                            with col_date:
+                        col_date, col_card = st.columns([1, 11])
+                        
+                        with col_date:
+                            st.markdown(f"""
+                            <div class="date-badge-col">
+                                <div class="date-day-name">{day_name}</div>
+                                <div class="date-day-number">{day_num}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                        with col_card:
+                            if not day_items:
+                                is_past_rest = dt_obj < today_date
+                                rest_opacity = "0.65" if is_past_rest else "1.0"
                                 st.markdown(f"""
-                                <div class="date-badge-col">
-                                    <div class="date-day-name">{day_name}</div>
-                                    <div class="date-day-number">{day_num}</div>
+                                <div style="background:{BG_CARD}; border:1px solid {BORDER_SUBTLE}; border-radius:12px; padding:10px 16px; margin-bottom:10px; opacity: {rest_opacity};">
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <span>🛋️</span>
+                                        <div>
+                                            <p style="margin:0; font-weight:600; color:{TEXT_MUTED}; font-size:0.95rem;">Rest Day / Nothing Logged</p>
+                                        </div>
+                                    </div>
                                 </div>
                                 """, unsafe_allow_html=True)
-
-                            with col_card:
+                            else:
                                 for item_idx, item in enumerate(day_items):
                                     item_date = item["datetime"].date()
                                     is_past = item_date < today_date
@@ -1272,60 +1346,61 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                             third_val = "--"
 
                                     load_val = str(int(item["load"]))
-                                    card_opacity = "0.55" if is_past_incomplete else "1.0"
-                                    card_border = "#F59E0B" if is_event else ("#21262D" if is_past_incomplete else BORDER_SUBTLE)
                                     status_label = "Trip / Event" if is_event else ("Incomplete" if is_past_incomplete else item['status'])
                                     status_color = "#F59E0B" if is_event else (TEXT_MUTED if is_past_incomplete else ("#10B981" if item['status'] == "Completed" else "#3B82F6"))
 
-                                    st.markdown(f"""
-                                    <div class="activity-card-body" style="opacity: {card_opacity}; border-color: {card_border};">
-                                        <div class="card-header-row">
-                                            <span class="sport-icon">{sport_icon}</span>
-                                            <div>
-                                                <p class="sport-title">{item['name']} <span style="font-size:0.75rem; color:{status_color};">({status_label})</span></p>
-                                                <p class="device-subtitle">{item['device']}</p>
-                                            </div>
-                                        </div>
-                                    """, unsafe_allow_html=True)
+                                    # Minimised Collapsible Card Header
+                                    expander_title = f"{sport_icon} &nbsp; **{item['name']}** &nbsp;·&nbsp; <span style='color:{status_color}; font-size:0.82rem;'>({status_label})</span> &nbsp;·&nbsp; <span style='color:{TEXT_MUTED}; font-size:0.82rem;'>{dur_str if not is_event else 'All Day'}</span>"
+                                    
+                                    with st.expander(expander_title, expanded=False):
+                                        st.markdown(f"<p style='margin:0 0 6px 0; font-size:0.85rem; color:{TEXT_MUTED};'><strong>Device/Source:</strong> {item['device']}</p>", unsafe_allow_html=True)
+                                        
+                                        raw_desc = item.get("raw", {}).get("description", "") or item.get("raw", {}).get("workout_doc", "")
+                                        workout_details = parse_workout_steps_detailed(raw_desc, declared_ftp)
 
-                                    raw_desc = item.get("raw", {}).get("description", "") or item.get("raw", {}).get("workout_doc", "")
-                                    workout_details = parse_workout_steps_detailed(raw_desc, declared_ftp)
+                                        c_m1, c_m2 = st.columns([3, 1])
+                                        with c_m1:
+                                            st.markdown(f"""
+                                            <div class="metrics-flex-group">
+                                                <div class="metric-box">
+                                                    <span class="metric-box-label">Duration</span>
+                                                    <span class="metric-box-val">{dur_str if not is_event else 'All Day'}</span>
+                                                </div>
+                                                <div class="metric-box">
+                                                    <span class="metric-box-label">Distance</span>
+                                                    <span class="metric-box-val">{dist_km if not is_event else '--'}</span>
+                                                </div>
+                                                <div class="metric-box">
+                                                    <span class="metric-box-label">{third_label}</span>
+                                                    <span class="metric-box-val">{third_val}</span>
+                                                </div>
+                                                <div class="metric-box">
+                                                    <span class="metric-box-label">Load</span>
+                                                    <span class="metric-box-val">{load_val}</span>
+                                                </div>
+                                            </div>
+                                            """, unsafe_allow_html=True)
 
-                                    c_m1, c_m2 = st.columns([3, 1])
-                                    with c_m1:
-                                        st.markdown(f"""
-                                        <div class="metrics-flex-group">
-                                            <div class="metric-box">
-                                                <span class="metric-box-label">Duration</span>
-                                                <span class="metric-box-val">{dur_str if not is_event else 'All Day'}</span>
-                                            </div>
-                                            <div class="metric-box">
-                                                <span class="metric-box-label">Distance</span>
-                                                <span class="metric-box-val">{dist_km if not is_event else '--'}</span>
-                                            </div>
-                                            <div class="metric-box">
-                                                <span class="metric-box-label">{third_label}</span>
-                                                <span class="metric-box-val">{third_val}</span>
-                                            </div>
-                                            <div class="metric-box">
-                                                <span class="metric-box-label">Load</span>
-                                                <span class="metric-box-val">{load_val}</span>
-                                            </div>
-                                        </div>
-                                        """, unsafe_allow_html=True)
+                                        with c_m2:
+                                            button_unique_key = f"rev_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"
+                                            if st.button("💬 Review & Inspect", key=button_unique_key, type="secondary"):
+                                                st.session_state.pending_coach_prompt = (
+                                                    f"Please run a deep activity inspection on my {item['name']} session "
+                                                    f"from {item['date_str']} (Distance: {dist_km}, Duration: {dur_str}, "
+                                                    f"Power/Pace: {third_val}, Load: {load_val}). Analyze efficiency, zones, and recovery needs."
+                                                )
+                                                st.session_state.active_nav = NAV_OPTIONS[1]
+                                                st.rerun()
 
-                                    with c_m2:
-                                        button_unique_key = f"rev_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"
-                                        if st.button("💬 Review & Inspect", key=button_unique_key, type="secondary"):
-                                            st.session_state.pending_coach_prompt = (
-                                                f"Please run a deep activity inspection on my {item['name']} session "
-                                                f"from {item['date_str']} (Distance: {dist_km}, Duration: {dur_str}, "
-                                                f"Power/Pace: {third_val}, Load: {load_val}). Analyze efficiency, zones, and recovery needs."
-                                            )
-                                            st.session_state.active_nav = NAV_OPTIONS[1]
-                                            st.rerun()
+                                        if workout_details["steps"]:
+                                            st.markdown("---")
+                                            st.markdown("###### 📋 Structured Workout Steps")
+                                            for step_line in workout_details["steps"]:
+                                                st.markdown(step_line)
 
-                                    st.markdown("</div>", unsafe_allow_html=True)
+                                        if raw_desc and not workout_details["steps"]:
+                                            st.markdown("---")
+                                            st.markdown(f"**Notes:** {raw_desc}")
 
 # VIEW 4: ATHLETE PROFILE & MEMORY
 elif st.session_state.active_nav == NAV_OPTIONS[3]:
