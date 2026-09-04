@@ -8,7 +8,6 @@ import math
 import os
 import re
 import time
-import xml.etree.ElementTree as ET
 from typing import Dict, List, Any, Optional, Tuple
 from zoneinfo import ZoneInfo
 
@@ -269,56 +268,6 @@ div[data-testid="stMetric"] [data-testid="stMetricDelta"] {{ font-size: 0.72rem 
 }}
 </style>
 """, unsafe_allow_html=True)
-
-# --- ZWO EXPORTER HELPER FOR MYWHOOSH & INTERVALS.ICU ---
-def html_escape(text: str) -> str:
-    return (str(text).replace("&", "&amp;")
-                     .replace("<", "&lt;")
-                     .replace(">", "&gt;")
-                     .replace('"', "&quot;")
-                     .replace("'", "&apos;"))
-
-def generate_zwo_xml(workout_item: Dict[str, Any], athlete_name: str = "Athlete") -> str:
-    title = workout_item.get("title") or workout_item.get("name", "Structured Workout")
-    desc = workout_item.get("description", "Generated via AI Performance Coach")
-    
-    xml_lines = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<workout_file>',
-        f'  <author>{html_escape(athlete_name)}</author>',
-        f'  <name>{html_escape(title)}</name>',
-        f'  <description>{html_escape(desc)}</description>',
-        '  <sportType>bike</sportType>',
-        '  <workout>'
-    ]
-    
-    desc_lines = desc.split("\n")
-    for line in desc_lines:
-        l_clean = line.strip()
-        if "warmup" in l_clean.lower():
-            xml_lines.append('    <Warmup Duration="600" PowerLow="0.50" PowerHigh="0.70">')
-            xml_lines.append('      <textevent timeoffset="0" message="Warmup: Ease into cadence."/>')
-            xml_lines.append('    </Warmup>')
-        elif "cooldown" in l_clean.lower():
-            xml_lines.append('    <Cooldown Duration="600" PowerLow="0.70" PowerHigh="0.50">')
-            xml_lines.append('      <textevent timeoffset="0" message="Cooldown: Flush the legs."/>')
-            xml_lines.append('    </Cooldown>')
-        elif re.search(r"^(\d+)x$", l_clean, re.IGNORECASE):
-            pass 
-        else:
-            step_m = re.search(r"^(?:-\s*)?(\d+)(m|s|h)?\s+([0-9]+)(?:-[0-9]+)?%?\s*(.*)$", l_clean, re.IGNORECASE)
-            if step_m:
-                dur_val = float(step_m.group(1))
-                unit = (step_m.group(2) or "m").lower()
-                pct_ftp = float(step_m.group(3)) / 100.0
-                dur_sec = int(dur_val * 60.0 if unit == "m" else (dur_val * 3600.0 if unit == "h" else dur_val))
-                xml_lines.append(f'    <SteadyState Duration="{dur_sec}" Power="{pct_ftp:.2f}"/>')
-
-    xml_lines.extend([
-        '  </workout>',
-        '</workout_file>'
-    ])
-    return "\n".join(xml_lines)
 
 # --- CREDENTIAL RESOLUTION ---
 def get_resolved_credentials() -> Tuple[str, str, str, str]:
@@ -855,8 +804,7 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
     return sorted(all_items, key=lambda x: x["datetime"], reverse=True)
 
 def clean_chat_content(text: str) -> str:
-    cleaned = re.sub(r"```xml\s*<\?xml.*?</workout_file>\s*```", "", text or "", flags=re.S | re.I)
-    cleaned = re.sub(r"```(?:json:workouts|json)\s*\[.*?\]\s*```", "", cleaned, flags=re.S | re.I)
+    cleaned = re.sub(r"```(?:json:workouts|json)\s*\[.*?\]\s*```", "", text or "", flags=re.S | re.I)
     cleaned = re.sub(r"<icu_weekly_plan>.*?</icu_weekly_plan>", "", cleaned, flags=re.S | re.I)
     cleaned = re.sub(r"<icu_workout>.*?</icu_workout>", "", cleaned, flags=re.S | re.I)
     return cleaned.strip()
@@ -978,26 +926,26 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
         f"Supplements & Fueling: {supplements_str}\n"
         f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n"
         f"{gpx_injection}\n\n"
-        "CRITICAL INTERVALS.ICU WORKOUT SYNTAX FOR MYWHOOSH (INDOOR CYCLING) AND GARMIN (RUNNING):\n"
-        "To ensure workouts parse correctly into structured step graphs on Intervals.icu:\n"
-        "1. Section headers (Warmup, Main Set, Cooldown) must be on their own separate lines.\n"
-        "2. Repeat blocks must use native syntax where multiplier is declared followed by steps starting with '-'.\n"
-        "MANDATORY: IF PRESCRIBING WORKOUTS FOR CALENDAR SYNC, ALWAYS INCLUDE A VALID JSON ARRAY inside <icu_weekly_plan> tags like this:\n"
-        "<icu_weekly_plan>\n"
-        "[\n"
-        "  {\n"
-        f"    \"name\": \"MyWhoosh Threshold Intervals\",\n"
-        f"    \"type\": \"Ride\",\n"
-        f"    \"date\": \"{next_monday_str}\",\n"
-        f"    \"description\": \"Warmup\\n- 10m 50%\\n- 5m 70%\\n\\nMain Set 4x\\n- 5m 100%\\n- 3m 50%\\n\\nCooldown\\n- 10m 50%\"\n"
-        "  }\n"
-        "]\n"
-        "</icu_weekly_plan>"
+        "CRITICAL INTERVALS.ICU & MYWHOOSH STRUCTURED WORKOUT SYNTAX:\n"
+        "When writing structured workout descriptions for indoor cycling (MyWhoosh) and running to ensure Intervals.icu parses them accurately into step graphs, you MUST adhere strictly to this format:\n"
+        "- Use exact duration units: 'm' for minutes, 's' for seconds, 'h' for hours (e.g., 10m, 30s).\n"
+        "- Use percentage of FTP or target zone directly next to the duration (e.g., 50% or 50-75%).\n"
+        "- For intervals, declare the repetition count on its own line followed by 'x' (e.g., 4x), with each step inside the set starting with a hyphen '-' and indented or listed on successive lines.\n"
+        "- Example Workout Description:\n"
+        "Warmup\n"
+        "- 10m 50%\n"
+        "- 5m 70%\n\n"
+        "Main Set 4x\n"
+        "- 5m 100%\n"
+        "- 3m 50%\n\n"
+        "Cooldown\n"
+        "- 10m 50%\n\n"
+        "MANDATORY: IF PRESCRIBING WORKOUTS FOR CALENDAR SYNC, ALWAYS INCLUDE A VALID JSON ARRAY inside <icu_weekly_plan> tags matching this exact structure."
     )
 
     contents = [
         {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
-        {"role": "model", "parts": [{"text": "Understood. I will include the <icu_weekly_plan> JSON block whenever prescribing workouts so they can be synced directly to Intervals.icu, and I am ready to analyze uploaded GPX route files."}]}
+        {"role": "model", "parts": [{"text": "Understood. I will format all indoor workout descriptions using strict Intervals.icu/MyWhoosh-compatible syntax and include the <icu_weekly_plan> JSON block whenever prescribing workouts."}]}
     ]
 
     for m in st.session_state.messages[-15:]:
@@ -1231,21 +1179,10 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                 proposed_workouts = extract_json_workouts(msg["content"])
                 if proposed_workouts:
                     st.markdown("---")
-                    st.markdown(f"###### 📋 Plan Approved! Ready for Calendar Sync & MyWhoosh ({len(proposed_workouts)} Workout{'s' if len(proposed_workouts)>1 else ''})")
+                    st.markdown(f"###### 📋 Plan Approved! Ready for Calendar Sync ({len(proposed_workouts)} Workout{'s' if len(proposed_workouts)>1 else ''})")
                     
-                    for w_idx, w_item in enumerate(proposed_workouts):
-                        w_name = w_item.get('title', w_item.get('name', 'Workout'))
-                        st.caption(f"📅 **{w_item.get('date', w_item.get('start_date_local', ''))}** | {w_item.get('type', 'Ride')} — **{w_name}**")
-                        
-                        # ZWO File Download for MyWhoosh / Zwift
-                        zwo_content = generate_zwo_xml(w_item, st.session_state.profile_data.get("name", "Athlete"))
-                        st.download_button(
-                            label=f"📥 Download .zwo File for MyWhoosh ({w_name})",
-                            data=zwo_content,
-                            file_name=f"{w_name.replace(' ', '_')}.zwo",
-                            mime="application/xml",
-                            key=f"dl_zwo_{idx}_{w_idx}"
-                        )
+                    for w_item in proposed_workouts:
+                        st.caption(f"📅 **{w_item.get('date', w_item.get('start_date_local', ''))}** | {w_item.get('type', 'Ride')} — **{w_item.get('title', w_item.get('name', 'Workout'))}**")
 
                     btn_key = f"approve_sync_{idx}"
                     if st.button("🚀 Sync Bulk Workouts Directly to Intervals.icu Calendar", key=btn_key, type="primary", use_container_width=True):
