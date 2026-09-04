@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Intervals.icu Sleep/HRV & Logic Fixed)
+"""AI Performance Coach • Elite Multi-User Suite (Calendar Event & Local State Fixes)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -264,7 +264,7 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
 
     return "", "", st.session_state.profile_data.get("name", ""), "Unauthenticated"
 
-# --- BULLETPROOF DATA SCIENTIST WELLNESS & METRICS ENGINE (SLEEP/HRV/CTL/ATL/TSB) ---
+# --- BULLETPROOF WELLNESS & METRICS ENGINE (SLEEP/HRV/CTL/ATL/TSB) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
     if not athlete_id or not api_key:
@@ -304,7 +304,6 @@ def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dic
         
         date_str = str(rec_date)[:10]
         
-        # Comprehensive aliasing across all webhook providers (Garmin, Oura, Whoop, Apple Health)
         ctl_val = float(rec.get("ctl") or rec.get("CTL") or rec.get("Fitness") or rec.get("fitness") or 0.0)
         atl_val = float(rec.get("atl") or rec.get("ATL") or rec.get("Fatigue") or rec.get("fatigue") or 0.0)
         
@@ -338,10 +337,7 @@ def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dic
     return normalized_wellness, results.get("activities", []), results.get("events", []), "Connected to Intervals.icu"
 
 def get_latest_valid_wellness(wellness_list: List[Dict[str, Any]]) -> Dict[str, float]:
-    """Scans backward from today's date to find the most recent fully populated wellness record."""
     today_str = dt.datetime.now(LOCAL_TZ).date().isoformat()
-    
-    # Filter out future dates
     past_records = [w for w in wellness_list if w.get("date", "") <= today_str]
     if not past_records:
         past_records = wellness_list
@@ -349,12 +345,10 @@ def get_latest_valid_wellness(wellness_list: List[Dict[str, Any]]) -> Dict[str, 
     if not past_records:
         return {"ctl": 0.0, "atl": 0.0, "tsb": 0.0, "sleepScore": 0.0, "hrv": 0.0, "restingHR": 0.0}
 
-    # Scan backward from the end of past records to find the first entry with valid data
     for rec in reversed(past_records):
         if rec.get("sleepScore", 0) > 0 or rec.get("hrv", 0) > 0 or rec.get("ctl", 0) > 0:
             return rec
 
-    # Fallback to absolute latest
     return past_records[-1]
 
 # --- ADVANCED WORKOUT DETAILS PARSER ENGINE ---
@@ -540,7 +534,7 @@ def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 9000) -
     error_summary = " | ".join(errors[-3:]) if errors else "No API keys configured or all models rejected request."
     raise RuntimeError(f"AI Coach Communication Error. Details: {error_summary}")
 
-def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Dict[str, Any]], protected_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     items = []
     for act in activities:
         raw_dt = str(act.get("start_date_local") or act.get("start_date") or "")
@@ -600,6 +594,31 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
                 "load": float(ev.get("icu_training_load") or 0),
                 "raw": ev
             })
+
+    # Merge locally logged protected/travel/sickness events so they appear immediately in app calendar
+    for idx, p_ev in enumerate(protected_events):
+        raw_dt = str(p_ev.get("start_date") or dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d"))
+        try:
+            dt_obj = dt.datetime.fromisoformat(raw_dt[:10] + "T08:00:00")
+        except Exception:
+            continue
+        items.append({
+            "id": f"prot_{idx}_{raw_dt}",
+            "date_str": dt_obj.strftime("%Y-%m-%d"),
+            "datetime": dt_obj,
+            "status": "Event / Trip",
+            "type": p_ev.get("category", "Event / Trip"),
+            "name": p_ev.get("title", "Event / Sickness / Travel"),
+            "sport_title": p_ev.get("category", "Event / Trip"),
+            "device": p_ev.get("notes") or "Logged in App",
+            "duration_sec": 0.0,
+            "distance_m": 0.0,
+            "power_w": None,
+            "hr_bpm": None,
+            "pace_str": None,
+            "load": 0.0,
+            "raw": p_ev
+        })
 
     return sorted(items, key=lambda x: x["datetime"], reverse=True)
 
@@ -1079,43 +1098,49 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
 elif st.session_state.active_nav == NAV_OPTIONS[2]:
     st.markdown("##### 📅 Multi-Sport Training Calendar & Life Event Planner")
 
-    with st.expander("📝 Log Sickness, Travel, or Unavailability", expanded=False):
+    with st.expander("📝 Log Race, Event, Travel, or Sickness", expanded=False):
         with st.form("sickness_travel_form"):
-            status_type = st.selectbox("Category", ["Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"])
+            status_type = st.selectbox("Category", ["Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"])
+            event_title_input = st.text_input("Event / Race / Trip Name", placeholder="e.g., Bintan Triathlon / Tokyo Trip / Flu Recovery")
             c_d1, c_d2 = st.columns(2)
             start_d = c_d1.date_input("Start Date", value=dt.datetime.now(LOCAL_TZ).date())
             end_d = c_d2.date_input("End Date", value=dt.datetime.now(LOCAL_TZ).date())
-            status_notes = st.text_area("Details / Coach Instructions", placeholder="e.g., Fever and flu, resting for 3 days.")
+            status_notes = st.text_area("Details / Coach Instructions", placeholder="e.g., Racing or recovering away from home.")
             
-            if st.form_submit_button("Post Status to Intervals.icu", use_container_width=True):
+            if st.form_submit_button("Log Event to App & Intervals.icu", use_container_width=True):
+                final_title = event_title_input.strip() or f"[{status_type}]"
                 payload = {
                     "category": "NOTE",
                     "start_date_local": start_d.isoformat() + "T00:00:00",
                     "end_date_local": end_d.isoformat() + "T00:00:00",
-                    "name": f"[{status_type}]",
+                    "name": final_title,
                     "description": status_notes or status_type
                 }
                 res = requests.post(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events", json=payload, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+                
+                # Always save locally so it appears instantly in the app calendar feed
+                st.session_state.protected_events.append({
+                    "title": final_title,
+                    "category": status_type,
+                    "start_date": start_d.isoformat(),
+                    "end_date": end_d.isoformat(),
+                    "notes": status_notes
+                })
+                save_disk_store()
+
                 if res.status_code in [200, 201]:
-                    st.success("Successfully posted status/unavailability to Intervals.icu calendar!")
-                    st.session_state.protected_events.append({
-                        "title": f"[{status_type}]",
-                        "category": status_type,
-                        "start_date": start_d.isoformat(),
-                        "end_date": end_d.isoformat(),
-                        "notes": status_notes
-                    })
-                    save_disk_store()
-                    time.sleep(1)
-                    st.rerun()
+                    st.success(f"Successfully logged '{final_title}' to app calendar & Intervals.icu!")
                 else:
-                    st.error(f"Failed to post: {res.text}")
+                    st.warning(f"Saved locally to app calendar, but Intervals.icu sync returned HTTP {res.status_code}: {res.text[:150]}")
+                
+                time.sleep(1)
+                st.rerun()
 
     col_f1, col_f2 = st.columns(2)
     sport_filter = col_f1.selectbox("Filter Sport", ["All Sports", "Cycling", "Running", "Events & Trips"])
     status_filter = col_f2.selectbox("Filter Status", ["All Sessions", "Completed", "Planned", "Event / Trip"])
 
-    raw_feed = get_unified_calendar_items(activities_data, planned_events)
+    raw_feed = get_unified_calendar_items(activities_data, planned_events, st.session_state.get("protected_events", []))
 
     filtered_feed = []
     for item in raw_feed:
@@ -1225,7 +1250,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
 
                                     act_type = item["type"]
                                     is_run = "Run" in act_type
-                                    sport_icon = "✈️" if is_event else ("🏃" if is_run else "🚴‍♂️")
+                                    sport_icon = "🏁" if is_event and ("Race" in item.get("sport_title", "") or "Race" in item.get("name", "")) else ("✈️" if is_event else ("🏃" if is_run else "🚴‍♂️"))
                                     
                                     duration_m = round(item["duration_sec"] / 60.0)
                                     dur_str = f"{duration_m}m" if duration_m < 60 else f"{duration_m//60}h {duration_m%60}m"
