@@ -815,16 +815,20 @@ def clean_chat_content(text: str) -> str:
     return cleaned.strip()
 
 def extract_json_workouts(text: str) -> List[Dict[str, Any]]:
-    plan_match = re.search(r"<icu_weekly_plan>\s*(\[.*?\])\s*</icu_weekly_plan>", text, re.S | re.I)
+    if not text:
+        return []
+        
+    cleaned_text = re.sub(r"```(?:json|json:workouts)?\s*", "", text, flags=re.I)
+    cleaned_text = cleaned_text.replace("```", "")
+
+    plan_match = re.search(r"<icu_weekly_plan>\s*(\[.*?\])\s*</icu_weekly_plan>", cleaned_text, re.S | re.I)
     if plan_match:
         try:
             return json.loads(plan_match.group(1).strip())
         except Exception:
             pass
 
-    match = re.search(r"```(?:json:workouts|json)\s*(\[.*?\])\s*```", text, re.S | re.I)
-    if not match:
-        match = re.search(r"(\[\s*\{\s*\"date\".*?\}\s*\])", text, re.S)
+    match = re.search(r"(\[\s*\{\s*\"date\".*?\}\s*\])", cleaned_text, re.S)
     if match:
         json_str = match.group(1).strip()
         try:
@@ -847,9 +851,16 @@ def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: st
         raw_date = str(item.get("date") or item.get("start_date_local") or dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")).strip()
         start_local = f"{raw_date}T08:00:00" if "T" not in raw_date else raw_date
 
+        raw_type = item.get("type", "Ride")
+        title_lower = str(item.get("title", "")).lower() + str(item.get("name", "")).lower()
+        if "gym" in title_lower or "strength" in title_lower or "weight" in title_lower or raw_type.lower() in ["weighttraining", "gym"]:
+            mapped_type = "WeightTraining"
+        else:
+            mapped_type = raw_type
+
         events_to_post.append({
             "category": "WORKOUT",
-            "type": item.get("type", "Ride"),
+            "type": mapped_type,
             "name": item.get("title") or item.get("name", "Planned Session"),
             "description": str(item.get("description", "")).replace("\\n", "\n"),
             "start_date_local": start_local
@@ -916,9 +927,9 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
         gpx_injection = f"\n\n📂 ATTACHED GPX ROUTE DATA FOR ANALYSIS:\n{gpx_content[:15000]}\n(Analyze route elevation profile, climbs, descents, and provide precise pacing, gear strategy, and nutrition timing relative to FTP.)"
 
     system_instructions = (
-        f"You are an elite multi-sport (cycling and running) coach with full calendar integration and GPX route analysis capabilities.\n"
+        f"You are an elite multi-sport (cycling, running, and strength) coach with full calendar integration and GPX route analysis capabilities.\n"
         f"Persona: {st.session_state.coach_persona}\n"
-        f"Athlete: {st.session_state.profile_data.get('name', 'Athlete')} | Discipline Focus: Cycling & Running\n"
+        f"Athlete: {st.session_state.profile_data.get('name', 'Athlete')} | Discipline Focus: Cycling, Running & Gym\n"
         f"Today: {today_str} | Next Monday: {next_monday_str}\n"
         f"Goal: {st.session_state.profile_data['goals']['target_metric']} ({st.session_state.profile_data['goals']['event_name']} on {st.session_state.profile_data['goals']['race_date']})\n"
         f"Current Periodization Phase: {periodization_phase} ({weeks_to_race} weeks to event)\n"
@@ -927,15 +938,19 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
         f"Supplements & Fueling: {supplements_str}\n"
         f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n"
         f"{gpx_injection}\n\n"
-        "CRITICAL INTERVALS.ICU WORKOUT SYNTAX FOR MYWHOOSH (INDOOR CYCLING) AND GARMIN (RUNNING):\n"
-        "To ensure workouts parse correctly into structured step graphs on Intervals.icu:\n"
-        "1. Section headers (Warmup, Main Set, Cooldown) must be on their own separate lines.\n"
-        "2. Repeat blocks must use native syntax where multiplier is declared followed by steps starting with '-'.\n"
-        "MANDATORY: IF PRESCRIBING WORKOUTS FOR CALENDAR SYNC, ALWAYS INCLUDE A VALID JSON ARRAY inside <icu_weekly_plan> tags like this:\n"
+        "STRICT INTERVALS.ICU WORKOUT SYNTAX RULES:\n"
+        "When prescribing structured workouts inside <icu_weekly_plan>, follow these syntax constraints exactly:\n"
+        "1. **Activity Type**: Use exact types (`Ride`, `Run`, `WeightTraining`). Gym sessions MUST use `WeightTraining`.\n"
+        "2. **Description Format**: Inside the `description` string, use literal newline characters (`\\n`) with:\n"
+        "   - Distinct section headers on their own lines (`Warmup`, `Main Set`, `Cooldown`).\n"
+        "   - Repeat blocks declared with clean multipliers (e.g., `4x`) followed by indented step rows starting with `-`.\n"
+        "   - Specific target percentages of FTP/Threshold (e.g., `- 5m 100%` or `- 3m 50%`).\n"
+        "3. **DO NOT wrap the JSON inside markdown code blocks** (` ``` `) within the XML tags; output raw JSON directly inside `<icu_weekly_plan>`. \n\n"
+        "MANDATORY JSON FORMAT EXAMPLE:\n"
         "<icu_weekly_plan>\n"
         "[\n"
         "  {\n"
-        f"    \"name\": \"MyWhoosh Threshold Intervals\",\n"
+        f"    \"name\": \"Threshold Intervals\",\n"
         f"    \"type\": \"Ride\",\n"
         f"    \"date\": \"{next_monday_str}\",\n"
         f"    \"description\": \"Warmup\\n- 10m 50%\\n- 5m 70%\\n\\nMain Set 4x\\n- 5m 100%\\n- 3m 50%\\n\\nCooldown\\n- 10m 50%\"\n"
@@ -1268,13 +1283,13 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
 
                 payload = {
                     "category": cat_tag,
-                    "type": "WeightTraining" if "Workout" in status_type else "Note",
+                    "type": "WeightTraining" if ("Workout" in status_type or "Gym" in status_type or "Strength" in status_type) else "Note",
                     "start_date_local": start_d.isoformat() + "T08:00:00",
                     "end_date_local": corrected_end_d.isoformat() + "T08:00:00",
                     "name": final_title,
                     "description": status_notes or status_type
                 }
-                res = requests.post(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events", json=payload, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+                res = requests.post(f"[https://intervals.icu/api/v1/athlete/](https://intervals.icu/api/v1/athlete/){ATHLETE_ID}/events", json=payload, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
                 
                 if cat_tag == "NOTE":
                     st.session_state.protected_events.append({
@@ -1521,7 +1536,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                                         "icu_training_load": item["raw"].get("icu_training_load") or 50,
                                                         "description": raw_desc
                                                     }
-                                                    post_res = requests.post(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/activities", json=act_payload, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+                                                    post_res = requests.post(f"[https://intervals.icu/api/v1/athlete/](https://intervals.icu/api/v1/athlete/){ATHLETE_ID}/activities", json=act_payload, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
                                                     if post_res.status_code in [200, 201]:
                                                         st.toast("Workout marked completed and synced to Intervals.icu!", icon="✅")
                                                         time.sleep(0.8)
@@ -1534,7 +1549,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                             del_btn_key = f"del_planned_{item['id']}_{date_str}_{week_idx}_{item_idx}"
                                             if col_act_del.button("🗑️ Delete Workout", key=del_btn_key, type="secondary"):
                                                 try:
-                                                    del_res = requests.delete(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events/{raw_id_str}", auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+                                                    del_res = requests.delete(f"[https://intervals.icu/api/v1/athlete/](https://intervals.icu/api/v1/athlete/){ATHLETE_ID}/events/{raw_id_str}", auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
                                                     if del_res.status_code in [200, 204]:
                                                         st.toast("Workout deleted from Intervals.icu!", icon="🗑️")
                                                         time.sleep(0.8)
