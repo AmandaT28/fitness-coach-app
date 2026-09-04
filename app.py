@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Collapsible Workout Cards & Calendar Improvements)
+"""AI Performance Coach • Elite Multi-User Suite (Integrated GPX Chat Coaching, Collapsible Cards, Multi-Day Events, & Clean Navigation)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -69,12 +69,12 @@ GEMINI_KEYS = [
 AI_TIMEOUT = 60
 INTERVALS_TIMEOUT = 15
 
+# Updated Navigation (Route Strategist Removed)
 NAV_OPTIONS = [
     "☀️ Command Center",
     "🤖 AI Coach & Sparring",
     "📅 Training Calendar",
-    "👤 Athlete Profile & Memory",
-    "🗺️ Route Strategist"
+    "👤 Athlete Profile & Memory"
 ]
 
 PERSONA_OPTIONS = [
@@ -694,7 +694,7 @@ def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: st
     except Exception as e:
         return False, f"Connection error during sync: {str(e)}"
 
-def build_gemini_payload(current_question, wellness_list):
+def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[str] = None):
     today = dt.datetime.now(LOCAL_TZ).date()
     next_monday = today + dt.timedelta(days=(0 - today.weekday()) % 7)
     if next_monday == today: next_monday += dt.timedelta(days=7)
@@ -739,8 +739,12 @@ def build_gemini_payload(current_question, wellness_list):
     memory_ctx = st.session_state.get('coach_memory') or 'No long-term memory logged yet.'
     supplements_str = json.dumps(st.session_state.user_supplements, ensure_ascii=False) if st.session_state.user_supplements else 'N/A'
 
+    gpx_injection = ""
+    if gpx_content:
+        gpx_injection = f"\n\n📂 ATTACHED GPX ROUTE DATA FOR ANALYSIS:\n{gpx_content[:15000]}\n(Analyze route elevation profile, climbs, descents, and provide precise pacing, gear strategy, and nutrition timing relative to FTP.)"
+
     system_instructions = (
-        f"You are an elite multi-sport (cycling and running) coach with full calendar integration.\n"
+        f"You are an elite multi-sport (cycling and running) coach with full calendar integration and GPX route analysis capabilities.\n"
         f"Persona: {st.session_state.coach_persona}\n"
         f"Athlete: {st.session_state.profile_data.get('name', 'Athlete')} | Discipline Focus: Cycling & Running\n"
         f"Today: {today_str} | Next Monday: {next_monday_str}\n"
@@ -749,7 +753,8 @@ def build_gemini_payload(current_question, wellness_list):
         f"{gatekeeper_directive}\n"
         f"LONG-TERM COACHING MEMORY & ATHLETE PROFILE:\n{memory_ctx}\n\n"
         f"Supplements & Fueling: {supplements_str}\n"
-        f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n\n"
+        f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n"
+        f"{gpx_injection}\n\n"
         "CRITICAL INTERVALS.ICU WORKOUT SYNTAX FOR MYWHOOSH (INDOOR CYCLING) AND GARMIN (RUNNING):\n"
         "To ensure workouts parse correctly into structured step graphs on Intervals.icu:\n"
         "1. Section headers (Warmup, Main Set, Cooldown) must be on their own separate lines.\n"
@@ -769,7 +774,7 @@ def build_gemini_payload(current_question, wellness_list):
 
     contents = [
         {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
-        {"role": "model", "parts": [{"text": "Understood. I will include the <icu_weekly_plan> JSON block whenever prescribing workouts so they can be synced directly to Intervals.icu."}]}
+        {"role": "model", "parts": [{"text": "Understood. I will include the <icu_weekly_plan> JSON block whenever prescribing workouts so they can be synced directly to Intervals.icu, and I am ready to analyze uploaded GPX route files."}]}
     ]
 
     for m in st.session_state.messages[-15:]:
@@ -1031,9 +1036,20 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
                     st.session_state.active_nav = NAV_OPTIONS[1]
                     st.rerun()
 
-# VIEW 2: AI COACH CHAT
+# VIEW 2: AI COACH CHAT (WITH INTEGRATED GPX UPLOADER)
 elif st.session_state.active_nav == NAV_OPTIONS[1]:
     st.markdown(f"##### 🤖 AI Multi-Sport Coach <span style='font-size:0.85rem; color:{TEXT_MUTED};'>({st.session_state.active_session_id})</span>", unsafe_allow_html=True)
+
+    # GPX Upload Option directly in Chat View
+    with st.expander("🗺️ Attach GPX Route for Strategy & Pacing Analysis", expanded=False):
+        uploaded_gpx = st.file_uploader("Upload course GPX file", type=["gpx"], key="chat_gpx_upload")
+        gpx_extracted_text = None
+        if uploaded_gpx is not None:
+            try:
+                gpx_extracted_text = uploaded_gpx.read().decode("utf-8", errors="ignore")
+                st.success(f"Loaded '{uploaded_gpx.name}' successfully! Type your prompt below and send to analyze.")
+            except Exception as e:
+                st.error(f"Error reading GPX file: {str(e)}")
 
     for idx, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
@@ -1089,7 +1105,11 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                     st.error(str(e))
         st.rerun()
 
-    if prompt := st.chat_input("Ask your coach... (e.g., 'Build a 2-week endurance block')"):
+    if prompt := st.chat_input("Ask your coach or request route strategy..."):
+        full_prompt = prompt
+        if uploaded_gpx is not None and 'gpx_extracted_text' in locals() and gpx_extracted_text:
+            full_prompt = f"{prompt}\n\n[Attached GPX File: {uploaded_gpx.name}]\n{gpx_extracted_text}"
+
         st.session_state.messages.append({"role": "user", "content": prompt})
         save_disk_store()
 
@@ -1097,9 +1117,9 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("🤖 Coach is drafting your plan..."):
+            with st.spinner("🤖 Coach is analyzing your request and route profile..."):
                 try:
-                    res = execute_ai(build_gemini_payload(prompt, wellness_list), max_tokens=9000)
+                    res = execute_ai(build_gemini_payload(full_prompt, wellness_list), max_tokens=9000)
                     st.markdown(clean_chat_content(res))
                     st.session_state.messages.append({"role": "assistant", "content": res})
                     save_disk_store()
@@ -1349,7 +1369,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                     status_label = "Trip / Event" if is_event else ("Incomplete" if is_past_incomplete else item['status'])
                                     status_color = "#F59E0B" if is_event else (TEXT_MUTED if is_past_incomplete else ("#10B981" if item['status'] == "Completed" else "#3B82F6"))
 
-                                    # Minimised Collapsible Card Header
                                     expander_title = f"{sport_icon} &nbsp; **{item['name']}** &nbsp;·&nbsp; <span style='color:{status_color}; font-size:0.82rem;'>({status_label})</span> &nbsp;·&nbsp; <span style='color:{TEXT_MUTED}; font-size:0.82rem;'>{dur_str if not is_event else 'All Day'}</span>"
                                     
                                     with st.expander(expander_title, expanded=False):
@@ -1496,25 +1515,3 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
                     save_disk_store()
                     st.success(f"Added {s_name} to protocol!")
                     st.rerun()
-
-# VIEW 5: ROUTE STRATEGIST
-elif st.session_state.active_nav == NAV_OPTIONS[4]:
-    st.markdown("##### 🗺️ Route Pacing Strategist")
-    uploaded_file = st.file_uploader("Upload GPX Route", type=["gpx"])
-    
-    if uploaded_file is not None:
-        gpx_bytes = uploaded_file.read().decode("utf-8", errors="ignore")
-        st.success(f"Successfully loaded {uploaded_file.name} ({len(gpx_bytes)} bytes)")
-        
-        target_power = st.number_input("Target Normalized Power (W)", value=int(st.session_state.profile_data.get("declared_ftp", 200) * 0.85))
-        
-        if st.button("⚡ Generate AI Pacing & Strategy Plan", type="primary", use_container_width=True):
-            prompt = f"Create a comprehensive pacing strategy for a GPX route given my FTP of {st.session_state.profile_data.get('declared_ftp', 200)}W and target NP of {target_power}W. Optimize gear shifts, gradient-based power targets, and nutrition timing."
-            with st.spinner("Analyzing elevation profile and target pacing strategy..."):
-                try:
-                    pacing_plan = execute_ai(build_gemini_payload(prompt, wellness_list), max_tokens=9000)
-                    st.markdown(pacing_plan)
-                except Exception as e:
-                    st.error(str(e))
-    else:
-        st.info("Upload a GPX file to analyze course gradient, segment power distribution, and nutrition pacing.")
