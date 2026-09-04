@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Integrated Direct Calendar Event Delete & Edit)
+"""AI Performance Coach • Elite Multi-User Suite (Inline Mark Completed & Event Management)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -621,7 +621,9 @@ def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 9000) -
     raise RuntimeError(f"AI Coach Communication Error. Details: {error_summary}")
 
 def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Dict[str, Any]], protected_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    items = []
+    completed_items = []
+    completed_date_sports = set()
+
     for act in activities:
         raw_dt = str(act.get("start_date_local") or act.get("start_date") or "")
         if not raw_dt: continue
@@ -634,12 +636,14 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
         is_run = "Run" in act_type
         avg_speed = float(act.get("average_speed") or 0)
         pace_str = RunningAnalyzer.format_pace(1000.0 / avg_speed) if (is_run and avg_speed > 0) else None
+        date_str = dt_obj.strftime("%Y-%m-%d")
+        
+        sport_category = "Run" if is_run else ("Ride" if "Ride" in act_type or "VirtualRide" in act_type else act_type)
+        completed_date_sports.add((date_str, sport_category))
 
-        items.append({
+        completed_items.append({
             "id": f"act_{act.get('id')}",
-            "item_id": act.get("id"),
-            "source_type": "activity",
-            "date_str": dt_obj.strftime("%Y-%m-%d"),
+            "date_str": date_str,
             "datetime": dt_obj,
             "status": "Completed",
             "type": act_type,
@@ -655,8 +659,9 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
             "raw": act
         })
 
+    planned_items = []
     for ev in events:
-        if ev.get("category") in ["WORKOUT", "TARGET", "NOTE"] or ev.get("type") in ["Ride", "Run", "VirtualRide", "VirtualRun"]:
+        if ev.get("category") in ["WORKOUT", "TARGET", "NOTE"] or ev.get("type") in ["Ride", "Run", "VirtualRide", "VirtualRun", "WeightTraining", "Workout"]:
             raw_start = str(ev.get("start_date_local") or ev.get("start_date") or "")
             if not raw_start: continue
             try:
@@ -676,18 +681,23 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
                 dt_obj = dt.datetime(curr_dt.year, curr_dt.month, curr_dt.day, start_dt.hour, start_dt.minute, start_dt.second)
                 ev_type = str(ev.get("type", "Workout"))
                 is_note = ev.get("category") == "NOTE"
+                date_str = dt_obj.strftime("%Y-%m-%d")
                 
-                items.append({
-                    "id": f"plan_{ev.get('id')}_{curr_dt.isoformat()}",
-                    "item_id": ev.get("id"),
-                    "source_type": "event",
-                    "date_str": dt_obj.strftime("%Y-%m-%d"),
+                ev_sport_category = "Run" if "Run" in ev_type else ("Ride" if "Ride" in ev_type or "VirtualRide" in ev_type else ev_type)
+                
+                if not is_note and (date_str, ev_sport_category) in completed_date_sports:
+                    curr_dt += dt.timedelta(days=1)
+                    continue
+
+                planned_items.append({
+                    "id": f"plan_{ev.get('id')}_{date_str}",
+                    "date_str": date_str,
                     "datetime": dt_obj,
                     "status": "Planned" if not is_note else "Event / Trip",
                     "type": ev_type,
                     "name": ev.get("name") or f"Planned {ev_type}",
                     "sport_title": f"Planned {ev_type}" if not is_note else ev.get("name", "Event / Trip"),
-                    "device": ev.get("description") or "Intervals.icu / MyWhoosh Planned Workout",
+                    "device": ev.get("description") or "Intervals.icu Planned Workout",
                     "duration_sec": float(ev.get("moving_time") or ev.get("duration") or 0),
                     "distance_m": float(ev.get("distance") or 0),
                     "power_w": None,
@@ -698,6 +708,7 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
                 })
                 curr_dt += dt.timedelta(days=1)
 
+    protected_items = []
     for idx, p_ev in enumerate(protected_events):
         raw_start = str(p_ev.get("start_date") or dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d"))
         raw_end = str(p_ev.get("end_date") or raw_start)
@@ -710,10 +721,8 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
         curr_dt = start_date
         while curr_dt <= end_date:
             dt_obj = dt.datetime(curr_dt.year, curr_dt.month, curr_dt.day, 8, 0, 0)
-            items.append({
+            protected_items.append({
                 "id": f"prot_{idx}_{curr_dt.isoformat()}",
-                "item_id": idx,
-                "source_type": "protected",
                 "date_str": dt_obj.strftime("%Y-%m-%d"),
                 "datetime": dt_obj,
                 "status": "Event / Trip",
@@ -731,7 +740,8 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
             })
             curr_dt += dt.timedelta(days=1)
 
-    return sorted(items, key=lambda x: x["datetime"], reverse=True)
+    all_items = completed_items + planned_items + protected_items
+    return sorted(all_items, key=lambda x: x["datetime"], reverse=True)
 
 def clean_chat_content(text: str) -> str:
     cleaned = re.sub(r"```xml\s*<\?xml.*?</workout_file>\s*```", "", text or "", flags=re.S | re.I)
@@ -1176,54 +1186,60 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
 elif st.session_state.active_nav == NAV_OPTIONS[2]:
     st.markdown("##### 📅 Multi-Sport Training Calendar & Life Event Planner")
 
-    with st.expander("📝 Log Race, Event, Travel, or Sickness", expanded=False):
+    with st.expander("📝 Log New Workout / Event / Travel", expanded=False):
         with st.form("sickness_travel_form"):
-            status_type = st.selectbox("Category", ["Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"])
-            event_title_input = st.text_input("Event / Race / Trip Name", placeholder="e.g., Bintan Triathlon / Tokyo Trip / Flu Recovery")
+            status_type = st.selectbox("Category", ["Workout / Gym / Strength", "Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"])
+            event_title_input = st.text_input("Workout / Event Name", placeholder="e.g., Leg Strength & Core / Bintan Triathlon")
             c_d1, c_d2 = st.columns(2)
             start_d = c_d1.date_input("Start Date", value=dt.datetime.now(LOCAL_TZ).date())
             end_d = c_d2.date_input("End Date", value=dt.datetime.now(LOCAL_TZ).date())
-            status_notes = st.text_area("Details / Coach Instructions", placeholder="e.g., Racing or recovering away from home.")
+            status_notes = st.text_area("Details / Exercises / Coach Instructions", placeholder="e.g., Squats 4x8, Deadlifts 3x5, Lunges.")
             
-            if st.form_submit_button("Log Event to App & Intervals.icu", use_container_width=True):
+            if st.form_submit_button("Log to App & Intervals.icu", use_container_width=True):
                 final_title = event_title_input.strip() or f"[{status_type}]"
+                cat_tag = "WORKOUT" if "Workout" in status_type else "NOTE"
                 payload = {
-                    "category": "NOTE",
-                    "start_date_local": start_d.isoformat() + "T00:00:00",
-                    "end_date_local": end_d.isoformat() + "T00:00:00",
+                    "category": cat_tag,
+                    "type": "WeightTraining" if "Workout" in status_type else "Note",
+                    "start_date_local": start_d.isoformat() + "T08:00:00",
+                    "end_date_local": end_d.isoformat() + "T08:00:00",
                     "name": final_title,
                     "description": status_notes or status_type
                 }
                 res = requests.post(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events", json=payload, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
                 
-                st.session_state.protected_events.append({
-                    "title": final_title,
-                    "category": status_type,
-                    "start_date": start_d.isoformat(),
-                    "end_date": end_d.isoformat(),
-                    "notes": status_notes
-                })
+                if cat_tag == "NOTE":
+                    st.session_state.protected_events.append({
+                        "title": final_title,
+                        "category": status_type,
+                        "start_date": start_d.isoformat(),
+                        "end_date": end_d.isoformat(),
+                        "notes": status_notes
+                    })
                 save_disk_store()
 
                 if res.status_code in [200, 201]:
-                    st.success(f"Successfully logged '{final_title}' across {start_d} to {end_d}!")
+                    st.success(f"Successfully logged '{final_title}' to Intervals.icu calendar!")
                 else:
-                    st.warning(f"Saved locally, but Intervals.icu sync returned HTTP {res.status_code}")
+                    st.warning(f"Saved locally/partially, Intervals.icu sync returned HTTP {res.status_code}")
                 
                 time.sleep(1)
                 st.rerun()
 
     col_f1, col_f2 = st.columns(2)
-    sport_filter = col_f1.selectbox("Filter Sport", ["All Sports", "Cycling", "Running", "Events & Trips"])
+    sport_filter = col_f1.selectbox("Filter Sport", ["All Sports", "Cycling", "Running", "Gym / Strength", "Events & Trips"])
     status_filter = col_f2.selectbox("Filter Status", ["All Sessions", "Completed", "Planned", "Event / Trip"])
 
     raw_feed = get_unified_calendar_items(activities_data, planned_events, st.session_state.get("protected_events", []))
 
     filtered_feed = []
     for item in raw_feed:
-        if sport_filter == "Cycling" and "Ride" not in item["type"] and "Cycling" not in item["sport_title"]:
+        t_lower = str(item["type"]).lower()
+        if sport_filter == "Cycling" and "ride" not in t_lower and "cycling" not in item["sport_title"].lower():
             continue
-        if sport_filter == "Running" and "Run" not in item["type"] and "Running" not in item["sport_title"]:
+        if sport_filter == "Running" and "run" not in t_lower and "running" not in item["sport_title"].lower():
+            continue
+        if sport_filter == "Gym / Strength" and "weight" not in t_lower and "strength" not in item["name"].lower() and "gym" not in item["name"].lower():
             continue
         if sport_filter == "Events & Trips" and item["status"] != "Event / Trip":
             continue
@@ -1341,7 +1357,8 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
 
                                     act_type = str(item["type"])
                                     is_run = "Run" in act_type
-                                    sport_icon = "🏁" if is_event and ("Race" in item.get("sport_title", "") or "Race" in item.get("name", "")) else ("✈️" if is_event else ("🏃" if is_run else "🚴‍♂️"))
+                                    is_gym = "Weight" in act_type or "Gym" in item["name"] or "Strength" in item["name"]
+                                    sport_icon = "🏁" if is_event and ("Race" in item.get("sport_title", "") or "Race" in item.get("name", "")) else ("✈️" if is_event else ("🏋️" if is_gym else ("🏃" if is_run else "🚴‍♂️")))
                                     
                                     duration_m = round(item["duration_sec"] / 60.0)
                                     dur_str = f"{duration_m}m" if duration_m < 60 else f"{duration_m//60}h {duration_m%60}m"
@@ -1353,6 +1370,9 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                         third_label = "Type"
                                     elif is_run:
                                         third_val = item["pace_str"] or "--"
+                                    elif is_gym:
+                                        third_val = "Strength"
+                                        third_label = "Focus"
                                     else:
                                         if item["power_w"]:
                                             third_val = f"{int(item['power_w'])}W"
@@ -1417,63 +1437,59 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                             st.markdown("---")
                                             st.markdown(f"**Notes:** {raw_desc}")
 
+                                        # --- INLINE ACTION BUTTONS (MARK COMPLETED & DELETE) ---
                                         st.markdown("---")
-                                        c_act_1, c_act_2 = st.columns(2)
-                                        del_key = f"del_item_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"
+                                        col_act_comp, col_act_del, _ = st.columns([2, 2, 2])
+                                        raw_id_str = str(item.get("raw", {}).get("id", ""))
                                         
-                                        if c_act_1.button("🗑️ Delete from Calendar", key=del_key, type="secondary", use_container_width=True):
-                                            src_t = item.get("source_type")
-                                            it_id = item.get("item_id")
-                                            
-                                            if src_t == "event":
+                                        if item["status"] == "Planned" and raw_id_str:
+                                            comp_btn_key = f"comp_planned_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"
+                                            if col_act_comp.button("💪 Mark Completed", key=comp_btn_key, type="primary"):
                                                 try:
-                                                    requests.delete(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events/{it_id}", auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
-                                                except Exception:
-                                                    pass
-                                                planned_events[:] = [e for e in planned_events if e.get("id") != it_id]
-                                                st.toast(f"Deleted event '{item['name']}'!", icon="🗑️")
-                                                time.sleep(0.5)
-                                                st.rerun()
-                                            elif src_t == "protected":
-                                                try:
-                                                    st.session_state.protected_events.pop(it_id)
-                                                    save_disk_store()
-                                                    st.toast("Deleted logged event!", icon="🗑️")
-                                                    time.sleep(0.5)
-                                                    st.rerun()
-                                                except Exception:
-                                                    pass
-                                            else:
-                                                st.toast("Completed activities synced from external devices cannot be deleted directly from app view.", icon="⚠️")
+                                                    # Post completed activity status to Intervals.icu activities endpoint
+                                                    act_payload = {
+                                                        "start_date_local": item["raw"].get("start_date_local") or f"{item['date_str']}T08:00:00",
+                                                        "type": item["raw"].get("type", "WeightTraining"),
+                                                        "name": item["name"],
+                                                        "moving_time": item["raw"].get("moving_time") or 3600,
+                                                        "icu_training_load": item["raw"].get("icu_training_load") or 50,
+                                                        "description": raw_desc
+                                                    }
+                                                    post_res = requests.post(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/activities", json=act_payload, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+                                                    if post_res.status_code in [200, 201]:
+                                                        st.toast("Workout marked completed and synced to Intervals.icu!", icon="✅")
+                                                        time.sleep(0.8)
+                                                        st.rerun()
+                                                    else:
+                                                        st.error(f"Failed to mark completed (HTTP {post_res.status_code})")
+                                                except Exception as exc:
+                                                    st.error(f"Error syncing completed workout: {exc}")
 
-                                        with c_act_2:
-                                            with st.popover("✏️ Edit Event / Note", use_container_width=True):
-                                                with st.form(f"inline_edit_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"):
-                                                    ed_name = st.text_input("Title / Name", value=item['name'])
-                                                    ed_desc = st.text_area("Description / Notes", value=raw_desc)
-                                                    if st.form_submit_button("Save Changes", use_container_width=True):
-                                                        src_t = item.get("source_type")
-                                                        it_id = item.get("item_id")
-                                                        if src_t == "event":
-                                                            upd_payload = item.get("raw", {})
-                                                            upd_payload["name"] = ed_name
-                                                            upd_payload["description"] = ed_desc
-                                                            try:
-                                                                requests.put(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events/{it_id}", json=upd_payload, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
-                                                            except Exception:
-                                                                pass
-                                                            st.toast("Updated event successfully!", icon="✅")
-                                                            time.sleep(0.5)
-                                                            st.rerun()
-                                                        elif src_t == "protected":
-                                                            st.session_state.protected_events[it_id]["title"] = ed_name
-                                                            st.session_state.protected_events[it_id]["notes"] = ed_desc
-                                                            save_disk_store()
-                                                            st.toast("Updated logged event successfully!", icon="✅")
-                                                            time.sleep(0.5)
-                                                            st.rerun()
-                                                        else:
-                                                            st.toast("Completed activities cannot be edited here.", icon="⚠️")
+                                            del_btn_key = f"del_planned_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"
+                                            if col_act_del.button("🗑️ Delete Workout", key=del_btn_key, type="secondary"):
+                                                try:
+                                                    del_res = requests.delete(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events/{raw_id_str}", auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+                                                    if del_res.status_code in [200, 204]:
+                                                        st.toast("Workout deleted from Intervals.icu!", icon="🗑️")
+                                                        time.sleep(0.8)
+                                                        st.rerun()
+                                                    else:
+                                                        st.error(f"Failed to delete (HTTP {del_res.status_code})")
+                                                except Exception as exc:
+                                                    st.error(f"Error deleting workout: {exc}")
+                                                    
+                                        elif item["status"] == "Event / Trip" and item.get("id", "").startswith("prot_"):
+                                            prot_idx_match = re.search(r"prot_(\d+)_", item["id"])
+                                            if prot_idx_match:
+                                                p_target_idx = int(prot_idx_match.group(1))
+                                                del_prot_key = f"del_prot_{p_target_idx}_{m_year}_{m_month}_{week_idx}_{item_idx}"
+                                                if col_act_del.button("🗑️ Delete Event", key=del_prot_key, type="secondary"):
+                                                    if p_target_idx < len(st.session_state.protected_events):
+                                                        st.session_state.protected_events.pop(p_target_idx)
+                                                        save_disk_store()
+                                                        st.toast("Logged event deleted!", icon="🗑️")
+                                                        time.sleep(0.8)
+                                                        st.rerun()
 
 # VIEW 4: ATHLETE PROFILE & MEMORY
 elif st.session_state.active_nav == NAV_OPTIONS[3]:
