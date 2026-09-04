@@ -60,10 +60,19 @@ st.markdown("""
         padding: 12px 16px;
         border-radius: 10px;
     }
+    div[data-testid="stMetric"] label {
+        font-size: 0.85rem !important;
+        font-weight: 500;
+        color: #555555;
+    }
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        font-size: 1.3rem !important;
+        font-weight: 600;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- MULTI-KEY GEMINI & MULTI-PROVIDER AI ROUTER ---
+# --- GOOGLE API KEYS & MULTI-PROVIDER AI ROUTER ---
 PRIMARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("primary_key") or st.secrets.get("GEMINI_API_KEY") or os.getenv("PRIMARY_KEY") or os.getenv("GEMINI_API_KEY")
 SECONDARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("secondary_key") or os.getenv("SECONDARY_GEMINI_KEY") or os.getenv("SECONDARY_KEY")
 TERTIARY_GEMINI_KEY = st.secrets.get("google_keys", {}).get("tertiary_key") or os.getenv("TERTIARY_GEMINI_KEY") or os.getenv("TERTIARY_KEY")
@@ -113,9 +122,22 @@ def execute_multiprovider_generation(prompt, preferred_provider="⚡ Auto-Fallba
 
 localS = LocalStorage()
 
-# --- AUTH & SESSION STATE SETUP ---
-if "user" not in st.session_state: st.session_state.user = None
+# --- AUTH & SESSION STATE ---
+query_params = st.query_params
+url_token = query_params.get("token")
+
+if url_token and "user_credentials" not in st.session_state:
+    try:
+        decoded = base64.urlsafe_b64decode(url_token.encode("utf-8"))
+        guest_config = json.loads(decoded.decode("utf-8"))
+        if guest_config and "icu_key" in guest_config:
+            localS.setItem("athlete_profile_config", guest_config)
+            st.session_state.user_credentials = guest_config
+            st.rerun()
+    except: pass
+
 if "user_credentials" not in st.session_state: st.session_state.user_credentials = None
+if "user" not in st.session_state: st.session_state.user = None
 
 stored_guest = localS.getItem("athlete_profile_config")
 if not st.session_state.user and stored_guest and not st.session_state.user_credentials:
@@ -142,43 +164,56 @@ if not st.session_state.user and not st.session_state.user_credentials:
             gemini_key = st.text_input("Google AI Studio API Key", type="password")
             if st.form_submit_button("Save & Launch Guest Session", use_container_width=True):
                 if icu_key and icu_id and gemini_key:
-                    config_data = {"name": col_name.strip() or "Guest", "icu_key": icu_key.strip(), "icu_id": icu_id.strip(), "gemini_key": gemini_key.strip()}
+                    config_data = {"name": col_name.strip() or "Guest", "icu_key": icu_key.strip(), "icu_id": icu_id.strip(), "gemini_key": gemini_key.strip(), "gear": "", "limitations": "", "onboarding_done": False}
                     localS.setItem("athlete_profile_config", config_data)
                     st.session_state.user_credentials = config_data
                     st.rerun()
     st.stop()
 
 if st.session_state.user:
-    profile_res = supabase.table("profiles").select("*").eq("id", st.session_state.user.id).execute()
+    USER_ID = st.session_state.user.id
+    profile_res = supabase.table("profiles").select("*").eq("id", USER_ID).execute()
     user_profile = profile_res.data[0] if profile_res.data else {}
     INTERVALS_API_KEY = user_profile.get("intervals_api_key")
     ATHLETE_ID = user_profile.get("intervals_athlete_id")
     display_name = "Amanda"
+    if "athlete_gear" not in st.session_state: st.session_state.athlete_gear = user_profile.get("gear_notes") or ""
+    if "athlete_limitations" not in st.session_state: st.session_state.athlete_limitations = user_profile.get("limitations_notes") or ""
+    if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict): st.session_state.goals = {}
+    st.session_state.goals["event_name"] = user_profile.get("event_name") or "Bintan Round Island"
+    st.session_state.goals["target_metric"] = user_profile.get("target_metric") or "Survive steep climbs on group rides & improve threshold power"
+    st.session_state.goals["race_date"] = user_profile.get("race_date") or str(datetime.date(2026, 10, 24))
 else:
     current_creds = st.session_state.user_credentials
     INTERVALS_API_KEY = current_creds["icu_key"]
     ATHLETE_ID = current_creds["icu_id"]
     display_name = current_creds["name"]
+    if "athlete_gear" not in st.session_state: st.session_state.athlete_gear = current_creds.get("gear", "")
+    if "athlete_limitations" not in st.session_state: st.session_state.athlete_limitations = current_creds.get("limitations", "")
+    if "goals" not in st.session_state or not isinstance(st.session_state.goals, dict): st.session_state.goals = {}
+    if "event_name" not in st.session_state.goals: st.session_state.goals["event_name"] = "Bintan Round Island"
+    if "target_metric" not in st.session_state.goals: st.session_state.goals["target_metric"] = "Survive steep climbs on group rides & improve threshold power"
+    if "race_date" not in st.session_state.goals: st.session_state.goals["race_date"] = str(datetime.date(2026, 10, 24))
 
 if "messages" not in st.session_state: st.session_state.messages = []
-if "user_supplements" not in st.session_state: st.session_state.user_supplements = []
 
-# --- FETCH DATA FROM INTERVALS.ICU ---
+# --- DATA FETCHING ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_intervals_data(aid, key):
     try:
         today = datetime.date.today()
         start_90 = (today - datetime.timedelta(days=90)).isoformat()
+        start_7 = (today - datetime.timedelta(days=7)).isoformat()
         end_14 = (today + datetime.timedelta(days=14)).isoformat()
         w_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/wellness?oldest={start_90}&newest={end_14}", auth=("API_KEY", key), timeout=6)
         a_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/activities?oldest={start_90}&newest={end_14}", auth=("API_KEY", key), timeout=6)
-        e_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/events?oldest={start_90}&newest={end_14}", auth=("API_KEY", key), timeout=6)
+        e_res = requests.get(f"https://intervals.icu/api/v1/athlete/{aid}/events?oldest={start_7}&newest={end_14}", auth=("API_KEY", key), timeout=6)
         return w_res.json() if w_res.status_code == 200 else [], a_res.json() if a_res.status_code == 200 else [], e_res.json() if e_res.status_code == 200 else []
     except: return [], [], []
 
 wellness_list, activities_data, planned_events = fetch_intervals_data(ATHLETE_ID, INTERVALS_API_KEY)
 
-# FIX 1: Robust Wellness Extraction scanning backward across last 7 days
+# FIX 1: Robust Wellness Extraction scanning backward across last 7 days for Sleep, HRV, and Resting HR
 ctl, atl, tsb = 0, 0, 0
 sleep_score, hrv, resting_hr = 0, 0, 0
 if wellness_list:
@@ -188,6 +223,12 @@ if wellness_list:
         if sleep_score == 0: sleep_score = record.get("sleepScore") or record.get("sleep_score") or 0
         if hrv == 0: hrv = record.get("hrv") or record.get("HRV") or 0
         if resting_hr == 0: resting_hr = record.get("restingHR") or record.get("resting_hr") or record.get("rhr") or 0
+
+try:
+    race_date_obj = datetime.datetime.strptime(st.session_state.goals["race_date"], "%Y-%m-%d").date()
+except:
+    race_date_obj = datetime.date(2026, 10, 24)
+days_left = (race_date_obj - datetime.date.today()).days
 
 NAV_OPTIONS = ["📊 Command Center", "🤖 AI Coach & Sparring", "📅 Training Calendar", "🔍 Activity Inspector", "💊 Recovery & Supplements", "🗺️ Route Strategist"]
 if "active_nav" not in st.session_state: st.session_state.active_nav = "📊 Command Center"
@@ -202,6 +243,7 @@ st.markdown("---")
 with st.sidebar:
     st.markdown(f"👤 **{display_name}**")
     selected_provider = st.selectbox("⚡ AI Engine Model", ["⚡ Auto-Fallback Chain", "Google Gemini", "OpenAI GPT-4o-mini", "Anthropic Claude"])
+    coach_persona = st.selectbox("Select AI Style", ["Collaborative Peer", "Sports Scientist", "Drill Sergeant"])
     if st.button("Log Out", use_container_width=True):
         if st.session_state.user: supabase.auth.sign_out()
         localS.deleteItem("athlete_profile_config")
@@ -221,24 +263,24 @@ if selected_nav == "📊 Command Center":
     c4.metric("Sleep Score", f"{sleep_score}/100" if sleep_score > 0 else "N/A")
     c5.metric("Resting HR", f"{resting_hr} bpm" if resting_hr > 0 else "N/A")
 
-# ================= VIEW 2: AI COACH & SPARRING (FIX 2: 1-Click Instant Sync) =================
+# ================= VIEW 2: AI COACH & SPARRING (FIX 2 & 3) =================
 elif selected_nav == "🤖 AI Coach & Sparring":
-    st.markdown("### 🤖 AI Coach & Collaborative Sparring Partner")
+    st.markdown("### 🤖 AI Coach & 1-Click Workout Sync Suite")
     
     if not st.session_state.messages:
-        st.session_state.messages = [{"role": "model", "content": "Hello! I am your AI coach. Ask me for a training plan or schedule adjustment."}]
+        st.session_state.messages = [{"role": "model", "content": "Hello! Coach is ready. Workouts can be synced instantly with 1-click."}]
 
     for idx, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             clean_content = re.sub(r"<icu_workout>.*?</icu_workout>", "", msg["content"], flags=re.DOTALL)
             st.markdown(clean_content.strip())
             
-            # FIX 2: 1-Click Instant Workout Sync Button
+            # FIX 2: Render instant 1-click approval & sync button if workout JSON is present
             if msg["role"] == "model" and "<icu_workout>" in msg["content"]:
                 try:
                     workout_raw = msg["content"].split("<icu_workout>")[1].split("</icu_workout>")[0].strip()
                     workout_json = json.loads(workout_raw)
-                    if st.button("🚀 Approve & Sync Workout to Intervals.icu", key=f"sync_btn_{idx}", type="primary"):
+                    if st.button("🚀 Approve & Sync to Intervals.icu", key=f"sync_btn_{idx}", type="primary"):
                         if not isinstance(workout_json, list): workout_json = [workout_json]
                         success_count = 0
                         for w in workout_json:
@@ -251,13 +293,13 @@ elif selected_nav == "🤖 AI Coach & Sparring":
                             fetch_intervals_data.clear()
                 except Exception as e: st.error(f"Sync failed: {e}")
 
-    if prompt := st.chat_input("Ask your coach for a workout or plan..."):
+    if prompt := st.chat_input("Ask for a workout plan or schedule adjustment..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.markdown(prompt)
         
         with st.chat_message("model"):
-            with st.spinner("Coach is analyzing your metrics and calendar..."):
-                # FIX 3: Inject calendar context (travel, notes, events) into prompt
+            with st.spinner("Drafting workout plan..."):
+                # FIX 3: Inject full planned events and daily notes/travel limitations into system prompt
                 calendar_context = json.dumps([{
                     "date": ev.get("start_date_local", "")[:10],
                     "name": ev.get("name"),
@@ -266,11 +308,11 @@ elif selected_nav == "🤖 AI Coach & Sparring":
                 } for ev in planned_events], ensure_ascii=False)
                 
                 payload = f"""
-                You are an elite sports science coach.
+                You are an elite sports science coach acting with persona: '{coach_persona}'.
                 METRICS: CTL={ctl}, ATL={atl}, TSB={tsb}, Sleep={sleep_score}, HRV={hrv}, RHR={resting_hr}.
                 CALENDAR & TRAVEL CONTEXT: {calendar_context}
                 
-                STRICT RULE: Check calendar context for travel, illness, or protected rest days. Never schedule a hard workout over travel or incompatible events without confirmation.
+                STRICT RULE: Check the calendar context for travel, illness, or protected rest days. Never schedule a hard workout over travel or incompatible events without confirmation.
                 
                 When proposing workouts, output the workout JSON wrapped EXACTLY in <icu_workout> ... </icu_workout> tags with fields: 'start_date_local' (YYYY-MM-DD), 'name', 'description', 'type' ('Ride'), 'indoor' (boolean).
                 """ + prompt
@@ -330,6 +372,7 @@ elif selected_nav == "🔍 Activity Inspector":
 # ================= VIEW 5: RECOVERY & SUPPLEMENTS =================
 elif selected_nav == "💊 Recovery & Supplements":
     st.markdown("### 💊 Recovery & Supplement Stack")
+    if "user_supplements" not in st.session_state: st.session_state.user_supplements = []
     with st.form("add_supp_form", clear_on_submit=True):
         n = st.text_input("Name")
         t = st.text_input("Timing")
