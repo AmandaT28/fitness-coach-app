@@ -571,84 +571,106 @@ def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: st
     except Exception as e:
         return False, f"Connection error during sync: {str(e)}"
 
-def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, Any]], activities_data: List[Dict[str, Any]], planned_events_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    prof = st.session_state.profile_data
-    goals = prof.get("goals", {})
-    supps = st.session_state.get("user_supplements", [])
-    memory = st.session_state.get("coach_memory", "")
-    persona = st.session_state.get("coach_persona", PERSONA_OPTIONS[0])
-    protected_events = st.session_state.get("protected_events", [])
+def build_gemini_payload(current_question, display_name, wellness_list):
+    today = dt.datetime.now(LOCAL_TZ).date()
+    next_monday = today + dt.timedelta(days=(0 - today.weekday()) % 7)
+    if next_monday == today: next_monday += dt.timedelta(days=7)
+    next_monday_str = next_monday.isoformat()
+    today_str = today.isoformat()
 
-    if protected_events:
-        event_lines = [
-            f"- [{e.get('category', 'Event')}] {e.get('title')}: {e.get('start_date')} to {e.get('end_date')} (Notes: {e.get('notes', 'None')})"
-            for e in protected_events
-        ]
-        events_formatted = "\n".join(event_lines)
+    try:
+        race_dt = dt.date.fromisoformat(st.session_state.goals['race_date'])
+        weeks_to_race = max(0, (race_dt - today).days // 7)
+    except Exception:
+        weeks_to_race = 12
+
+    if weeks_to_race > 12:
+        periodization_phase = "BASE BUILDING (Focus on aerobic endurance, multi-sport volume, and structural resilience)."
+    elif weeks_to_race > 4:
+        periodization_phase = "BUILD PHASE (Focus on threshold intervals, brick sessions, and run/ride progression)."
     else:
-        events_formatted = "No upcoming trips, illness blocks, or travel restrictions logged."
+        periodization_phase = "TAPER & PEAK PHASE (Focus on reducing volume while maintaining intensity, prioritizing recovery and race freshness)."
 
-    upcoming_planned = [
-        f"- {ev.get('start_date_local', '')[:10]}: {ev.get('name', 'Workout')} ({ev.get('type', 'Ride')})"
-        for ev in planned_events_list[:15]
-    ] if planned_events_list else []
-    planned_formatted = "\n".join(upcoming_planned) if upcoming_planned else "No structured workouts planned yet."
+    latest_wellness = wellness_list[-1] if wellness_list else {}
+    current_tsb = float(latest_wellness.get("tsb", latest_wellness.get("TSB", 0)) or 0)
+    current_sleep = float(latest_wellness.get("sleep_score", latest_wellness.get("sleepScore", 80)) or 80)
+    acwr_val, acwr_status = calculate_acwr(wellness_list)
+    
+    gatekeeper_active = (current_tsb < -20) or (current_sleep < 60) or (acwr_val > 1.35)
+    if gatekeeper_active:
+        gatekeeper_directive = (
+            f"⚠️ MULTI-SPORT LOAD & IMPACT RECOVERY DIRECTIVE ⚠️\n"
+            f"Current TSB is {current_tsb:.1f}, Sleep Score is {current_sleep:.0f}/100, and ACWR is {acwr_val} ({acwr_status}).\n"
+            f"MANDATORY RULE: Differentiate between mechanical running impact fatigue and indoor cycling load. If running volume is high, proactively safeguard orthopedic joints by suggesting low-impact cross-training or rest."
+        )
+    else:
+        gatekeeper_directive = f"Readiness Status: CLEAR (TSB: {current_tsb:.1f}, Sleep: {current_sleep:.0f}, ACWR: {acwr_val}). Multi-sport load balanced."
 
-    supp_lines = [f"- {s.get('name')}: {s.get('dosage', s.get('timing', ''))} -> {s.get('purpose', s.get('notes', ''))}" for s in supps if isinstance(s, dict)]
-    supps_formatted = "\n".join(supp_lines) if supp_lines else "None logged"
+    trend_ctx = (st.session_state.get('cached_trend_analysis') or 'No Trend Analysis.')[:1200]
+    calendar_ctx = (st.session_state.get('calendar_context') or 'Not loaded')[:1500]
+    memory_ctx = st.session_state.get('coach_memory') or 'No long-term memory logged yet.'
+    supplements_str = json.dumps(st.session_state.user_supplements, ensure_ascii=False) if st.session_state.user_supplements else 'N/A'
+    gear_str = st.session_state.athlete_gear or 'N/A'
+    limits_str = st.session_state.athlete_limitations or 'N/A'
 
-    system_prompt = f"""You are an elite multi-sport performance coach.
-
-SELECTED COACHING PERSONA:
-{persona}
-
-ATHLETE BIOMETRICS & BENCHMARKS:
-- Name: {prof.get('name', 'Athlete')} | Gender: {prof.get('gender', 'Female')} | Age: {prof.get('age', 30)}
-- Weight: {prof.get('weight_kg', 65.0)} kg | Declared FTP: {prof.get('declared_ftp', 200)} W
-- Max HR: {prof.get('max_hr', 190)} bpm | RHR: {prof.get('resting_hr', 50)} bpm
-- Rest Days: {', '.join(prof.get('rest_days', ['Friday']))}
-
-ATHLETE GOALS & TARGET EVENTS:
-- Target Event: {goals.get('event_name', 'Target Event')}
-- Event Date: {goals.get('race_date', '2026-10-24')}
-- Primary Objective: {goals.get('target_metric', 'Improve performance')}
-
-UPCOMING TRIPS, TRAVEL, ILLNESS & PROTECTED EVENTS (CALENDAR CONTEXT):
-{events_formatted}
-
-NEXT UPCOMING PLANNED WORKOUTS:
-{planned_formatted}
-
-COACH LONG-TERM MEMORY & ATHLETE LIMITATIONS:
-{memory}
-
-SUPPLEMENT PROTOCOL:
-{supps_formatted}
-
-STRICT RULE - CALENDAR & LIMITATION VALIDATION:
-- Always cross-reference the calendar context (travel, illness, fatigue, rest days) before proposing workouts.
-- Never schedule hard training over illness, severe soreness, or incompatible travel dates without explicit confirmation.
-
-COACHING RULE - PLAN FIRST, ASK FOR AGREEMENT:
-1. When the athlete asks for a training plan or calendar adjustments, present the proposed workouts clearly in chat first.
-2. Ask the user explicitly if they would like to sync this plan to their Intervals.icu calendar.
-3. Only output the valid JSON block inside ```json:workouts ... ``` when appropriate for synchronization.
-
-CRITICAL FORMATTING RULE FOR INTERVALS.ICU, GARMIN & MYWHOOSH:
-- Use native Intervals.icu plain text workout syntax in the description field.
-- RIDES (MyWhoosh): e.g. `Warmup\\n- 10m 50%\\nMain Set 4x\\n- 5m 100%\\n- 2m 50%\\nCooldown\\n- 10m 40%`
-- RUNS (Garmin): e.g. `Warmup\\n- 15m Z2 Pace\\nMain Set 4x\\n- 1km Threshold Pace\\n- 90s Jog Recovery`
-"""
+    system_instructions = (
+        f"You are an elite multi-sport (cycling and running) coach with full calendar integration.\n"
+        f"Persona: {st.session_state.coach_persona}\n"
+        f"Athlete: {display_name} | Discipline Focus: {st.session_state.primary_discipline}\n"
+        f"Today: {today_str} | Next Monday: {next_monday_str}\n"
+        f"Goal: {st.session_state.goals['target_metric']} ({st.session_state.goals['event_name']} on {st.session_state.goals['race_date']})\n"
+        f"Current Periodization Phase: {periodization_phase} ({weeks_to_race} weeks to event)\n"
+        f"{gatekeeper_directive}\n"
+        f"LONG-TERM COACHING MEMORY & ATHLETE PROFILE:\n{memory_ctx}\n\n"
+        f"Gear: {gear_str} | Limitations: {limits_str}\n"
+        f"Supplements & Fueling: {supplements_str}\n"
+        f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n\n"
+        f"CALENDAR CONTEXT:\n{calendar_ctx}\n\n"
+        "CRITICAL INTERVALS.ICU WORKOUT SYNTAX FOR MYWHOOSH (INDOOR CYCLING) AND GARMIN (RUNNING):\n"
+        "To ensure workouts parse correctly into structured step graphs on Intervals.icu (which automatically drive MyWhoosh and Garmin):\n"
+        "1. Section headers (Warmup, Main Set, Cooldown) must be on their own separate lines.\n"
+        "2. Repeat blocks must use the exact native syntax where the multiplier is declared on the header line or its own line, followed by steps starting with '-'. Leave blank lines between sections.\n"
+        "   - Correct Cycling Syntax Example (MyWhoosh compatible):\n"
+        "     Warmup\n"
+        "     - 10m 50%\n"
+        "     - 5m 70%\n\n"
+        "     Main Set 8x\n"
+        "     - 30s 130%\n"
+        "     - 30s 50%\n\n"
+        "     Cooldown\n"
+        "     - 10m 50%\n\n"
+        "   - Correct Running Syntax Example (Garmin compatible):\n"
+        "     Warmup\n"
+        "     - 15m Z2 Pace\n\n"
+        "     Main Set 4x\n"
+        "     - 1km Threshold Pace\n"
+        "     - 90s Jog Recovery\n\n"
+        "     Cooldown\n"
+        "     - 10m Easy\n\n"
+        "IF PRESCRIBING A WEEKLY SCHEDULE OR MACROCYCLE, APPEND A JSON ARRAY inside `<icu_weekly_plan>` tags:\n"
+        "<icu_weekly_plan>\n"
+        "[\n"
+        "  {\n"
+        f"    \"name\": \"MyWhoosh Micro-Intervals\",\n"
+        f"    \"type\": \"Ride\",\n"
+        f"    \"start_date_local\": \"{next_monday_str}\",\n"
+        f"    \"description\": \"Warmup\\n- 10m 50%\\n- 5m 70%\\n\\nMain Set 8x\\n- 30s 130%\\n- 30s 50%\\n\\nCooldown\\n- 10m 50%\"\n"
+        "  }\n"
+        "]\n"
+        "</icu_weekly_plan>"
+    )
 
     contents = [
-        {"role": "user", "parts": [{"text": system_prompt}]},
-        {"role": "model", "parts": [{"text": "Understood. I will strictly review calendar data, travel, and illness constraints, propose plans cleanly in plain text, and generate workouts ready for MyWhoosh/Garmin sync."}]}
+        {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
+        {"role": "model", "parts": [{"text": "Understood. I will use native Intervals.icu inline repeat notation (e.g., Main Set 8x) so the parser renders accurate graphical step charts for MyWhoosh and Garmin."}]}
     ]
-    
-    history = [m for m in st.session_state.messages[:-1] if m["content"] != current_question][-30:]
-    for m in history:
-        contents.append({"role": "user" if m["role"] == "user" else "model", "parts": [{"text": clean_chat_content(str(m["content"]))[:4000]}]})
-    contents.append({"role": "user", "parts": [{"text": current_question}]})
+
+    for m in st.session_state.messages[-15:]:
+        role = "user" if m["role"] == "user" else "model"
+        msg_text = clean_chat_content(str(m["content"])) if role == "model" else str(m["content"])
+        contents.append({"role": role, "parts": [{"text": msg_text[:2500]}]})
+
+    contents.append({"role": "user", "parts": [{"text": str(current_question)[:2000]}]})
     return contents
 
 # --- RESOLVE CREDENTIALS & ONBOARDING ---
@@ -744,20 +766,36 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
     st.markdown(f"##### ☀️ Command Center for {curr_name} — {today_str_ui}")
     prof = st.session_state.profile_data
 
-    ctl, atl, tsb = 0, 0, 0
-    sleep, hrv, rhr = 0, 0, 0
+   ctl, atl, tsb = 0.0, 0.0, 0.0
+    sleep, hrv, rhr = 0.0, 0.0, 0.0
+    
     if wellness_list:
-        latest = wellness_list[-1]
-        ctl = float(latest.get("ctl", latest.get("CTL", 65)) or 65)
-        atl = float(latest.get("atl", latest.get("ATL", 72)) or 72)
-        tsb = ctl - atl
+        # Scan backward to find the latest record with valid populated CTL/ATL
         for record in reversed(wellness_list):
-            if sleep == 0:
-                sleep = float(record.get("sleepScore", record.get("sleep_score", 0)) or 0)
-            if hrv == 0:
-                hrv = float(record.get("hrv", record.get("HRV", 0)) or 0)
-            if rhr == 0:
-                rhr = float(record.get("restingHR", record.get("resting_hr", record.get("rhr", 0))) or 0)
+            if isinstance(record, dict):
+                c = record.get("ctl") or record.get("CTL")
+                if c is not None and float(c) > 0:
+                    ctl = float(c)
+                    atl = float(record.get("atl") or record.get("ATL") or 0)
+                    tsb = float(record.get("tsb") or record.get("TSB") or (ctl - atl))
+                    break
+        
+        # Fallback if reverse scan finds nothing
+        if ctl == 0 and wellness_list:
+            latest = wellness_list[-1] if isinstance(wellness_list[-1], dict) else {}
+            ctl = float(latest.get("ctl") or latest.get("CTL") or 0)
+            atl = float(latest.get("atl") or latest.get("ATL") or 0)
+            tsb = float(latest.get("tsb") or latest.get("TSB") or (ctl - atl))
+
+        # Scan backward for valid recovery metrics (Sleep, HRV, RHR)
+        for record in reversed(wellness_list):
+            if isinstance(record, dict):
+                if sleep == 0 and record.get("sleepScore"):
+                    sleep = float(record.get("sleepScore"))
+                if hrv == 0 and record.get("hrv"):
+                    hrv = float(record.get("hrv"))
+                if rhr == 0 and (record.get("restingHR") or record.get("rhr")):
+                    rhr = float(record.get("restingHR") or record.get("rhr"))
 
     rec = TrainingLoadCalculator.calculate_recovery_status(tsb, sleep if sleep > 0 else 82, hrv if hrv > 0 else 65, rhr if rhr > 0 else 52, "")
     acwr, acwr_status = TrainingLoadCalculator.calculate_acwr(wellness_list)
