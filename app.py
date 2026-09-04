@@ -216,7 +216,7 @@ section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !import
 .sport-icon {{ font-size: 1.2rem; }}
 .sport-title {{ font-size: 1.1rem; font-weight: 700; color: {TEXT_PRIMARY}; margin: 0; line-height: 1.2; }}
 .device-subtitle {{ font-size: 0.8rem; color: {TEXT_MUTED}; margin: 0; }}
-.metrics-flex-group {{ display: flex; gap: 20px; }}
+.metrics-flex-group {{ display: flex; flex-wrap: wrap; gap: 20px; }}
 .metric-box {{ display: flex; flex-direction: column; }}
 .metric-box-label {{ font-size: 0.75rem; color: {TEXT_MUTED}; margin-bottom: 2px; }}
 .metric-box-val {{ font-size: 0.98rem; font-weight: 700; color: {TEXT_PRIMARY}; }}
@@ -332,12 +332,21 @@ class RunningAnalyzer:
 class TrainingLoadCalculator:
     @staticmethod
     def calculate_acwr(wellness_list: List[Dict[str, Any]]) -> Tuple[float, str]:
-        if not wellness_list or len(wellness_list) < 28:
+        if not wellness_list or len(wellness_list) < 7:
             return 1.0, "Stable"
         try:
-            loads = [float(w.get("training_load", w.get("Load", w.get("atl", 0))) or 0) for w in wellness_list]
-            acute = sum(loads[-7:]) / 7.0
-            chronic = sum(loads[-28:]) / 28.0
+            loads = []
+            for w in wellness_list:
+                if isinstance(w, dict):
+                    val = float(w.get("training_load", w.get("Load", w.get("atl", 0))) or 0)
+                    loads.append(val)
+            if not loads:
+                return 1.0, "Stable"
+            
+            acute = sum(loads[-7:]) / min(7.0, float(len(loads[-7:])))
+            chronic_window = loads[-28:] if len(loads) >= 28 else loads
+            chronic = sum(chronic_window) / min(28.0, float(len(chronic_window)))
+            
             if chronic == 0:
                 return 1.0, "Stable"
             acwr = round(acute / chronic, 2)
@@ -405,7 +414,7 @@ def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_
 
 def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 9000) -> str:
     errors = []
-    models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]
+    models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
     
     for name, key in GEMINI_KEYS:
         if not key: 
@@ -591,7 +600,6 @@ def build_gemini_payload(current_question, wellness_list):
     else:
         periodization_phase = "TAPER & PEAK PHASE (Focus on reducing volume while maintaining intensity, prioritizing recovery and race freshness)."
 
-    # Robust extraction for payload wellness
     ctl, atl, tsb = 0.0, 0.0, 0.0
     sleep_score = 80.0
     if wellness_list:
@@ -603,7 +611,7 @@ def build_gemini_payload(current_question, wellness_list):
                     atl = float(record.get("atl") or record.get("ATL") or 0)
                     tsb = float(record.get("tsb") or record.get("TSB") or (ctl - atl))
                     break
-        if ctl == 0.0:
+        if ctl == 0.0 and wellness_list:
             latest = wellness_list[-1] if isinstance(wellness_list[-1], dict) else {}
             ctl = float(latest.get("ctl") or latest.get("CTL") or 0)
             atl = float(latest.get("atl") or latest.get("ATL") or 0)
@@ -1299,7 +1307,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[4]:
             prompt = f"Create a comprehensive pacing strategy for a GPX route given my FTP of {st.session_state.profile_data.get('declared_ftp', 200)}W and target NP of {target_power}W. Optimize gear shifts, gradient-based power targets, and nutrition timing."
             with st.spinner("Analyzing elevation profile and target pacing strategy..."):
                 try:
-                    pacing_plan = execute_ai(build_gemini_payload(prompt, wellness_list), max_tokens=9000)
+                    pacing_plan = execute_ai(build_gemini_payload(prompt, wellness_list), max_notes=9000)
                     st.markdown(pacing_plan)
                 except Exception as e:
                     st.error(str(e))
