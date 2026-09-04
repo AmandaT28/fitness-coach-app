@@ -926,25 +926,23 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
         f"Supplements & Fueling: {supplements_str}\n"
         f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n"
         f"{gpx_injection}\n\n"
-        "MANDATORY INTERVALS.ICU WORKOUT SYNTAX:\n"
-        "- Section headers (Warmup, Main Set, Cooldown) must be on their own separate lines without hyphens.\n"
-        "- Repeat blocks must be written as a number followed by 'x' on its own line (e.g., `4x`), with a blank line before and after.\n"
-        "- Step lines must begin with a hyphen and space (- ), followed immediately by duration (e.g., 10m, 30s) and target percentage of FTP (e.g., 50%, 95-105%).\n"
-        "- Example Exact Syntax:\n"
-        "Warmup\n"
-        "- 10m 50%\n"
-        "- 5m 70%\n\n"
+        "MANDATORY INTERVALS.ICU WORKOUT BUILDER SYNTAX:\n"
+        "- Basic Line Format: - [duration or distance] [target] [optional cadence] (e.g., `- 5m30s 60% 90rpm`, `- 1km 70% HR`, `- 500mtr 5:00/km Pace`).\n"
+        "- Duration/Distance: Use 'm' for minutes, 's' for seconds, 'h' for hours (e.g., 10m, 30s, 1h). For meters, use 'mtr' (never use 'm' for meters). Distances: e.g., 500mtr, 2km, 10km.\n"
+        "- Targets: Power percentage (75%, 95-105%), absolute watts (220w, 200-240w), zones (Z2, Z3-Z4). Heart rate: 70% HR, 95% LTHR, Z2 HR. Pace: 60% Pace, Z2 Pace, 5:00/km Pace.\n"
+        "- Cadence (Cycling): Append cadence after target (e.g., `- 10m 75% 90rpm`, `- 12m 85% 90-100rpm`).\n"
+        "- Ramps & Freeride: `- 10m ramp 50%-75%`, `- 15m ramp 60%-90% 85rpm`, `- 20m freeride`.\n"
+        "- Repeats: Use standalone lines or headers (e.g., `Main Set 4x` or `5x`), with one empty line before and after every repeat block. Example:\n"
         "Main Set 4x\n"
-        "- 5m 100%\n"
-        "- 3m 50%\n\n"
-        "Cooldown\n"
-        "- 10m 50%\n\n"
+        "- 2m 95%\n"
+        "- 2m 55%\n\n"
+        "- Text Prompts (Cues): Any text before the first duration becomes the cue text (e.g., `- Warmup 10m 60%`, `- Recovery 3m 50%`).\n"
         "MANDATORY: IF PRESCRIBING WORKOUTS FOR CALENDAR SYNC, ALWAYS INCLUDE A VALID JSON ARRAY inside <icu_weekly_plan> tags matching this exact structure."
     )
 
     contents = [
         {"role": "user", "parts": [{"text": f"SYSTEM CONFIGURATION & CONTEXT:\n{system_instructions}\n\nPlease acknowledge you understand my parameters."}]},
-        {"role": "model", "parts": [{"text": "Understood. I will strictly follow Intervals.icu line-item formatting for all workout descriptions so they parse accurately into step graphs and sync cleanly to MyWhoosh, and I will include the <icu_weekly_plan> JSON block whenever prescribing workouts."}]}
+        {"role": "model", "parts": [{"text": "Understood. I will strictly follow Intervals.icu workout builder syntax rules for all workout descriptions so they parse accurately into step graphs and sync cleanly to MyWhoosh and Intervals.icu, and I will include the <icu_weekly_plan> JSON block whenever prescribing workouts."}]}
     ]
 
     for m in st.session_state.messages[-15:]:
