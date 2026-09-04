@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Fixed Multi-Day Event Date Offset)
+"""AI Performance Coach • Elite Multi-User Suite (Mobile-Optimized Responsive UI)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -215,7 +215,7 @@ def init_state():
 
 init_state()
 
-# --- OBSIDIAN DARK DESIGN SYSTEM ---
+# --- OBSIDIAN DARK DESIGN SYSTEM & MOBILE RESPONSIVE CSS ---
 BG_APP = "#0D1117"
 BG_SIDEBAR = "#161B22"
 BG_CARD = "#161B22"
@@ -227,19 +227,29 @@ TEXT_MUTED = "#8B949E"
 st.markdown(f"""
 <style>
 header[data-testid="stHeader"] {{ background-color: {BG_APP} !important; z-index: 99 !important; }}
-.main .block-container {{ padding-top: 3rem !important; padding-bottom: 6rem !important; max-width: 1000px; }}
+.main .block-container {{ padding-top: 2rem !important; padding-bottom: 5rem !important; max-width: 1000px; padding-left: 1rem !important; padding-right: 1rem !important; }}
 .stApp {{ background-color: {BG_APP} !important; color: {TEXT_PRIMARY} !important; }}
 section[data-testid="stSidebar"] {{ background-color: {BG_SIDEBAR} !important; border-right: 1px solid {BORDER_SUBTLE} !important; }}
 section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !important; }}
 
-.date-badge-col {{ width: 50px; text-align: center; padding-top: 6px; flex-shrink: 0; }}
-.date-day-name {{ font-size: 0.82rem; color: {TEXT_MUTED}; font-weight: 600; text-transform: capitalize; }}
-.date-day-number {{ font-size: 1.5rem; font-weight: 800; color: {TEXT_PRIMARY}; line-height: 1.1; }}
-.metrics-flex-group {{ display: flex; flex-wrap: wrap; gap: 20px; margin-top: 8px; }}
-.metric-box {{ display: flex; flex-direction: column; }}
-.metric-box-label {{ font-size: 0.75rem; color: {TEXT_MUTED}; margin-bottom: 2px; }}
-.metric-box-val {{ font-size: 0.98rem; font-weight: 700; color: {TEXT_PRIMARY}; }}
-.stButton > button[kind="secondary"] {{ background-color: #000000 !important; color: #FFFFFF !important; border: 1px solid #30363D !important; border-radius: 20px !important; padding: 4px 16px !important; font-size: 0.85rem !important; font-weight: 600 !important; }}
+.date-badge-col {{ width: 45px; text-align: center; padding-top: 4px; flex-shrink: 0; }}
+.date-day-name {{ font-size: 0.75rem; color: {TEXT_MUTED}; font-weight: 600; text-transform: capitalize; }}
+.date-day-number {{ font-size: 1.3rem; font-weight: 800; color: {TEXT_PRIMARY}; line-height: 1.1; }}
+.metrics-flex-group {{ display: flex; flex-wrap: wrap; gap: 16px; margin-top: 6px; }}
+.metric-box {{ display: flex; flex-direction: column; min-width: 70px; }}
+.metric-box-label {{ font-size: 0.7rem; color: {TEXT_MUTED}; margin-bottom: 2px; }}
+.metric-box-val {{ font-size: 0.92rem; font-weight: 700; color: {TEXT_PRIMARY}; }}
+.stButton > button[kind="secondary"] {{ background-color: #000000 !important; color: #FFFFFF !important; border: 1px solid #30363D !important; border-radius: 20px !important; padding: 4px 14px !important; font-size: 0.8rem !important; font-weight: 600 !important; }}
+
+/* MOBILE RESPONSIVE MEDIA QUERIES */
+@media screen and (max-width: 768px) {{
+    .main .block-container {{ padding-left: 0.5rem !important; padding-right: 0.5rem !important; padding-top: 1rem !important; }}
+    .metrics-flex-group {{ gap: 10px; }}
+    .metric-box {{ min-width: 55px; }}
+    .metric-box-val {{ font-size: 0.85rem; }}
+    div[data-testid="stHorizontalBlock"] {{ flex-direction: column !important; gap: 8px !important; }}
+    .stButton > button {{ width: 100% !important; margin-bottom: 4px !important; }}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -267,7 +277,7 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
 def render_auth_onboarding_gate():
     st.markdown("##### 🔐 AI Performance Coach • Multi-User Portal")
     
-    auth_tab_owner, auth_tab_new = st.tabs(["🔑 Owner Login (Supabase / Secrets)", "👤 New User Onboarding"])
+    auth_tab_owner, auth_tab_new = st.tabs(["🔑 Owner Login", "👤 New User Onboarding"])
 
     with auth_tab_owner:
         with st.form("owner_login_form"):
@@ -1199,7 +1209,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                 final_title = event_title_input.strip() or f"[{status_type}]"
                 cat_tag = "WORKOUT" if "Workout" in status_type else "NOTE"
                 
-                # FIX: Add 1 day to end_date so Intervals.icu inclusive range captures the full final day
                 corrected_end_d = end_d + dt.timedelta(days=1)
 
                 payload = {
