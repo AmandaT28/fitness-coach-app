@@ -1186,11 +1186,11 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                         w_date = w_item.get('date', w_item.get('start_date_local', ''))
                         w_type = w_item.get('type', 'Ride')
 
-                    st.markdown(f"""
-                    <div style="background:{BG_CARD}; border:1px solid {BORDER_SUBTLE}; border-radius:8px; padding:10px 14px; margin-bottom:8px;">
-                        <p style="margin:0; font-size:0.9rem; font-weight:600; color:{TEXT_PRIMARY};">📅 {w_date} &nbsp;·&nbsp; {w_type} &nbsp;·&nbsp; {w_name}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                        st.markdown(f"""
+                        <div style="background:{BG_CARD}; border:1px solid {BORDER_SUBTLE}; border-radius:8px; padding:10px 14px; margin-bottom:8px;">
+                            <p style="margin:0; font-size:0.9rem; font-weight:600; color:{TEXT_PRIMARY};">📅 {w_date} &nbsp;·&nbsp; {w_type} &nbsp;·&nbsp; {w_name}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
                     
                     btn_key = f"approve_sync_{idx}"
                     if st.button("🚀 Sync Bulk Workouts Directly to Intervals.icu Calendar", key=btn_key, type="primary", use_container_width=True):
