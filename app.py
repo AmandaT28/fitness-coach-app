@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Anti-Hallucination & Clear History Restored)
+"""AI Performance Coach • Elite Multi-User Suite (Trip Awareness & Workout JSON Enforcer)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -311,7 +311,7 @@ def render_auth_onboarding_gate():
                 st.session_state.user_supplements = u_store.get("user_supplements") or []
                 st.session_state.chat_sessions = u_store.get("chat_sessions") or {"Main Conversation": []}
                 st.session_state.active_session_id = u_store.get("active_session_id", "Main Conversation")
-                st.session_state.messages = st.session_state.chat_sessions.get(st.session_state.active_session_id, [])
+                st.session_state.messages = u_store.get("chat_sessions", {}).get(st.session_state.active_session_id, [])
                 st.session_state.protected_events = u_store.get("protected_events", [])
                 st.session_state.cached_trend_analyses = u_store.get("cached_trend_analyses", [])
                 st.session_state.user_credentials = {
@@ -615,11 +615,11 @@ def check_scheduling_safety(target_date_str: str, protected_events: List[Dict[st
             continue
     return True, "Date is clear for scheduling."
 
-# --- AI ENGINE (ANTI-HALLUCINATION GROUNDED) ---
+# --- AI ENGINE ---
 def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_name: str, max_tokens: int = 9000) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-    payload = {"contents": messages_payload, "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.2}} # Lowered temperature to minimize hallucination
+    payload = {"contents": messages_payload, "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3}}
     response = requests.post(url, headers=headers, json=payload, timeout=AI_TIMEOUT)
     if response.status_code == 429:
         raise RuntimeError(f"Quota/Rate Limit exceeded on {model_name}.")
@@ -779,9 +779,6 @@ def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: st
 
 def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[str] = None):
     today = dt.datetime.now(LOCAL_TZ).date()
-    next_monday = today + dt.timedelta(days=(0 - today.weekday()) % 7)
-    if next_monday == today: next_monday += dt.timedelta(days=7)
-    next_monday_str = next_monday.isoformat()
     try:
         weeks_to_race = max(0, (dt.date.fromisoformat(st.session_state.profile_data['goals']['race_date']) - today).days // 7)
     except Exception:
@@ -800,23 +797,30 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
 
     memory_ctx = st.session_state.get('coach_memory') or 'No memory.'
     supplements_str = json.dumps(st.session_state.user_supplements, ensure_ascii=False) if st.session_state.user_supplements else 'N/A'
+    
+    # Inject protected events (travel / away days) directly into context
+    protected_events = st.session_state.get("protected_events", [])
+    protected_str = json.dumps(protected_events, ensure_ascii=False) if protected_events else "No upcoming travel/out-of-town days logged."
+    
     gpx_injection = f"\n\n📂 ATTACHED GPX ROUTE:\n{gpx_content[:15000]}" if gpx_content else ""
 
-    # STRICT ANTI-HALLUCINATION GUARDRAILS INJECTED HERE
     system_instructions = (
         f"You are an elite multi-sport coach. Persona: {st.session_state.coach_persona}\n"
         f"Athlete: {st.session_state.profile_data.get('name', 'Athlete')} | Goal: {st.session_state.profile_data['goals']['target_metric']}\n"
         f"Declared FTP: {st.session_state.profile_data.get('declared_ftp')}W | Weight: {st.session_state.profile_data.get('weight_kg')}kg\n"
-        f"{gatekeeper_directive}\nLONG-TERM MEMORY:\n{memory_ctx}\nSUPPLEMENTS: {supplements_str}{gpx_injection}\n\n"
-        "STRICT GROUNDING & ANTI-HALLUCINATION RULES:\n"
-        "1. Never invent or assume workout metrics, power numbers, past activity details, or physiological scores not provided in the context.\n"
-        "2. If specific data is missing or unavailable, explicitly state that you lack the required data points rather than guessing or creating hypothetical values.\n"
-        "3. Base all training recommendations strictly on the provided CTL, ATL, TSB, sleep, HRV, and declared FTP values."
+        f"{gatekeeper_directive}\n"
+        f"UPCOMING TRAVEL / OUT-OF-TOWN / REST DATES:\n{protected_str}\n\n"
+        f"LONG-TERM MEMORY:\n{memory_ctx}\nSUPPLEMENTS: {supplements_str}{gpx_injection}\n\n"
+        "MANDATORY WORKOUT GENERATION & FORMATTING RULES:\n"
+        "1. Whenever prescribing structured workouts, you MUST enclose the JSON array inside an <icu_weekly_plan>...</icu_weekly_plan> block.\n"
+        "2. JSON structure required: `[{\"date\": \"YYYY-MM-DD\", \"type\": \"Ride\"||\"Run\"||\"WeightTraining\", \"title\": \"Workout Title\", \"description\": \"Step 1\\nStep 2\"}]`.\n"
+        "3. Strictly respect the user's out-of-town/travel days listed above. Do not schedule heavy bike workouts on travel days.\n"
+        "4. Never hallucinate numbers or unverified history."
     )
 
     contents = [
         {"role": "user", "parts": [{"text": f"SYSTEM CONFIG:\n{system_instructions}"}]},
-        {"role": "model", "parts": [{"text": "Understood. I will strictly ground all responses in the provided athlete data and never hallucinate numbers or unverified history."}]}
+        {"role": "model", "parts": [{"text": "Understood. I have your travel days, biometrics, and memory loaded. I will output structured workouts in <icu_weekly_plan> tags."}]}
     ]
     for m in st.session_state.messages[-15:]:
         contents.append({"role": "user" if m["role"] == "user" else "model", "parts": [{"text": clean_chat_content(str(m["content"])) if m["role"] == "model" else str(m["content"])[:2500]}]})
@@ -874,7 +878,6 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    # RESTORED CLEAR ACTIVE THREAD HISTORY BUTTON
     if st.button("🧹 Clear Active Thread History", use_container_width=True, key="sidebar_clear_thread_btn"):
         st.session_state.messages = []
         if st.session_state.active_session_id in st.session_state.chat_sessions:
