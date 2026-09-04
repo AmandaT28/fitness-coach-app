@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Forced Logout & UI/UX Typography)
+"""AI Performance Coach • Elite Multi-User Suite (Template-Driven Onboarding & UI/UX Typography)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -82,42 +82,37 @@ PERSONA_OPTIONS = [
     "Drill Sergeant (Strict & Direct Accountability)"
 ]
 
-DEFAULT_PROFILE = {
-    "name": "Amanda Tan",
+# EMPTY / GUIDED TEMPLATES FOR NEW USERS
+EMPTY_PROFILE = {
+    "name": "",
     "gender": "Female",
-    "age": 43,
-    "weight_kg": 54.0,
-    "declared_ftp": 180,
-    "estimated_ftp": 185,
-    "max_hr": 182,
-    "resting_hr": 52,
+    "age": 30,
+    "weight_kg": 60.0,
+    "declared_ftp": 200,
+    "estimated_ftp": 200,
+    "max_hr": 190,
+    "resting_hr": 50,
     "running_threshold_pace_sec": 300,
     "unit_system": "Metric",
-    "rest_days": ["Friday"],
+    "rest_days": ["Monday"],
     "primary_sports": ["Cycling", "Running"],
     "goals": {
-        "event_name": "Bintan Multi-Sport Challenge",
-        "target_metric": "Build threshold power on Cervélo Soloist and running fatigue resistance",
-        "race_date": "2026-10-24"
+        "event_name": "",
+        "target_metric": "",
+        "race_date": "2026-12-31"
     }
 }
 
-DEFAULT_SUPPLEMENTS = [
-    {"name": "Omega-3 Fish Oil", "dosage": "2000 mg", "timing": "Morning with meal", "purpose": "Anti-inflammatory & Recovery"},
-    {"name": "Magnesium Glycinate", "dosage": "400 mg", "timing": "30 mins before sleep", "purpose": "Muscle Relaxation & Sleep Quality"},
-    {"name": "Vitamin D3 + K2", "dosage": "5000 IU", "timing": "Morning with fats", "purpose": "Bone density & Immune support"},
-    {"name": "Creatine Monohydrate", "dosage": "5 g", "timing": "Post-workout", "purpose": "Power output & Cell hydration"}
-]
-
-DEFAULT_COACH_MEMORY = (
-    "• Equipment: Size 48 Cervélo Soloist (6.9kg) with THE ONE PRO Aero Carbon handlebars, "
-    "BBInfinite Ceramic BB, S-Works Power Pro Mirror saddle, Magene TEO P515 carbon power meter crank (160mm, 50-34T), "
-    "Dura-Ace 11-34 cassette & chain, Speedplay titanium pedals, Garmin Edge 530.\n"
-    "• Training Routine: Saturday club rides, Sunday recovery/social rides, mid-week structured indoor sessions.\n"
-    "• Key Focus Areas: Build sustained FTP density, maintain aerobic efficiency, protect joint recovery on running sessions.\n"
-    "• Athlete Limitations & Health Constraints: Protect joint impact during run sessions (monitor high ground contact/knee load); "
-    "avoid high fatigue spikes (ACWR > 1.35); protect strict rest days (Fridays); manage neck/lower-back loading in prolonged aero positions.\n"
-    "• Platforms: Intervals.icu primary hub, auto-synced to MyWhoosh for indoor virtual cycling."
+EMPTY_COACH_MEMORY = (
+    "• Equipment Setup:\n"
+    "  - Bike: (e.g., Brand, size, wheel depth, power meter, pedal type)\n"
+    "  - Running: (e.g., Shoe rotation, orthotics)\n\n"
+    "• Training Routine & Preferences:\n"
+    "  - Weekly pattern: (e.g., Saturday club rides, Wednesday intervals, Sunday recovery)\n"
+    "  - Preferred riding/running zones and structures\n\n"
+    "• Health Constraints & Limitations:\n"
+    "  - Past injuries or joint sensitivities (e.g., knee impact care, lower-back strain in aero)\n"
+    "  - Hard limits on training load or mandatory rest days"
 )
 
 localS = LocalStorage() if LocalStorage else None
@@ -201,9 +196,9 @@ def init_state():
         "messages": active_msgs,
         "active_nav": NAV_OPTIONS[0],
         "coach_persona": u_data.get("coach_persona", PERSONA_OPTIONS[0]),
-        "profile_data": u_data.get("profile_data") or DEFAULT_PROFILE.copy(),
-        "coach_memory": u_data.get("coach_memory") or DEFAULT_COACH_MEMORY,
-        "user_supplements": u_data.get("user_supplements") or DEFAULT_SUPPLEMENTS.copy(),
+        "profile_data": u_data.get("profile_data") or EMPTY_PROFILE.copy(),
+        "coach_memory": u_data.get("coach_memory") or EMPTY_COACH_MEMORY,
+        "user_supplements": u_data.get("user_supplements") or [],
         "protected_events": u_data.get("protected_events", []),
         "cached_trend_analyses": u_data.get("cached_trend_analyses", []),
         "pending_coach_prompt": None,
@@ -300,9 +295,9 @@ def render_auth_onboarding_gate():
                     st.session_state.logged_out_explicitly = False
                     
                     u_store = st.session_state.get("user_store", {}).get("owner_primary", {})
-                    st.session_state.profile_data = u_store.get("profile_data") or DEFAULT_PROFILE.copy()
-                    st.session_state.coach_memory = u_store.get("coach_memory") or DEFAULT_COACH_MEMORY
-                    st.session_state.user_supplements = u_store.get("user_supplements") or DEFAULT_SUPPLEMENTS.copy()
+                    st.session_state.profile_data = u_store.get("profile_data") or EMPTY_PROFILE.copy()
+                    st.session_state.coach_memory = u_store.get("coach_memory") or EMPTY_COACH_MEMORY
+                    st.session_state.user_supplements = u_store.get("user_supplements") or []
                     st.session_state.chat_sessions = u_store.get("chat_sessions") or {"Main Conversation": []}
                     st.session_state.active_session_id = u_store.get("active_session_id", "Main Conversation")
                     st.session_state.messages = st.session_state.chat_sessions.get(st.session_state.active_session_id, [])
@@ -310,7 +305,7 @@ def render_auth_onboarding_gate():
                     st.session_state.cached_trend_analyses = u_store.get("cached_trend_analyses", [])
 
                     st.session_state.user_credentials = {
-                        "name": DEFAULT_PROFILE["name"],
+                        "name": "Owner Athlete",
                         "icu_key": secret("INTERVALS_API_KEY") or "",
                         "icu_id": secret("INTERVALS_ATHLETE_ID") or "",
                         "mode": "Owner Suite"
@@ -324,12 +319,12 @@ def render_auth_onboarding_gate():
     with auth_tab_new:
         st.markdown("Register your profile and connect your Intervals.icu account for personalized AI coaching.")
         with st.form("new_user_onboarding_form"):
-            u_name = st.text_input("Full Name", placeholder="e.g. John Doe")
-            u_email = st.text_input("Email Address", placeholder="e.g. john@example.com")
+            u_name = st.text_input("Full Name", placeholder="e.g. Alex Mercer")
+            u_email = st.text_input("Email Address", placeholder="e.g. alex@example.com")
             u_key = st.text_input("Intervals.icu API Key", type="password", placeholder="Paste your Intervals API Key")
             u_id = st.text_input("Intervals.icu Athlete ID", placeholder="e.g. i12345")
-            u_ftp = st.number_input("Declared FTP (W)", value=200, step=5)
-            u_weight = st.number_input("Weight (kg)", value=65.0, step=0.5)
+            u_ftp = st.number_input("Declared FTP (W)", value=220, step=5)
+            u_weight = st.number_input("Weight (kg)", value=68.0, step=0.5)
             
             if st.form_submit_button("Complete Onboarding & Launch Suite", use_container_width=True):
                 if u_name.strip() and u_key.strip() and u_id.strip():
@@ -337,14 +332,14 @@ def render_auth_onboarding_gate():
                     st.session_state.active_user_id = user_slug
                     st.session_state.logged_out_explicitly = False
                     
-                    custom_profile = DEFAULT_PROFILE.copy()
+                    custom_profile = EMPTY_PROFILE.copy()
                     custom_profile["name"] = u_name.strip()
                     custom_profile["declared_ftp"] = int(u_ftp)
                     custom_profile["weight_kg"] = float(u_weight)
                     
                     st.session_state.profile_data = custom_profile
-                    st.session_state.coach_memory = DEFAULT_COACH_MEMORY
-                    st.session_state.user_supplements = DEFAULT_SUPPLEMENTS.copy()
+                    st.session_state.coach_memory = EMPTY_COACH_MEMORY
+                    st.session_state.user_supplements = []
                     st.session_state.chat_sessions = {"Main Conversation": []}
                     st.session_state.active_session_id = "Main Conversation"
                     st.session_state.messages = []
@@ -952,7 +947,7 @@ with st.sidebar:
     with col_t_new:
         with st.popover("➕ New Thread", use_container_width=True):
             with st.form("create_thread_form"):
-                new_thread_title = st.text_input("Thread Title", placeholder="e.g. Bintan Prep")
+                new_thread_title = st.text_input("Thread Title", placeholder="e.g. Race Prep")
                 if st.form_submit_button("Create", use_container_width=True):
                     title_clean = new_thread_title.strip()
                     if title_clean:
@@ -1049,7 +1044,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
     m1.metric("Fitness (CTL)", f"{ctl:.1f}", delta="Aerobic Base")
     m2.metric("Fatigue (ATL)", f"{atl:.1f}", delta="Recent Load")
     m3.metric("Form (TSB)", f"{tsb:.1f}", delta="Freshness")
-    m4.metric("Declared FTP", f"{prof['declared_ftp']} W", delta=f"{prof['declared_ftp']/prof['weight_kg']:.2f} W/kg" if prof.get('weight_kg') else "")
+    m4.metric("Declared FTP", f"{prof['declared_ftp']} W", delta=f"{prof['declared_ftp']/prof['weight_kg']:.2f} W/kg" if prof.get('weight_kg') and prof.get('weight_kg', 0) > 0 else "")
 
     st.divider()
 
@@ -1530,19 +1525,20 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
     ])
 
     with tab_bio:
+        st.caption("💡 Tip: Enter your current physiological numbers to ensure accurate training zones and power-to-weight ratio calculations.")
         with st.form("form_biometrics"):
             c1, c2 = st.columns(2)
-            name_val = c1.text_input("Name", value=prof.get("name", ""))
-            gender_val = c2.selectbox("Gender", ["Female", "Male", "Other"], index=0 if prof.get("gender") == "Female" else 1)
+            name_val = c1.text_input("Name", value=prof.get("name", ""), placeholder="e.g. Alex Mercer")
+            gender_val = c2.selectbox("Gender", ["Female", "Male", "Other"], index=0 if prof.get("gender") == "Female" else (1 if prof.get("gender") == "Male" else 2))
             
             c3, c4, c5 = st.columns(3)
-            age_val = c3.number_input("Age", value=int(prof.get("age", 30)))
-            weight_val = c4.number_input("Weight (kg)", value=float(prof.get("weight_kg", 65.0)), step=0.5)
-            ftp_val = c5.number_input("Declared FTP (W)", value=int(prof.get("declared_ftp", 200)))
+            age_val = c3.number_input("Age", value=int(prof.get("age", 30)), min_value=10, max_value=100)
+            weight_val = c4.number_input("Weight (kg)", value=float(prof.get("weight_kg", 68.0)), step=0.5, min_value=30.0, max_value=200.0)
+            ftp_val = c5.number_input("Declared FTP (W)", value=int(prof.get("declared_ftp", 220)), min_value=50, max_value=500)
             
             c6, c7 = st.columns(2)
-            max_hr_val = c6.number_input("Max Heart Rate (bpm)", value=int(prof.get("max_hr", 190)))
-            rhr_val = c7.number_input("Resting Heart Rate (bpm)", value=int(prof.get("resting_hr", 50)))
+            max_hr_val = c6.number_input("Max Heart Rate (bpm)", value=int(prof.get("max_hr", 190)), min_value=100, max_value=220)
+            rhr_val = c7.number_input("Resting Heart Rate (bpm)", value=int(prof.get("resting_hr", 50)), min_value=30, max_value=100)
 
             if st.form_submit_button("Save Biometrics"):
                 st.session_state.profile_data.update({
@@ -1555,10 +1551,11 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
                 st.rerun()
 
     with tab_goals:
+        st.caption("💡 Tip: Define your primary target event and date so the AI coach can automatically tailor periodization phases (Base, Build, Peak, Taper).")
         with st.form("form_goals"):
-            ev_name = st.text_input("Target Event Name", value=goals.get("event_name", "Target Event"))
-            ev_date = st.text_input("Race Date (YYYY-MM-DD)", value=goals.get("race_date", dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")))
-            ev_target = st.text_area("Primary Objective / Target Metric", value=goals.get("target_metric", "Improve performance"))
+            ev_name = st.text_input("Target Event Name", value=goals.get("event_name", ""), placeholder="e.g. Ironman 70.3 / Gran Fondo Singapore")
+            ev_date = st.text_input("Race Date (YYYY-MM-DD)", value=goals.get("race_date", "2026-11-15"), placeholder="YYYY-MM-DD")
+            ev_target = st.text_area("Primary Objective / Target Metric", value=goals.get("target_metric", ""), placeholder="e.g. Sub-5 hour bike split, increase threshold power, build run durability.")
             
             if st.form_submit_button("Save Target Goals"):
                 st.session_state.profile_data["goals"] = {
@@ -1569,6 +1566,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
                 st.rerun()
 
     with tab_memory:
+        st.caption("💡 Tip: Detail your bike build specifications, preferred training schedule, and any physical constraints or injuries for the AI to factor into coaching recommendations.")
         updated_memory = st.text_area(
             "Persistent Coach Notes & Athlete Limitations",
             value=st.session_state.coach_memory,
@@ -1582,24 +1580,30 @@ elif st.session_state.active_nav == NAV_OPTIONS[3]:
 
     with tab_supps:
         supps = st.session_state.user_supplements
-        for idx, s in enumerate(supps):
-            col_s1, col_s2, col_s3, col_s4 = st.columns([2, 1, 2, 1])
-            col_s1.markdown(f"**{s['name']}**")
-            col_s2.caption(s.get('dosage', s.get('timing', '')))
-            col_s3.caption(f"🕒 {s.get('timing', '')}")
-            if col_s4.button("❌", key=f"del_supp_{idx}"):
-                st.session_state.user_supplements.pop(idx)
-                save_disk_store()
-                st.rerun()
+        if not supps:
+            st.info("No supplements logged yet. Use the guide below to add your daily nutritional supplements and timing.")
+        else:
+            st.markdown("###### Current Supplement Stack")
+            for idx, s in enumerate(supps):
+                col_s1, col_s2, col_s3, col_s4 = st.columns([2, 1, 2, 1])
+                col_s1.markdown(f"**{s['name']}**")
+                col_s2.caption(s.get('dosage', ''))
+                col_s3.caption(f"🕒 {s.get('timing', '')}")
+                if col_s4.button("❌", key=f"del_supp_{idx}"):
+                    st.session_state.user_supplements.pop(idx)
+                    save_disk_store()
+                    st.rerun()
 
         st.divider()
+        st.markdown("###### ➕ Add Supplement to Protocol")
+        st.caption("Sample guide: Name: `Omega-3 Fish Oil`, Dosage: `2000 mg`, Timing: `Morning with meal`, Purpose: `Anti-inflammatory & Recovery`")
         with st.form("form_add_supp"):
             c_n1, c_n2 = st.columns(2)
-            s_name = c_n1.text_input("Supplement Name")
-            s_dose = c_n2.text_input("Dosage (e.g. 500 mg)")
+            s_name = c_n1.text_input("Supplement Name", placeholder="e.g. Creatine Monohydrate")
+            s_dose = c_n2.text_input("Dosage", placeholder="e.g. 5 g")
             c_n3, c_n4 = st.columns(2)
-            s_time = c_n3.text_input("Timing (e.g. Morning with meal)")
-            s_purp = c_n4.text_input("Purpose / Target Effect")
+            s_time = c_n3.text_input("Timing", placeholder="e.g. Post-workout")
+            s_purp = c_n4.text_input("Purpose / Target Effect", placeholder="e.g. Power output & Cell hydration")
             
             if st.form_submit_button("Add to Protocol"):
                 if s_name.strip():
