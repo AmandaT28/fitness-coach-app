@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Inline Mark Completed & Event Management)
+"""AI Performance Coach • Elite Multi-User Suite (Fixed Multi-Day Event Date Offset)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -1198,11 +1198,15 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
             if st.form_submit_button("Log to App & Intervals.icu", use_container_width=True):
                 final_title = event_title_input.strip() or f"[{status_type}]"
                 cat_tag = "WORKOUT" if "Workout" in status_type else "NOTE"
+                
+                # FIX: Add 1 day to end_date so Intervals.icu inclusive range captures the full final day
+                corrected_end_d = end_d + dt.timedelta(days=1)
+
                 payload = {
                     "category": cat_tag,
                     "type": "WeightTraining" if "Workout" in status_type else "Note",
                     "start_date_local": start_d.isoformat() + "T08:00:00",
-                    "end_date_local": end_d.isoformat() + "T08:00:00",
+                    "end_date_local": corrected_end_d.isoformat() + "T08:00:00",
                     "name": final_title,
                     "description": status_notes or status_type
                 }
@@ -1417,7 +1421,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                             """, unsafe_allow_html=True)
 
                                         with c_m2:
-                                            button_unique_key = f"rev_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"
+                                            button_unique_key = f"rev_{item['id']}_{date_str}_{week_idx}_{item_idx}"
                                             if st.button("💬 Review & Inspect", key=button_unique_key, type="secondary"):
                                                 st.session_state.pending_coach_prompt = (
                                                     f"Please run a deep activity inspection on my {item['name']} session "
@@ -1437,16 +1441,14 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                             st.markdown("---")
                                             st.markdown(f"**Notes:** {raw_desc}")
 
-                                        # --- INLINE ACTION BUTTONS (MARK COMPLETED & DELETE) ---
                                         st.markdown("---")
                                         col_act_comp, col_act_del, _ = st.columns([2, 2, 2])
                                         raw_id_str = str(item.get("raw", {}).get("id", ""))
                                         
                                         if item["status"] == "Planned" and raw_id_str:
-                                            comp_btn_key = f"comp_planned_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"
+                                            comp_btn_key = f"comp_planned_{item['id']}_{date_str}_{week_idx}_{item_idx}"
                                             if col_act_comp.button("💪 Mark Completed", key=comp_btn_key, type="primary"):
                                                 try:
-                                                    # Post completed activity status to Intervals.icu activities endpoint
                                                     act_payload = {
                                                         "start_date_local": item["raw"].get("start_date_local") or f"{item['date_str']}T08:00:00",
                                                         "type": item["raw"].get("type", "WeightTraining"),
@@ -1465,7 +1467,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                                 except Exception as exc:
                                                     st.error(f"Error syncing completed workout: {exc}")
 
-                                            del_btn_key = f"del_planned_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"
+                                            del_btn_key = f"del_planned_{item['id']}_{date_str}_{week_idx}_{item_idx}"
                                             if col_act_del.button("🗑️ Delete Workout", key=del_btn_key, type="secondary"):
                                                 try:
                                                     del_res = requests.delete(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events/{raw_id_str}", auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
@@ -1482,7 +1484,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                             prot_idx_match = re.search(r"prot_(\d+)_", item["id"])
                                             if prot_idx_match:
                                                 p_target_idx = int(prot_idx_match.group(1))
-                                                del_prot_key = f"del_prot_{p_target_idx}_{m_year}_{m_month}_{week_idx}_{item_idx}"
+                                                del_prot_key = f"del_prot_{p_target_idx}_{item['id']}_{date_str}_{week_idx}_{item_idx}"
                                                 if col_act_del.button("🗑️ Delete Event", key=del_prot_key, type="secondary"):
                                                     if p_target_idx < len(st.session_state.protected_events):
                                                         st.session_state.protected_events.pop(p_target_idx)
