@@ -913,7 +913,7 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
     if gpx_content:
         gpx_injection = f"\n\n📂 ATTACHED GPX ROUTE DATA FOR ANALYSIS:\n{gpx_content[:15000]}\n(Analyze route elevation profile, climbs, descents, and provide precise pacing, gear strategy, and nutrition timing relative to FTP.)"
 
-    system_instructions = (
+   system_instructions = (
         f"You are an elite multi-sport (cycling and running) coach with full calendar integration and GPX route analysis capabilities.\n"
         f"Persona: {st.session_state.coach_persona}\n"
         f"Athlete: {st.session_state.profile_data.get('name', 'Athlete')} | Discipline Focus: Cycling & Running\n"
@@ -926,12 +926,11 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
         f"Supplements & Fueling: {supplements_str}\n"
         f"90-DAY TREND SYNTHESIS:\n{trend_ctx}\n"
         f"{gpx_injection}\n\n"
-        "MANDATORY WORKOUT FORMATTING INSTRUCTION:\n"
-        "- Structured workout syntax need to follow the exact strict line-item formatting required by Intervals.icu so that power graphs, target zones, cadence and interval steps display accurately and auto-sync directly to MyWhoosh without parser errors.\n"
-        "- Use exact duration units: 'm' for minutes, 's' for seconds, 'h' for hours (e.g., 10m, 30s).\n"
-        "- Use percentage of FTP or target zone directly next to the duration (e.g., 50% or 50-75%).\n"
-        "- For intervals, declare the repetition count on its own line followed by 'x' (e.g., 4x), with each step inside the set starting with a hyphen '-' and indented or listed on successive lines.\n"
-        "- Example Workout Description:\n"
+        "MANDATORY INTERVALS.ICU WORKOUT SYNTAX:\n"
+        "- Section headers (Warmup, Main Set, Cooldown) must be on their own separate lines without hyphens.\n"
+        "- Repeat blocks must be written as a number followed by 'x' on its own line (e.g., `4x`), with a blank line before and after.\n"
+        "- Step lines must begin with a hyphen and space (- ), followed immediately by duration (e.g., 10m, 30s) and target percentage of FTP (e.g., 50%, 95-105%).\n"
+        "- Example Exact Syntax:\n"
         "Warmup\n"
         "- 10m 50%\n"
         "- 5m 70%\n\n"
