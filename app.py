@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Mobile-Optimized Responsive UI)
+"""AI Performance Coach • Elite Multi-User Suite (UI/UX Optimized Mobile Typography)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -215,7 +215,7 @@ def init_state():
 
 init_state()
 
-# --- OBSIDIAN DARK DESIGN SYSTEM & MOBILE RESPONSIVE CSS ---
+# --- OBSIDIAN DARK DESIGN SYSTEM & UI/UX TYPOGRAPHY ---
 BG_APP = "#0D1117"
 BG_SIDEBAR = "#161B22"
 BG_CARD = "#161B22"
@@ -231,6 +231,12 @@ header[data-testid="stHeader"] {{ background-color: {BG_APP} !important; z-index
 .stApp {{ background-color: {BG_APP} !important; color: {TEXT_PRIMARY} !important; }}
 section[data-testid="stSidebar"] {{ background-color: {BG_SIDEBAR} !important; border-right: 1px solid {BORDER_SUBTLE} !important; }}
 section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !important; }}
+
+/* UI/UX OPTIMIZED METRIC CARD TYPOGRAPHY (SCALED DOWN FOR MOBILE/DESKTOP) */
+div[data-testid="stMetric"] {{ background-color: {BG_CARD}; border: 1px solid {BORDER_SUBTLE}; padding: 10px 14px; border-radius: 10px; }}
+div[data-testid="stMetric"] label {{ font-size: 0.75rem !important; color: {TEXT_MUTED} !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: 0.04em; }}
+div[data-testid="stMetric"] [data-testid="stMetricValue"] {{ font-size: 1.25rem !important; font-weight: 700 !important; color: {TEXT_PRIMARY} !important; }}
+div[data-testid="stMetric"] [data-testid="stMetricDelta"] {{ font-size: 0.72rem !important; }}
 
 .date-badge-col {{ width: 45px; text-align: center; padding-top: 4px; flex-shrink: 0; }}
 .date-day-name {{ font-size: 0.75rem; color: {TEXT_MUTED}; font-weight: 600; text-transform: capitalize; }}
@@ -249,6 +255,7 @@ section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !import
     .metric-box-val {{ font-size: 0.85rem; }}
     div[data-testid="stHorizontalBlock"] {{ flex-direction: column !important; gap: 8px !important; }}
     .stButton > button {{ width: 100% !important; margin-bottom: 4px !important; }}
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {{ font-size: 1.1rem !important; }}
 }}
 </style>
 """, unsafe_allow_html=True)
