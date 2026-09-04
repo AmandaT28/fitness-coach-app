@@ -116,8 +116,32 @@ EMPTY_COACH_MEMORY = (
 
 localS = LocalStorage() if LocalStorage else None
 
-# --- MULTI-USER PERSISTENCE & LOGIN MEMORY ENGINE ---
+# --- MULTI-USER PERSISTENCE & LOGIN MEMORY ENGINE (SUPABASE ENABLED) ---
 def load_disk_store() -> Dict[str, Any]:
+    if supabase_client:
+        try:
+            res = supabase_client.table("athlete_store").select("*").execute()
+            if res.data:
+                store = {}
+                last_active = "owner_primary"
+                logged_out = False
+                for row in res.data:
+                    u_id = row.get("user_id")
+                    payload = row.get("data", {})
+                    if u_id == "master_meta":
+                        last_active = payload.get("last_active_user_id", "owner_primary")
+                        logged_out = payload.get("logged_out_explicitly", False)
+                    else:
+                        store[u_id] = payload
+                if store:
+                    return {
+                        "last_active_user_id": last_active,
+                        "logged_out_explicitly": logged_out,
+                        "user_store": store
+                    }
+        except Exception:
+            pass
+
     if os.path.exists(PERSIST_FILE):
         try:
             with open(PERSIST_FILE, "r") as f:
@@ -139,7 +163,7 @@ def save_disk_store():
     else:
         st.session_state.chat_sessions[active_s_id] = st.session_state.get("messages", [])
 
-    st.session_state.user_store[active_user] = {
+    user_payload = {
         "profile_data": st.session_state.get("profile_data"),
         "coach_persona": st.session_state.get("coach_persona"),
         "coach_memory": st.session_state.get("coach_memory"),
@@ -151,6 +175,7 @@ def save_disk_store():
         "protected_events": st.session_state.get("protected_events", []),
         "user_credentials": st.session_state.get("user_credentials")
     }
+    st.session_state.user_store[active_user] = user_payload
 
     master_payload = {
         "last_active_user_id": active_user,
@@ -167,6 +192,23 @@ def save_disk_store():
     if localS:
         try:
             localS.setItem("athlete_multi_user_master", master_payload)
+        except Exception:
+            pass
+
+    if supabase_client:
+        try:
+            supabase_client.table("athlete_store").upsert({
+                "user_id": active_user,
+                "data": user_payload
+            }).execute()
+            
+            supabase_client.table("athlete_store").upsert({
+                "user_id": "master_meta",
+                "data": {
+                    "last_active_user_id": active_user,
+                    "logged_out_explicitly": st.session_state.get("logged_out_explicitly", False)
+                }
+            }).execute()
         except Exception:
             pass
 
@@ -302,7 +344,7 @@ def render_auth_onboarding_gate():
 
     with auth_tab_select:
         if existing_users:
-            st.markdown("Select an existing profile stored on this device:")
+            st.markdown("Select an existing profile stored on this device / Supabase:")
             with st.form("quick_select_user_form"):
                 chosen_user = st.selectbox("Registered Profiles", existing_users)
                 if st.form_submit_button("Resume Selected Profile", use_container_width=True):
@@ -325,7 +367,7 @@ def render_auth_onboarding_gate():
                     time.sleep(0.5)
                     st.rerun()
         else:
-            st.info("No saved profiles found on this device yet. Please register via New User Onboarding.")
+            st.info("No saved profiles found yet. Please register via New User Onboarding.")
 
     with auth_tab_owner:
         with st.form("owner_login_form"):
