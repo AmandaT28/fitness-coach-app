@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Fixed Sidebar Navigation & Thread Isolation)
+"""AI Performance Coach • Elite Multi-User Suite (Integrated Direct Calendar Event Delete & Edit)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -637,6 +637,8 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
 
         items.append({
             "id": f"act_{act.get('id')}",
+            "item_id": act.get("id"),
+            "source_type": "activity",
             "date_str": dt_obj.strftime("%Y-%m-%d"),
             "datetime": dt_obj,
             "status": "Completed",
@@ -677,6 +679,8 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
                 
                 items.append({
                     "id": f"plan_{ev.get('id')}_{curr_dt.isoformat()}",
+                    "item_id": ev.get("id"),
+                    "source_type": "event",
                     "date_str": dt_obj.strftime("%Y-%m-%d"),
                     "datetime": dt_obj,
                     "status": "Planned" if not is_note else "Event / Trip",
@@ -708,6 +712,8 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
             dt_obj = dt.datetime(curr_dt.year, curr_dt.month, curr_dt.day, 8, 0, 0)
             items.append({
                 "id": f"prot_{idx}_{curr_dt.isoformat()}",
+                "item_id": idx,
+                "source_type": "protected",
                 "date_str": dt_obj.strftime("%Y-%m-%d"),
                 "datetime": dt_obj,
                 "status": "Event / Trip",
@@ -1207,53 +1213,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                 time.sleep(1)
                 st.rerun()
 
-    if st.session_state.get("protected_events"):
-        with st.expander("⚙️ Manage / Edit / Delete Logged Events", expanded=False):
-            for p_idx, p_ev in enumerate(st.session_state.protected_events):
-                st.markdown(f"**{p_ev.get('title')}** ({p_ev.get('category')} · {p_ev.get('start_date')} to {p_ev.get('end_date')})")
-                with st.form(f"edit_prot_event_{p_idx}"):
-                    ed_title = st.text_input("Event Name", value=p_ev.get("title", ""), key=f"ed_t_{p_idx}")
-                    ed_cat = st.selectbox("Category", ["Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"], index=["Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"].index(p_ev.get("category", "Race / Event")) if p_ev.get("category") in ["Race / Event", "Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"] else 0, key=f"ed_c_{p_idx}")
-                    
-                    ec1, ec2 = st.columns(2)
-                    try:
-                        def_start = dt.date.fromisoformat(p_ev.get("start_date", dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")))
-                    except Exception:
-                        def_start = dt.datetime.now(LOCAL_TZ).date()
-                    try:
-                        def_end = dt.date.fromisoformat(p_ev.get("end_date", def_start.isoformat()))
-                    except Exception:
-                        def_end = def_start
-
-                    ed_start = ec1.date_input("Start Date", value=def_start, key=f"ed_sd_{p_idx}")
-                    ed_end = ec2.date_input("End Date", value=def_end, key=f"ed_ed_{p_idx}")
-                    ed_notes = st.text_area("Details", value=p_ev.get("notes", ""), key=f"ed_n_{p_idx}")
-
-                    col_u, col_d = st.columns(2)
-                    update_clicked = col_u.form_submit_button("💾 Update Event", use_container_width=True)
-                    delete_clicked = col_d.form_submit_button("🗑️ Delete Event", use_container_width=True)
-
-                    if update_clicked:
-                        st.session_state.protected_events[p_idx] = {
-                            "title": ed_title.strip() or f"[{ed_cat}]",
-                            "category": ed_cat,
-                            "start_date": ed_start.isoformat(),
-                            "end_date": ed_end.isoformat(),
-                            "notes": ed_notes
-                        }
-                        save_disk_store()
-                        st.success("Event updated successfully!")
-                        time.sleep(0.8)
-                        st.rerun()
-
-                    if delete_clicked:
-                        st.session_state.protected_events.pop(p_idx)
-                        save_disk_store()
-                        st.success("Event deleted successfully!")
-                        time.sleep(0.8)
-                        st.rerun()
-                st.divider()
-
     col_f1, col_f2 = st.columns(2)
     sport_filter = col_f1.selectbox("Filter Sport", ["All Sports", "Cycling", "Running", "Events & Trips"])
     status_filter = col_f2.selectbox("Filter Status", ["All Sessions", "Completed", "Planned", "Event / Trip"])
@@ -1457,6 +1416,64 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                         if raw_desc and not workout_details["steps"]:
                                             st.markdown("---")
                                             st.markdown(f"**Notes:** {raw_desc}")
+
+                                        st.markdown("---")
+                                        c_act_1, c_act_2 = st.columns(2)
+                                        del_key = f"del_item_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"
+                                        
+                                        if c_act_1.button("🗑️ Delete from Calendar", key=del_key, type="secondary", use_container_width=True):
+                                            src_t = item.get("source_type")
+                                            it_id = item.get("item_id")
+                                            
+                                            if src_t == "event":
+                                                try:
+                                                    requests.delete(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events/{it_id}", auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+                                                except Exception:
+                                                    pass
+                                                planned_events[:] = [e for e in planned_events if e.get("id") != it_id]
+                                                st.toast(f"Deleted event '{item['name']}'!", icon="🗑️")
+                                                time.sleep(0.5)
+                                                st.rerun()
+                                            elif src_t == "protected":
+                                                try:
+                                                    st.session_state.protected_events.pop(it_id)
+                                                    save_disk_store()
+                                                    st.toast("Deleted logged event!", icon="🗑️")
+                                                    time.sleep(0.5)
+                                                    st.rerun()
+                                                except Exception:
+                                                    pass
+                                            else:
+                                                st.toast("Completed activities synced from external devices cannot be deleted directly from app view.", icon="⚠️")
+
+                                        with c_act_2:
+                                            with st.popover("✏️ Edit Event / Note", use_container_width=True):
+                                                with st.form(f"inline_edit_{item['id']}_{m_year}_{m_month}_{week_idx}_{item_idx}"):
+                                                    ed_name = st.text_input("Title / Name", value=item['name'])
+                                                    ed_desc = st.text_area("Description / Notes", value=raw_desc)
+                                                    if st.form_submit_button("Save Changes", use_container_width=True):
+                                                        src_t = item.get("source_type")
+                                                        it_id = item.get("item_id")
+                                                        if src_t == "event":
+                                                            upd_payload = item.get("raw", {})
+                                                            upd_payload["name"] = ed_name
+                                                            upd_payload["description"] = ed_desc
+                                                            try:
+                                                                requests.put(f"https://intervals.icu/api/v1/athlete/{ATHLETE_ID}/events/{it_id}", json=upd_payload, auth=("API_KEY", INTERVALS_API_KEY), timeout=10)
+                                                            except Exception:
+                                                                pass
+                                                            st.toast("Updated event successfully!", icon="✅")
+                                                            time.sleep(0.5)
+                                                            st.rerun()
+                                                        elif src_t == "protected":
+                                                            st.session_state.protected_events[it_id]["title"] = ed_name
+                                                            st.session_state.protected_events[it_id]["notes"] = ed_desc
+                                                            save_disk_store()
+                                                            st.toast("Updated logged event successfully!", icon="✅")
+                                                            time.sleep(0.5)
+                                                            st.rerun()
+                                                        else:
+                                                            st.toast("Completed activities cannot be edited here.", icon="⚠️")
 
 # VIEW 4: ATHLETE PROFILE & MEMORY
 elif st.session_state.active_nav == NAV_OPTIONS[3]:
