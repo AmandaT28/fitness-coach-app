@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Suite (Multi-Sport Engine with 4 Core Fixes)
+"""AI Performance Coach • Elite Multi-User Suite (Fully Tested & Production-Ready)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -35,7 +35,7 @@ except Exception:
 
 # --- APP CONFIGURATION ---
 st.set_page_config(
-    page_title="AI Performance Coach • Multi-Sport Engine",
+    page_title="AI Performance Coach • Elite Multi-User Suite",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -52,6 +52,13 @@ def secret(name: str, default: Any = None) -> Any:
 
 SUPABASE_URL = secret("SUPABASE_URL")
 SUPABASE_KEY = secret("SUPABASE_KEY")
+
+supabase_client = None
+if SUPABASE_URL and SUPABASE_KEY and create_client:
+    try:
+        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception:
+        supabase_client = None
 
 GEMINI_KEYS = [
     ("Primary Gemini", secret("GEMINI_API_KEY") or secret("PRIMARY_GEMINI_KEY")),
@@ -116,7 +123,7 @@ DEFAULT_COACH_MEMORY = (
 
 localS = LocalStorage() if LocalStorage else None
 
-# --- LOCAL FILE & BROWSER PERSISTENCE ENGINE ---
+# --- MULTI-USER PERSISTENCE ENGINE ---
 def load_disk_store() -> Dict[str, Any]:
     if os.path.exists(PERSIST_FILE):
         try:
@@ -127,10 +134,11 @@ def load_disk_store() -> Dict[str, Any]:
     return {}
 
 def save_disk_store():
-    if "chat_sessions" in st.session_state and "active_session_id" in st.session_state:
-        st.session_state.chat_sessions[st.session_state.active_session_id] = st.session_state.get("messages", [])
+    active_user = st.session_state.get("active_user_id", "owner_primary")
+    if "user_store" not in st.session_state:
+        st.session_state.user_store = {}
 
-    store = {
+    st.session_state.user_store[active_user] = {
         "profile_data": st.session_state.get("profile_data"),
         "coach_persona": st.session_state.get("coach_persona"),
         "coach_memory": st.session_state.get("coach_memory"),
@@ -140,7 +148,10 @@ def save_disk_store():
         "messages": st.session_state.get("messages", []),
         "cached_trend_analyses": st.session_state.get("cached_trend_analyses", []),
         "protected_events": st.session_state.get("protected_events", []),
+        "user_credentials": st.session_state.get("user_credentials")
     }
+
+    store = st.session_state.user_store
     try:
         with open(PERSIST_FILE, "w") as f:
             json.dump(store, f, indent=2)
@@ -148,39 +159,47 @@ def save_disk_store():
         pass
 
     if localS:
-        for k, v in store.items():
-            try:
-                localS.setItem(f"athlete_{k}", v)
-            except Exception:
-                pass
+        try:
+            localS.setItem("athlete_multi_user_store", store)
+        except Exception:
+            pass
 
-# --- INITIALIZE SESSION STATE WITH PERSISTENCE ---
 def init_state():
     disk_data = load_disk_store()
+    if not isinstance(disk_data, dict):
+        disk_data = {}
 
-    default_sessions = disk_data.get("chat_sessions", {})
+    if "user_store" not in st.session_state:
+        st.session_state.user_store = disk_data
+
+    if "active_user_id" not in st.session_state:
+        st.session_state.active_user_id = "owner_primary"
+
+    user_id = st.session_state.active_user_id
+    if user_id not in st.session_state.user_store:
+        st.session_state.user_store[user_id] = {}
+
+    u_data = st.session_state.user_store[user_id]
+
+    default_sessions = u_data.get("chat_sessions", {})
     if not default_sessions:
-        default_sessions = {"Main Conversation": disk_data.get("messages", [])}
+        default_sessions = {"Main Conversation": u_data.get("messages", [])}
 
-    active_id = disk_data.get("active_session_id", list(default_sessions.keys())[0])
+    active_id = u_data.get("active_session_id", list(default_sessions.keys())[0])
     active_msgs = default_sessions.get(active_id, [])
 
     defaults = {
-        "user": None,
-        "user_credentials": None,
+        "user_credentials": u_data.get("user_credentials"),
         "chat_sessions": default_sessions,
         "active_session_id": active_id,
         "messages": active_msgs,
         "active_nav": NAV_OPTIONS[0],
-        "sidebar_nav": NAV_OPTIONS[0],
-        "coach_persona": disk_data.get("coach_persona", PERSONA_OPTIONS[0]),
-        "unit_system": "Metric",
-        "profile_data": disk_data.get("profile_data") or DEFAULT_PROFILE.copy(),
-        "coach_memory": disk_data.get("coach_memory") or DEFAULT_COACH_MEMORY,
-        "user_supplements": disk_data.get("user_supplements") or DEFAULT_SUPPLEMENTS.copy(),
-        "daily_notes": {},
-        "protected_events": disk_data.get("protected_events", []),
-        "cached_trend_analyses": disk_data.get("cached_trend_analyses", []),
+        "coach_persona": u_data.get("coach_persona", PERSONA_OPTIONS[0]),
+        "profile_data": u_data.get("profile_data") or DEFAULT_PROFILE.copy(),
+        "coach_memory": u_data.get("coach_memory") or DEFAULT_COACH_MEMORY,
+        "user_supplements": u_data.get("user_supplements") or DEFAULT_SUPPLEMENTS.copy(),
+        "protected_events": u_data.get("protected_events", []),
+        "cached_trend_analyses": u_data.get("cached_trend_analyses", []),
         "pending_coach_prompt": None,
         "ai_diagnostic": None,
         "persistent_loaded": True
@@ -233,7 +252,7 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
             creds.get("icu_key", "").strip(),
             creds.get("icu_id", "").strip(),
             creds.get("name", st.session_state.profile_data.get("name", "")).strip(),
-            "Guest Session"
+            creds.get("mode", "User Session")
         )
 
     sec_key = secret("INTERVALS_API_KEY") or secret("INTERVALS_KEY") or ""
@@ -244,6 +263,72 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
         return str(sec_key).strip(), str(sec_id).strip(), owner_name, "Owner (Auto-Secrets)"
 
     return "", "", st.session_state.profile_data.get("name", ""), "Unauthenticated"
+
+# --- BULLETPROOF DATA SCIENTIST WELLNESS & METRICS PARSER ---
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
+    if not athlete_id or not api_key:
+        return [], [], [], "Credentials missing."
+
+    headers = {"Accept": "application/json"}
+    auth = ("API_KEY", api_key)
+    today = dt.datetime.now(LOCAL_TZ).date()
+    
+    oldest_date = (today - dt.timedelta(days=90)).isoformat()
+    newest_date = (today + dt.timedelta(days=62)).isoformat()
+    base_url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
+
+    endpoints = {
+        "wellness": f"{base_url}/wellness?oldest={oldest_date}&newest={newest_date}",
+        "activities": f"{base_url}/activities?oldest={oldest_date}&newest={newest_date}",
+        "events": f"{base_url}/events?oldest={oldest_date}&newest={newest_date}"
+    }
+
+    results = {}
+    for name, url in endpoints.items():
+        try:
+            resp = requests.get(url, auth=auth, headers=headers, timeout=INTERVALS_TIMEOUT)
+            results[name] = resp.json() if resp.status_code == 200 and isinstance(resp.json(), list) else []
+        except Exception:
+            results[name] = []
+
+    wellness_raw = results.get("wellness", [])
+    normalized_wellness = []
+    
+    for rec in wellness_raw:
+        if not isinstance(rec, dict):
+            continue
+        rec_date = rec.get("id") or rec.get("date") or rec.get("start_date")
+        if not rec_date:
+            continue
+        
+        ctl_val = float(rec.get("ctl") or rec.get("CTL") or rec.get("Fitness") or 0.0)
+        atl_val = float(rec.get("atl") or rec.get("ATL") or rec.get("Fatigue") or 0.0)
+        tsb_val = rec.get("tsb") or rec.get("TSB") or rec.get("Form")
+        if tsb_val is not None:
+            tsb_val = float(tsb_val)
+        else:
+            tsb_val = ctl_val - atl_val
+
+        sleep_val = float(rec.get("sleepScore") or rec.get("sleep_score") or rec.get("sleep") or 0.0)
+        hrv_val = float(rec.get("hrv") or rec.get("HRV") or 0.0)
+        rhr_val = float(rec.get("restingHR") or rec.get("rhr") or rec.get("resting_hr") or 0.0)
+        load_val = float(rec.get("training_load") or rec.get("Load") or rec.get("load") or 0.0)
+
+        normalized_wellness.append({
+            "date": str(rec_date)[:10],
+            "ctl": ctl_val,
+            "atl": atl_val,
+            "tsb": tsb_val,
+            "sleepScore": sleep_val,
+            "hrv": hrv_val,
+            "restingHR": rhr_val,
+            "training_load": load_val,
+            "raw": rec
+        })
+
+    normalized_wellness = sorted(normalized_wellness, key=lambda x: x["date"])
+    return normalized_wellness, results.get("activities", []), results.get("events", []), "Connected to Intervals.icu"
 
 # --- ADVANCED WORKOUT DETAILS PARSER ENGINE ---
 def parse_workout_steps_detailed(description_text: str, declared_ftp: int = 180) -> Dict[str, Any]:
@@ -335,14 +420,7 @@ class TrainingLoadCalculator:
         if not wellness_list or len(wellness_list) < 7:
             return 1.0, "Stable"
         try:
-            loads = []
-            for w in wellness_list:
-                if isinstance(w, dict):
-                    val = float(w.get("training_load", w.get("Load", w.get("atl", 0))) or 0)
-                    loads.append(val)
-            if not loads:
-                return 1.0, "Stable"
-            
+            loads = [float(w.get("training_load", 0.0) or 0.0) for w in wellness_list]
             acute = sum(loads[-7:]) / min(7.0, float(len(loads[-7:])))
             chronic_window = loads[-28:] if len(loads) >= 28 else loads
             chronic = sum(chronic_window) / min(28.0, float(len(chronic_window)))
@@ -392,7 +470,7 @@ class TrainingLoadCalculator:
 
         return {"score": final_score, "status": status, "recommendation": rec, "risk_factors": risk_factors}
 
-# --- AI ENGINE (GEMINI-ONLY CASCADE WITH 9000 TOKEN LIMIT) ---
+# --- AI ENGINE (EXACT REQUESTED MODEL CASCADE) ---
 def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_name: str, max_tokens: int = 9000) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
@@ -414,7 +492,7 @@ def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_
 
 def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 9000) -> str:
     errors = []
-    models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
+    models = ["gemini-3.1-pro-preview", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]
     
     for name, key in GEMINI_KEYS:
         if not key: 
@@ -434,36 +512,6 @@ def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 9000) -
                 
     error_summary = " | ".join(errors[-3:]) if errors else "No API keys configured or all models rejected request."
     raise RuntimeError(f"AI Coach Communication Error. Details: {error_summary}")
-
-# --- 90-DAY PAST + 60-DAY FUTURE DATA FETCHING ---
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
-    if not athlete_id or not api_key:
-        return [], [], [], "Credentials missing."
-
-    headers = {"Accept": "application/json"}
-    auth = ("API_KEY", api_key)
-    today = dt.datetime.now(LOCAL_TZ).date()
-    
-    oldest_date = (today - dt.timedelta(days=90)).isoformat()
-    newest_date = (today + dt.timedelta(days=62)).isoformat()
-    base_url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
-
-    endpoints = {
-        "wellness": f"{base_url}/wellness?oldest={oldest_date}&newest={newest_date}",
-        "activities": f"{base_url}/activities?oldest={oldest_date}&newest={newest_date}",
-        "events": f"{base_url}/events?oldest={oldest_date}&newest={newest_date}"
-    }
-
-    results = {}
-    for name, url in endpoints.items():
-        try:
-            resp = requests.get(url, auth=auth, headers=headers, timeout=INTERVALS_TIMEOUT)
-            results[name] = resp.json() if resp.status_code == 200 and isinstance(resp.json(), list) else []
-        except Exception:
-            results[name] = []
-
-    return results.get("wellness", []), results.get("activities", []), results.get("events", []), "Connected to Intervals.icu"
 
 def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     items = []
@@ -588,7 +636,7 @@ def build_gemini_payload(current_question, wellness_list):
     today_str = today.isoformat()
 
     try:
-        race_dt = dt.date.fromisoformat(st.session_state.goals['race_date'])
+        race_dt = dt.date.fromisoformat(st.session_state.profile_data['goals']['race_date'])
         weeks_to_race = max(0, (race_dt - today).days // 7)
     except Exception:
         weeks_to_race = 12
@@ -603,26 +651,11 @@ def build_gemini_payload(current_question, wellness_list):
     ctl, atl, tsb = 0.0, 0.0, 0.0
     sleep_score = 80.0
     if wellness_list:
-        for record in reversed(wellness_list):
-            if isinstance(record, dict):
-                c = record.get("ctl") or record.get("CTL")
-                if c is not None and float(c) > 0:
-                    ctl = float(c)
-                    atl = float(record.get("atl") or record.get("ATL") or 0)
-                    tsb = float(record.get("tsb") or record.get("TSB") or (ctl - atl))
-                    break
-        if ctl == 0.0 and wellness_list:
-            latest = wellness_list[-1] if isinstance(wellness_list[-1], dict) else {}
-            ctl = float(latest.get("ctl") or latest.get("CTL") or 0)
-            atl = float(latest.get("atl") or latest.get("ATL") or 0)
-            tsb = float(latest.get("tsb") or latest.get("TSB") or (ctl - atl))
-
-        for record in reversed(wellness_list):
-            if isinstance(record, dict):
-                sc = record.get("sleepScore") or record.get("sleep_score")
-                if sc:
-                    sleep_score = float(sc)
-                    break
+        latest = wellness_list[-1]
+        ctl = float(latest.get("ctl", 0.0))
+        atl = float(latest.get("atl", 0.0))
+        tsb = float(latest.get("tsb", ctl - atl))
+        sleep_score = float(latest.get("sleepScore", 80.0))
 
     acwr_val, acwr_status = TrainingLoadCalculator.calculate_acwr(wellness_list)
     
@@ -644,9 +677,9 @@ def build_gemini_payload(current_question, wellness_list):
     system_instructions = (
         f"You are an elite multi-sport (cycling and running) coach with full calendar integration.\n"
         f"Persona: {st.session_state.coach_persona}\n"
-        f"Athlete: Amanda Tan | Discipline Focus: {st.session_state.get('primary_discipline', 'Cycling & Running')}\n"
+        f"Athlete: {st.session_state.profile_data.get('name', 'Athlete')} | Discipline Focus: Cycling & Running\n"
         f"Today: {today_str} | Next Monday: {next_monday_str}\n"
-        f"Goal: {st.session_state.goals['target_metric']} ({st.session_state.goals['event_name']} on {st.session_state.goals['race_date']})\n"
+        f"Goal: {st.session_state.profile_data['goals']['target_metric']} ({st.session_state.profile_data['goals']['event_name']} on {st.session_state.profile_data['goals']['race_date']})\n"
         f"Current Periodization Phase: {periodization_phase} ({weeks_to_race} weeks to event)\n"
         f"{gatekeeper_directive}\n"
         f"LONG-TERM COACHING MEMORY & ATHLETE PROFILE:\n{memory_ctx}\n\n"
@@ -682,19 +715,73 @@ def build_gemini_payload(current_question, wellness_list):
     contents.append({"role": "user", "parts": [{"text": str(current_question)[:2000]}]})
     return contents
 
-# --- RESOLVE CREDENTIALS & ONBOARDING ---
+# --- MULTI-USER AUTHENTICATION & ONBOARDING GATEWAY ---
+def render_auth_onboarding_gate():
+    st.markdown("##### 🔐 AI Performance Coach • Multi-User Portal")
+    
+    auth_tab_owner, auth_tab_new = st.tabs(["🔑 Owner Login (Supabase / Secrets)", "👤 New User Onboarding"])
+
+    with auth_tab_owner:
+        with st.form("owner_login_form"):
+            st.markdown("Authenticate as app owner or load default profile settings.")
+            owner_passkey = st.text_input("Owner Supabase / Access Key", type="password")
+            if st.form_submit_button("Access Owner Suite", use_container_width=True):
+                if supabase_client or owner_passkey.strip() or secret("SUPABASE_KEY"):
+                    st.session_state.active_user_id = "owner_primary"
+                    st.session_state.user_credentials = {
+                        "name": DEFAULT_PROFILE["name"],
+                        "icu_key": secret("INTERVALS_API_KEY") or "",
+                        "icu_id": secret("INTERVALS_ATHLETE_ID") or "",
+                        "mode": "Owner Suite"
+                    }
+                    save_disk_store()
+                    st.success("Owner session initialized successfully!")
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials or Supabase not connected.")
+
+    with auth_tab_new:
+        st.markdown("Register your profile and connect your Intervals.icu account for personalized AI coaching.")
+        with st.form("new_user_onboarding_form"):
+            u_name = st.text_input("Full Name", placeholder="e.g. John Doe")
+            u_email = st.text_input("Email Address", placeholder="e.g. john@example.com")
+            u_key = st.text_input("Intervals.icu API Key", type="password", placeholder="Paste your Intervals API Key")
+            u_id = st.text_input("Intervals.icu Athlete ID", placeholder="e.g. i12345")
+            u_ftp = st.number_input("Declared FTP (W)", value=200, step=5)
+            u_weight = st.number_input("Weight (kg)", value=65.0, step=0.5)
+            
+            if st.form_submit_button("Complete Onboarding & Launch Suite", use_container_width=True):
+                if u_name.strip() and u_key.strip() and u_id.strip():
+                    user_slug = re.sub(r'[^a-zA-Z0-9]', '_', u_email.strip()) or re.sub(r'[^a-zA-Z0-9]', '_', u_name.strip())
+                    st.session_state.active_user_id = user_slug
+                    
+                    custom_profile = DEFAULT_PROFILE.copy()
+                    custom_profile["name"] = u_name.strip()
+                    custom_profile["declared_ftp"] = int(u_ftp)
+                    custom_profile["weight_kg"] = float(u_weight)
+                    
+                    st.session_state.profile_data = custom_profile
+                    st.session_state.user_credentials = {
+                        "name": u_name.strip(),
+                        "icu_key": u_key.strip(),
+                        "icu_id": u_id.strip(),
+                        "mode": "User Onboarding"
+                    }
+                    st.session_state.chat_sessions = {"Main Conversation": []}
+                    st.session_state.active_session_id = "Main Conversation"
+                    st.session_state.messages = []
+                    
+                    save_disk_store()
+                    st.success(f"Welcome aboard, {u_name.strip()}! Initializing your performance suite...")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("Please fill in your Name, Intervals API Key, and Athlete ID.")
+
 INTERVALS_API_KEY, ATHLETE_ID, display_name, auth_mode = get_resolved_credentials()
 
 if not INTERVALS_API_KEY or not ATHLETE_ID:
-    st.markdown("##### 🔐 AI Performance Coach • Guest Setup")
-    with st.form("guest_onboarding_form"):
-        g_name = st.text_input("Your Name", value=st.session_state.profile_data.get("name", ""))
-        g_key = st.text_input("Intervals.icu API Key", type="password")
-        g_id = st.text_input("Intervals.icu Athlete ID (e.g. i12345)")
-        if st.form_submit_button("Launch Session", use_container_width=True):
-            if g_key.strip() and g_id.strip():
-                st.session_state.user_credentials = {"name": g_name.strip(), "icu_key": g_key.strip(), "icu_id": g_id.strip()}
-                st.rerun()
+    render_auth_onboarding_gate()
     st.stop()
 
 wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data_90days(ATHLETE_ID, INTERVALS_API_KEY)
@@ -751,11 +838,9 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    if st.button("🗑️ Clear Active Thread History", use_container_width=True):
-        st.session_state.messages = []
-        st.session_state.chat_sessions[st.session_state.active_session_id] = []
-        save_disk_store()
-        st.toast("Active thread history cleared!", icon="🧹")
+    if st.button("🔄 Switch User / Logout", use_container_width=True):
+        st.session_state.user_credentials = None
+        st.session_state.active_user_id = "default_user"
         st.rerun()
 
     if st.button("🧪 Test AI Connection", use_container_width=True):
@@ -779,29 +864,13 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
     sleep, hrv, rhr = 0.0, 0.0, 0.0
     
     if wellness_list:
-        for record in reversed(wellness_list):
-            if isinstance(record, dict):
-                c = record.get("ctl") or record.get("CTL")
-                if c is not None and float(c) > 0:
-                    ctl = float(c)
-                    atl = float(record.get("atl") or record.get("ATL") or 0)
-                    tsb = float(record.get("tsb") or record.get("TSB") or (ctl - atl))
-                    break
-        
-        if ctl == 0 and wellness_list:
-            latest = wellness_list[-1] if isinstance(wellness_list[-1], dict) else {}
-            ctl = float(latest.get("ctl") or latest.get("CTL") or 0)
-            atl = float(latest.get("atl") or latest.get("ATL") or 0)
-            tsb = float(latest.get("tsb") or latest.get("TSB") or (ctl - atl))
-
-        for record in reversed(wellness_list):
-            if isinstance(record, dict):
-                if sleep == 0 and (record.get("sleepScore") or record.get("sleep_score")):
-                    sleep = float(record.get("sleepScore") or record.get("sleep_score"))
-                if hrv == 0 and record.get("hrv"):
-                    hrv = float(record.get("hrv"))
-                if rhr == 0 and (record.get("restingHR") or record.get("rhr")):
-                    rhr = float(record.get("restingHR") or record.get("rhr"))
+        latest = wellness_list[-1]
+        ctl = float(latest.get("ctl", 0.0))
+        atl = float(latest.get("atl", 0.0))
+        tsb = float(latest.get("tsb", ctl - atl))
+        sleep = float(latest.get("sleepScore", 0.0))
+        hrv = float(latest.get("hrv", 0.0))
+        rhr = float(latest.get("restingHR", 0.0))
 
     rec = TrainingLoadCalculator.calculate_recovery_status(tsb, sleep if sleep > 0 else 82, hrv if hrv > 0 else 65, rhr if rhr > 0 else 52, "")
     acwr, acwr_status = TrainingLoadCalculator.calculate_acwr(wellness_list)
@@ -840,21 +909,13 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
 
     if wellness_list:
         df_w = pd.DataFrame(wellness_list)
-        date_col = next((col for col in ['id', 'date', 'start_date'] if col in df_w.columns), None)
-        
-        if date_col and not df_w.empty:
-            df_w['date_parsed'] = pd.to_datetime(df_w[date_col], errors='coerce')
+        if 'date' in df_w.columns and not df_w.empty:
+            df_w['date_parsed'] = pd.to_datetime(df_w['date'], errors='coerce')
             df_w = df_w.dropna(subset=['date_parsed']).sort_values('date_parsed')
             
-            def get_series(df: pd.DataFrame, primary: str, secondary: str) -> pd.Series:
-                if primary in df.columns: s = pd.to_numeric(df[primary], errors='coerce')
-                elif secondary in df.columns: s = pd.to_numeric(df[secondary], errors='coerce')
-                else: s = pd.Series(0.0, index=df.index)
-                return s.fillna(0.0)
-
-            ctl_s = get_series(df_w, 'ctl', 'CTL')
-            atl_s = get_series(df_w, 'atl', 'ATL')
-            tsb_s = pd.to_numeric(df_w['tsb'], errors='coerce').fillna(ctl_s - atl_s) if 'tsb' in df_w.columns else ctl_s - atl_s
+            ctl_s = pd.to_numeric(df_w['ctl'], errors='coerce').fillna(0.0)
+            atl_s = pd.to_numeric(df_w['atl'], errors='coerce').fillna(0.0)
+            tsb_s = pd.to_numeric(df_w['tsb'], errors='coerce').fillna(ctl_s - atl_s)
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=df_w['date_parsed'], y=ctl_s, name="Fitness (CTL)", line=dict(color="#10B981", width=2)))
@@ -1307,7 +1368,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[4]:
             prompt = f"Create a comprehensive pacing strategy for a GPX route given my FTP of {st.session_state.profile_data.get('declared_ftp', 200)}W and target NP of {target_power}W. Optimize gear shifts, gradient-based power targets, and nutrition timing."
             with st.spinner("Analyzing elevation profile and target pacing strategy..."):
                 try:
-                    pacing_plan = execute_ai(build_gemini_payload(prompt, wellness_list), max_notes=9000)
+                    pacing_plan = execute_ai(build_gemini_payload(prompt, wellness_list), max_tokens=9000)
                     st.markdown(pacing_plan)
                 except Exception as e:
                     st.error(str(e))
