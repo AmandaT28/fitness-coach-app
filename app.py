@@ -220,7 +220,6 @@ section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !import
 .metric-box {{ display: flex; flex-direction: column; }}
 .metric-box-label {{ font-size: 0.75rem; color: {TEXT_MUTED}; margin-bottom: 2px; }}
 .metric-box-val {{ font-size: 0.98rem; font-weight: 700; color: {TEXT_PRIMARY}; }}
-.chart-summary-box {{ background-color: {BG_SURFACE_ALT}; border: 1px solid {BORDER_SUBTLE}; border-left: 3px solid #10B981; border-radius: 8px; padding: 12px 16px; margin-top: 10px; margin-bottom: 15px; font-size: 0.88rem; line-height: 1.45; }}
 .workout-notes-box {{ margin-top: 10px; font-style: italic; color: {TEXT_MUTED}; border-left: 2px solid #3B82F6; padding-left: 8px; }}
 .stButton > button[kind="secondary"] {{ background-color: #000000 !important; color: #FFFFFF !important; border: 1px solid #30363D !important; border-radius: 20px !important; padding: 4px 16px !important; font-size: 0.85rem !important; font-weight: 600 !important; }}
 </style>
@@ -745,7 +744,6 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
     st.markdown(f"##### ☀️ Command Center for {curr_name} — {today_str_ui}")
     prof = st.session_state.profile_data
 
-    # FIX 1: Robust Wellness Extraction scanning backward across last 7 days for Sleep, HRV, and Resting HR
     ctl, atl, tsb = 0, 0, 0
     sleep, hrv, rhr = 0, 0, 0
     if wellness_list:
@@ -871,7 +869,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
                     st.session_state.active_nav = NAV_OPTIONS[1]
                     st.rerun()
 
-# VIEW 2: AI COACH CHAT WITH SEAMLESS 1-CLICK WORKOUT SYNC (FIX 2)
+# VIEW 2: AI COACH CHAT
 elif st.session_state.active_nav == NAV_OPTIONS[1]:
     st.markdown(f"##### 🤖 AI Multi-Sport Coach <span style='font-size:0.85rem; color:{TEXT_MUTED};'>({st.session_state.active_session_id})</span>", unsafe_allow_html=True)
 
@@ -880,7 +878,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
             content_clean = clean_chat_content(msg["content"])
             st.markdown(content_clean)
             
-            # FIX 2: 1-Click Instant Workout Sync Button
             if msg["role"] == "assistant":
                 proposed_workouts = extract_json_workouts(msg["content"])
                 if proposed_workouts:
@@ -948,11 +945,10 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                     st.error(str(e))
         st.rerun()
 
-# VIEW 3: TRAINING CALENDAR & SICKNESS / UNAVAILABILITY LOGGING (FIX 4)
+# VIEW 3: TRAINING CALENDAR
 elif st.session_state.active_nav == NAV_OPTIONS[2]:
     st.markdown("##### 📅 Multi-Sport Training Calendar & Life Event Planner")
 
-    # FIX 4: Quick-entry form to log sickness, travel, or unavailability directly to Intervals.icu
     with st.expander("📝 Log Sickness, Travel, or Unavailability", expanded=False):
         with st.form("sickness_travel_form"):
             status_type = st.selectbox("Category", ["Illness / Sickness", "Travel / Away", "Soreness / Fatigue", "Forced Rest Day"])
@@ -1020,7 +1016,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
             continue
         filtered_feed.append(item)
 
-    grouped_months: Dict[Tuple[int, int], Dict[Tuple[dt.date, dt.date], Dict[str, List[Dict[str, Any]]]]] = {}
+    grouped_months = {}
     today_date = dt.datetime.now(LOCAL_TZ).date()
 
     for item in filtered_feed:
