@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Production-Ready & Hardened)
+"""AI Performance Coach • Elite Multi-User Suite (Audited & Production-Hardened)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -461,10 +461,12 @@ class WorkoutParserValidator:
     @classmethod
     def validate_workout_structure(cls, workout_dict: Dict[str, Any], declared_ftp: int) -> Tuple[bool, List[str]]:
         errors = []
-        if not workout_dict.get("name"):
+        w_name = workout_dict.get("name") or workout_dict.get("title")
+        if not w_name:
             errors.append("Workout is missing a title.")
-        if workout_dict.get("type") not in ["Ride", "Run", "WeightTraining", "Swim"]:
-            errors.append(f"Invalid sport type: {workout_dict.get('type')}")
+        w_type = workout_dict.get("type", "Ride")
+        if w_type not in ["Ride", "Run", "WeightTraining", "Swim", "VirtualRide"]:
+            errors.append(f"Invalid sport type: {w_type}")
         description = workout_dict.get("description", "")
         lines = description.split("\n")
         total_sec = 0
@@ -605,8 +607,8 @@ def check_scheduling_safety(target_date_str: str, protected_events: List[Dict[st
         return True, "Date format valid."
     for ev in protected_events:
         try:
-            s_date = dt.date.fromisoformat(ev.get("start_date", ""))
-            e_date = dt.date.fromisoformat(ev.get("end_date", s_date.isoformat()))
+            s_date = dt.date.fromisoformat(str(ev.get("start_date", ""))[:10])
+            e_date = dt.date.fromisoformat(str(ev.get("end_date", ev.get("start_date", "")))[:10])
             if s_date <= target_date <= e_date:
                 return False, f"Conflict detected: Date {target_date_str} falls under protected event '{ev.get('title', 'Rest/Travel/Illness')}'."
         except Exception:
@@ -742,14 +744,22 @@ def extract_json_workouts(text: str) -> List[Dict[str, Any]]:
         except Exception: pass
     return []
 
-def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: str, api_key: str, protected_events: List[Dict[str, Any]]) -> Tuple[bool, str]:
+def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: str, api_key: str, protected_events: List[Dict[str, Any]], declared_ftp: int) -> Tuple[bool, str]:
     if not athlete_id or not api_key: return False, "Missing credentials."
-    events_to_post = []
+    
     for item in events_list:
         raw_date = str(item.get("date") or item.get("start_date_local") or dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")).strip()[:10]
         safe, msg = check_scheduling_safety(raw_date, protected_events)
         if not safe:
             return False, f"Blocked by Safety Rule: {msg}"
+        
+        valid, syntax_errors = WorkoutParserValidator.validate_workout_structure(item, declared_ftp)
+        if not valid:
+            return False, f"Workout Validation Failed for '{item.get('name', item.get('title', 'Workout'))}': {'; '.join(syntax_errors)}"
+
+    events_to_post = []
+    for item in events_list:
+        raw_date = str(item.get("date") or item.get("start_date_local") or dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")).strip()[:10]
         start_local = f"{raw_date}T08:00:00"
         raw_type = item.get("type", "Ride")
         title_lower = str(item.get("title", "")).lower() + str(item.get("name", "")).lower()
@@ -762,7 +772,7 @@ def push_workouts_to_intervals(events_list: List[Dict[str, Any]], athlete_id: st
     try:
         resp = requests.post(url, auth=("API_KEY", api_key), json=events_to_post, timeout=15)
         if resp.status_code in [200, 201]:
-            return True, f"Successfully synced {len(events_to_post)} structured workout(s) to Intervals.icu calendar!"
+            return True, f"Successfully validated and synced {len(events_to_post)} structured workout(s) to Intervals.icu calendar!"
         return False, f"Intervals.icu HTTP {resp.status_code}: {resp.text[:250]}"
     except Exception as e:
         return False, f"Connection error: {str(e)}"
@@ -879,7 +889,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
     <div style="background:{BG_CARD}; border:1px solid {card_border}; border-radius:10px; padding:14px; margin-bottom:15px;">
         <h5 style="margin:0; color:{card_border};">💡 {rec['status']} (Readiness Index: {rec['score']}/100)</h5>
         <p style="margin:4px 0 0 0; font-size:0.9rem;"><strong>Recommendation:</strong> {rec['recommendation']}</p>
-        <p style="margin:2px 0 0 0; font-size:0.8rem; color:{TEXT_MUTED};">ACWR: {acwr} ({acwr_status}) | TSB: {tsb:.1f} (Form Balance) | Sleep: {int(sleep) if sleep > 0 else 'N/A'}/100</p>
+        <p style="margin:2px 0 0 0; font-size:0.8rem; color:{TEXT_MUTED};">ACWR: {acwr} ({acwr_status}) | TSB: {tsb:.1f} ({'Fresh & Primed' if tsb >= 5 else ('Productive Zone' if tsb >= -10 else 'Accumulated Fatigue')}) | Sleep: {int(sleep) if sleep > 0 else 'N/A'}/100</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -909,6 +919,29 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
             fig.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color=TEXT_PRIMARY, size=11), legend=dict(orientation="h", y=1.02, x=1))
             st.plotly_chart(fig, use_container_width=True)
 
+    st.divider()
+    if st.button("🚀 Run 90-Day Multi-Sport Trend Synthesis", type="primary", use_container_width=True):
+        payload_text = f"Analyze this multi-sport athlete's 90-day training trend window. CTL {ctl:.1f}; ATL {atl:.1f}; TSB {tsb:.1f}. HRV: {hrv}ms. Sleep: {sleep}/100. ACWR: {acwr}. Goal: {prof['goals']['target_metric']}."
+        with st.spinner("Analyzing 90 days of multi-sport training data..."):
+            try:
+                new_analysis = execute_ai([{"role": "user", "parts": [{"text": payload_text}]}], max_tokens=9000)
+                timestamp_str = dt.datetime.now(LOCAL_TZ).strftime("%d %b %Y, %H:%M %Z")
+                st.session_state.cached_trend_analyses.insert(0, {"timestamp": timestamp_str, "analysis": new_analysis})
+                st.session_state.cached_trend_analyses = st.session_state.cached_trend_analyses[:3]
+                save_disk_store()
+                st.toast("90-day trend synthesis complete!", icon="📈")
+            except Exception as exc: st.error(str(exc))
+
+    if st.session_state.cached_trend_analyses:
+        st.markdown("###### 📈 Saved Trend Reports")
+        for idx, item in enumerate(st.session_state.cached_trend_analyses):
+            with st.expander(f"📌 Trend Report #{len(st.session_state.cached_trend_analyses) - idx} · Generated {item['timestamp']}", expanded=(idx == 0)):
+                st.markdown(item['analysis'])
+                if st.button("💬 Discuss with Coach", key=f"trend_discuss_{idx}"):
+                    st.session_state.pending_coach_prompt = f"Let me discuss my 90-Day Trend Synthesis from {item['timestamp']}:\n\n{item['analysis']}"
+                    st.session_state.active_nav = NAV_OPTIONS[1]
+                    st.rerun()
+
 elif st.session_state.active_nav == NAV_OPTIONS[1]:
     st.markdown(f"##### 🤖 AI Multi-Sport Coach <span style='font-size:0.85rem; color:{TEXT_MUTED};'>({st.session_state.active_session_id})</span>", unsafe_allow_html=True)
     with st.expander("🗺️ Attach GPX Route for Strategy & Pacing Analysis", expanded=False):
@@ -927,8 +960,8 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                     for w in workouts:
                         st.caption(f"📅 **{w.get('date', '')}** | {w.get('type')} — **{w.get('title', w.get('name'))}**")
                     if st.button("🚀 Sync Verified Workouts to Intervals.icu Calendar", key=f"sync_{idx}", type="primary", use_container_width=True):
-                        with st.spinner("Validating and pushing workouts..."):
-                            ok, res_msg = push_workouts_to_intervals(workouts, ATHLETE_ID, INTERVALS_API_KEY, st.session_state.get("protected_events", []))
+                        with st.spinner("Validating grammar and pushing workouts..."):
+                            ok, res_msg = push_workouts_to_intervals(workouts, ATHLETE_ID, INTERVALS_API_KEY, st.session_state.get("protected_events", []), int(prof.get("declared_ftp", 180)))
                             if ok: st.success(res_msg)
                             else: st.error(res_msg)
 
