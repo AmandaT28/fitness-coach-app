@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Template-Driven Onboarding & UI/UX Typography)
+"""AI Performance Coach • Elite Multi-User Suite (Persistent Logins & Template Onboarding)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -117,12 +117,14 @@ EMPTY_COACH_MEMORY = (
 
 localS = LocalStorage() if LocalStorage else None
 
-# --- MULTI-USER PERSISTENCE & ISOLATION ENGINE ---
+# --- MULTI-USER PERSISTENCE & LOGIN MEMORY ENGINE ---
 def load_disk_store() -> Dict[str, Any]:
     if os.path.exists(PERSIST_FILE):
         try:
             with open(PERSIST_FILE, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
         except Exception:
             pass
     return {}
@@ -151,29 +153,45 @@ def save_disk_store():
         "user_credentials": st.session_state.get("user_credentials")
     }
 
-    store = st.session_state.user_store
+    master_payload = {
+        "last_active_user_id": active_user,
+        "logged_out_explicitly": st.session_state.get("logged_out_explicitly", False),
+        "user_store": st.session_state.user_store
+    }
+
     try:
         with open(PERSIST_FILE, "w") as f:
-            json.dump(store, f, indent=2)
+            json.dump(master_payload, f, indent=2)
     except Exception:
         pass
 
     if localS:
         try:
-            localS.setItem("athlete_multi_user_store", store)
+            localS.setItem("athlete_multi_user_master", master_payload)
         except Exception:
             pass
 
 def init_state():
-    disk_data = load_disk_store()
-    if not isinstance(disk_data, dict):
-        disk_data = {}
+    master_disk = load_disk_store()
+    
+    # Handle backward compatibility if store is a raw user dict
+    if "user_store" not in master_disk:
+        user_store_data = master_disk if master_disk else {}
+        last_user = "owner_primary"
+        logged_out = False
+    else:
+        user_store_data = master_disk.get("user_store", {})
+        last_user = master_disk.get("last_active_user_id", "owner_primary")
+        logged_out = master_disk.get("logged_out_explicitly", False)
 
     if "user_store" not in st.session_state:
-        st.session_state.user_store = disk_data
+        st.session_state.user_store = user_store_data
+
+    if "logged_out_explicitly" not in st.session_state:
+        st.session_state.logged_out_explicitly = logged_out
 
     if "active_user_id" not in st.session_state:
-        st.session_state.active_user_id = "owner_primary"
+        st.session_state.active_user_id = last_user
 
     user_id = st.session_state.active_user_id
     if user_id not in st.session_state.user_store:
@@ -190,7 +208,6 @@ def init_state():
 
     defaults = {
         "user_credentials": u_data.get("user_credentials"),
-        "logged_out_explicitly": False,
         "chat_sessions": default_sessions,
         "active_session_id": active_id,
         "messages": active_msgs,
@@ -279,11 +296,40 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
 
     return "", "", st.session_state.profile_data.get("name", ""), "Unauthenticated"
 
-# --- MULTI-USER AUTHENTICATION & ONBOARDING GATEWAY ---
+# --- MULTI-USER AUTHENTICATION & QUICK SELECTOR GATEWAY ---
 def render_auth_onboarding_gate():
     st.markdown("##### 🔐 AI Performance Coach • Multi-User Portal")
     
-    auth_tab_owner, auth_tab_new = st.tabs(["🔑 Owner Login", "👤 New User Onboarding"])
+    existing_users = list(st.session_state.get("user_store", {}).keys())
+
+    auth_tab_select, auth_tab_owner, auth_tab_new = st.tabs(["👥 Switch Saved Profile", "🔑 Owner Login", "👤 New User Onboarding"])
+
+    with auth_tab_select:
+        if existing_users:
+            st.markdown("Select an existing profile stored on this device:")
+            with st.form("quick_select_user_form"):
+                chosen_user = st.selectbox("Registered Profiles", existing_users)
+                if st.form_submit_button("Resume Selected Profile", use_container_width=True):
+                    st.session_state.active_user_id = chosen_user
+                    st.session_state.logged_out_explicitly = False
+                    
+                    u_store = st.session_state.user_store.get(chosen_user, {})
+                    st.session_state.profile_data = u_store.get("profile_data") or EMPTY_PROFILE.copy()
+                    st.session_state.coach_memory = u_store.get("coach_memory") or EMPTY_COACH_MEMORY
+                    st.session_state.user_supplements = u_store.get("user_supplements") or []
+                    st.session_state.chat_sessions = u_store.get("chat_sessions") or {"Main Conversation": []}
+                    st.session_state.active_session_id = u_store.get("active_session_id", "Main Conversation")
+                    st.session_state.messages = st.session_state.chat_sessions.get(st.session_state.active_session_id, [])
+                    st.session_state.protected_events = u_store.get("protected_events", [])
+                    st.session_state.cached_trend_analyses = u_store.get("cached_trend_analyses", [])
+                    st.session_state.user_credentials = u_store.get("user_credentials")
+
+                    save_disk_store()
+                    st.success(f"Loaded profile for {chosen_user}!")
+                    time.sleep(0.5)
+                    st.rerun()
+        else:
+            st.info("No saved profiles found on this device yet. Please register via New User Onboarding.")
 
     with auth_tab_owner:
         with st.form("owner_login_form"):
