@@ -204,104 +204,21 @@ header[data-testid="stHeader"] {{ background-color: {BG_APP} !important; z-index
 section[data-testid="stSidebar"] {{ background-color: {BG_SIDEBAR} !important; border-right: 1px solid {BORDER_SUBTLE} !important; }}
 section[data-testid="stSidebar"] > div {{ background-color: {BG_SIDEBAR} !important; }}
 
-.date-badge-col {{
-    width: 50px;
-    text-align: center;
-    padding-top: 6px;
-    flex-shrink: 0;
-}}
-.date-day-name {{
-    font-size: 0.82rem;
-    color: {TEXT_MUTED};
-    font-weight: 600;
-    text-transform: capitalize;
-}}
-.date-day-number {{
-    font-size: 1.5rem;
-    font-weight: 800;
-    color: {TEXT_PRIMARY};
-    line-height: 1.1;
-}}
-
-.activity-card-body {{
-    background-color: {BG_CARD};
-    border: 1px solid {BORDER_SUBTLE};
-    border-radius: 16px;
-    padding: 16px 18px;
-    width: 100%;
-    margin-bottom: 12px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.18);
-}}
-.card-header-row {{
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 8px;
-}}
-.sport-icon {{
-    font-size: 1.2rem;
-}}
-.sport-title {{
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: {TEXT_PRIMARY};
-    margin: 0;
-    line-height: 1.2;
-}}
-.device-subtitle {{
-    font-size: 0.8rem;
-    color: {TEXT_MUTED};
-    margin: 0;
-}}
-
-.metrics-flex-group {{
-    display: flex;
-    gap: 20px;
-}}
-.metric-box {{
-    display: flex;
-    flex-direction: column;
-}}
-.metric-box-label {{
-    font-size: 0.75rem;
-    color: {TEXT_MUTED};
-    margin-bottom: 2px;
-}}
-.metric-box-val {{
-    font-size: 0.98rem;
-    font-weight: 700;
-    color: {TEXT_PRIMARY};
-}}
-
-.chart-summary-box {{
-    background-color: {BG_SURFACE_ALT};
-    border: 1px solid {BORDER_SUBTLE};
-    border-left: 3px solid #10B981;
-    border-radius: 8px;
-    padding: 12px 16px;
-    margin-top: 10px;
-    margin-bottom: 15px;
-    font-size: 0.88rem;
-    line-height: 1.45;
-}}
-
-.workout-notes-box {{
-    margin-top: 10px;
-    font-style: italic;
-    color: {TEXT_MUTED};
-    border-left: 2px solid #3B82F6;
-    padding-left: 8px;
-}}
-
-.stButton > button[kind="secondary"] {{
-    background-color: #000000 !important;
-    color: #FFFFFF !important;
-    border: 1px solid #30363D !important;
-    border-radius: 20px !important;
-    padding: 4px 16px !important;
-    font-size: 0.85rem !important;
-    font-weight: 600 !important;
-}}
+.date-badge-col {{ width: 50px; text-align: center; padding-top: 6px; flex-shrink: 0; }}
+.date-day-name {{ font-size: 0.82rem; color: {TEXT_MUTED}; font-weight: 600; text-transform: capitalize; }}
+.date-day-number {{ font-size: 1.5rem; font-weight: 800; color: {TEXT_PRIMARY}; line-height: 1.1; }}
+.activity-card-body {{ background-color: {BG_CARD}; border: 1px solid {BORDER_SUBTLE}; border-radius: 16px; padding: 16px 18px; width: 100%; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.18); }}
+.card-header-row {{ display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }}
+.sport-icon {{ font-size: 1.2rem; }}
+.sport-title {{ font-size: 1.1rem; font-weight: 700; color: {TEXT_PRIMARY}; margin: 0; line-height: 1.2; }}
+.device-subtitle {{ font-size: 0.8rem; color: {TEXT_MUTED}; margin: 0; }}
+.metrics-flex-group {{ display: flex; gap: 20px; }}
+.metric-box {{ display: flex; flex-direction: column; }}
+.metric-box-label {{ font-size: 0.75rem; color: {TEXT_MUTED}; margin-bottom: 2px; }}
+.metric-box-val {{ font-size: 0.98rem; font-weight: 700; color: {TEXT_PRIMARY}; }}
+.chart-summary-box {{ background-color: {BG_SURFACE_ALT}; border: 1px solid {BORDER_SUBTLE}; border-left: 3px solid #10B981; border-radius: 8px; padding: 12px 16px; margin-top: 10px; margin-bottom: 15px; font-size: 0.88rem; line-height: 1.45; }}
+.workout-notes-box {{ margin-top: 10px; font-style: italic; color: {TEXT_MUTED}; border-left: 2px solid #3B82F6; padding-left: 8px; }}
+.stButton > button[kind="secondary"] {{ background-color: #000000 !important; color: #FFFFFF !important; border: 1px solid #30363D !important; border-radius: 20px !important; padding: 4px 16px !important; font-size: 0.85rem !important; font-weight: 600 !important; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -331,14 +248,12 @@ def parse_workout_steps_detailed(description_text: str, declared_ftp: int = 180)
         return {"steps": [], "notes": "", "metrics": {}, "zone_times": {}}
 
     lines = [l.strip() for l in description_text.split("\n") if l.strip()]
-    
     formatted_steps = []
     descriptive_notes = []
     zone_sec = {"Z1": 0.0, "Z2": 0.0, "Z3": 0.0, "Z4": 0.0, "Z5": 0.0, "Z6": 0.0}
     
     total_sec = 0.0
     weighted_watts_sec = 0.0
-    
     repeat_count = 1
     in_repeat = False
 
@@ -361,7 +276,6 @@ def parse_workout_steps_detailed(description_text: str, declared_ftp: int = 180)
             dur_disp = f"{int(dur_val)}m" if unit == "m" else (f"{int(dur_val)}s" if unit == "s" else f"{dur_val}h")
             
             watts = round(declared_ftp * (pct_ftp / 100.0))
-            
             step_bullet = f"• {dur_disp} {int(pct_ftp)}% ({watts}W) {label}".strip()
             if in_repeat:
                 step_bullet = f"&nbsp;&nbsp;&nbsp;&nbsp;{step_bullet}"
@@ -442,15 +356,12 @@ class TrainingLoadCalculator:
             risk_factors.append(f"Heavy Accumulated Fatigue (TSB {tsb:.1f})")
         elif tsb < -10:
             score -= 10
-
         if sleep_score and sleep_score < 65:
             score -= 20
             risk_factors.append(f"Suboptimal Sleep ({sleep_score:.0f}/100)")
-
         if hrv and hrv < 50:
             score -= 15
             risk_factors.append(f"Suppressed HRV ({hrv:.0f} ms)")
-
         if rhr and rhr > 58:
             score -= 10
             risk_factors.append(f"Elevated Resting HR ({rhr:.0f} bpm)")
@@ -476,6 +387,8 @@ def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_
     payload = {"contents": messages_payload, "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7}}
     
     response = requests.post(url, headers=headers, json=payload, timeout=AI_TIMEOUT)
+    if response.status_code == 429:
+        raise RuntimeError(f"Quota/Rate Limit exceeded on {model_name}.")
     if response.status_code != 200:
         raise RuntimeError(f"Gemini HTTP {response.status_code}: {response.text[:250]}")
     
@@ -489,7 +402,7 @@ def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_
 
 def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -> str:
     errors = []
-    # Strict enforcement of 3.5 / 3.6 / 3.7 variants as requested
+    # Updated to Valid Production Models
     models = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"]
     
     for name, key in GEMINI_KEYS:
@@ -504,7 +417,7 @@ def execute_ai(messages_payload: List[Dict[str, Any]], max_tokens: int = 4000) -
             except Exception as exc:
                 err_str = str(exc)
                 errors.append(f"{name} ({m}): {err_str}")
-                if "503" in err_str or "timed out" in err_str.lower():
+                if "429" in err_str or "503" in err_str or "timed out" in err_str.lower():
                     time.sleep(1)
                 continue
                 
@@ -543,7 +456,6 @@ def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dic
 
 def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     items = []
-    
     for act in activities:
         raw_dt = str(act.get("start_date_local") or act.get("start_date") or "")
         if not raw_dt: continue
@@ -554,7 +466,6 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
             
         act_type = act.get("type", "Ride")
         is_run = "Run" in act_type
-        
         avg_speed = float(act.get("average_speed") or 0)
         pace_str = RunningAnalyzer.format_pace(1000.0 / avg_speed) if (is_run and avg_speed > 0) else None
 
@@ -566,7 +477,7 @@ def get_unified_calendar_items(activities: List[Dict[str, Any]], events: List[Di
             "type": act_type,
             "name": act.get("name") or ("Running" if is_run else "Cycling"),
             "sport_title": "Running" if is_run else "Cycling",
-            "device": act.get("device_name") or act.get("source") or ("Garmin (Product 4574) via Garmin" if is_run else "Garmin Edge 540 via Garmin"),
+            "device": act.get("device_name") or act.get("source") or ("Garmin via Intervals" if is_run else "Garmin Edge / MyWhoosh"),
             "duration_sec": float(act.get("moving_time") or act.get("elapsed_time") or 0),
             "distance_m": float(act.get("distance") or 0),
             "power_w": act.get("icu_weighted_avg_watts") or act.get("average_watts"),
@@ -679,8 +590,9 @@ def build_gemini_payload(current_question: str, wellness_list: List[Dict[str, An
     ] if planned_events_list else []
     planned_formatted = "\n".join(upcoming_planned) if upcoming_planned else "No structured workouts planned yet."
 
+    # Bug Fixed: Prevent UnboundLocalError by strictly checking lists
     supp_lines = [f"- {s.get('name')}: {s.get('dosage')} ({s.get('timing')}) -> {s.get('purpose')}" for s in supps if isinstance(s, dict)]
-    supps_formatted = "\n".join(supp_lines) if supps_formatted else "None logged"
+    supps_formatted = "\n".join(supp_lines) if supp_lines else "None logged"
 
     system_prompt = f"""You are an elite multi-sport performance coach.
 
@@ -688,9 +600,9 @@ SELECTED COACHING PERSONA:
 {persona}
 
 ATHLETE BIOMETRICS & BENCHMARKS:
-- Name: {prof.get('name', 'Amanda Tan')} | Gender: {prof.get('gender', 'Female')} | Age: {prof.get('age', 43)} | Weight: {prof.get('weight_kg', 54.0)} kg
-- Declared FTP: {prof.get('declared_ftp', 180)} W | Estimated FTP: {prof.get('estimated_ftp', 185)} W
-- Max Heart Rate: {prof.get('max_hr', 182)} bpm | Resting Heart Rate: {prof.get('resting_hr', 52)} bpm
+- Name: {prof.get('name', 'Amanda Tan')} | Gender: {prof.get('gender', 'Female')} | Age: {prof.get('age', 43)}
+- Weight: {prof.get('weight_kg', 54.0)} kg | Declared FTP: {prof.get('declared_ftp', 180)} W
+- Max HR: {prof.get('max_hr', 182)} bpm | RHR: {prof.get('resting_hr', 52)} bpm
 - Rest Days: {', '.join(prof.get('rest_days', ['Friday']))}
 
 ATHLETE GOALS & TARGET EVENTS:
@@ -712,31 +624,29 @@ SUPPLEMENT PROTOCOL:
 
 BULK WORKOUT GENERATION RULE (CRITICAL FOR INTERVALS.ICU CALENDAR SYNC):
 Whenever the user asks for a training program, weekly schedule, or structured workouts, you MUST include a valid JSON block at the very end of your response inside ```json:workouts ... ``` containing an array of workout objects. Each object must have `date` (YYYY-MM-DD), `title`, `type` ("Ride", "Run", or "VirtualRide"), and `description`.
-The `description` field MUST follow native Intervals.icu plain text workout syntax:
-- Warmup & Cooldown: `Warmup\n- 10m 50%` or `Cooldown\n- 10m 40%`
-- Intervals/Sets: `4x\n- 5m 100% FTP\n- 2m 50% FTP`
-- Do NOT include HTML, XML, or markdown bullet sub-formatting inside `description`.
+The `description` field MUST follow native Intervals.icu plain text workout syntax. Do NOT include HTML, XML, or markdown bullet sub-formatting inside `description`.
 
 EXAMPLE:
 ```json:workouts
 [
-  {
+  {{
     "date": "2026-09-05",
     "title": "Threshold 4x5m",
     "type": "Ride",
     "description": "Warmup\\n- 10m 50%\\n\\n4x\\n- 5m 100%\\n- 2m 50%\\n\\nCooldown\\n- 10m 40%"
-  }
+  }}
 ]
 ```"""
 
     contents = [
         {"role": "user", "parts": [{"text": system_prompt}]},
-        {"role": "model", "parts": [{"text": f"Understood. I have full vision of your biometrics, upcoming trips, planned calendar, athlete limitations, and the '{persona}' coaching style. I can now generate bulk structured workout schedules that sync directly to your Intervals.icu calendar from chat."}]}
+        {"role": "model", "parts": [{"text": f"Understood. I have full vision of your biometrics, planned calendar, limitations, and the '{persona}' coaching style. I can generate structured workout schedules that sync to your Intervals.icu calendar."}]}
     ]
     
-    history = [m for m in st.session_state.messages[:-1] if m["content"] != current_question][-30:]
+    # Prune history size to avoid massive payload overloads
+    history = [m for m in st.session_state.messages[:-1] if m["content"] != current_question][-15:]
     for m in history:
-        contents.append({"role": "user" if m["role"] == "user" else "model", "parts": [{"text": clean_chat_content(str(m["content"]))[:2000]}]})
+        contents.append({"role": "user" if m["role"] == "user" else "model", "parts": [{"text": clean_chat_content(str(m["content"]))[:1000]}]})
     contents.append({"role": "user", "parts": [{"text": current_question}]})
     return contents
 
@@ -974,7 +884,7 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
             st.markdown(prompt_to_send)
 
         with st.chat_message("assistant"):
-            with st.spinner("🤖 Coach is analyzing your 90-day trend report..."):
+            with st.spinner("🤖 Coach is analyzing your trend report..."):
                 try:
                     res = execute_ai(build_gemini_payload(prompt_to_send, wellness_list, activities_data, planned_events))
                     st.markdown(clean_chat_content(res))
