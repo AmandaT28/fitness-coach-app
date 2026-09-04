@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Fixed Expander Title Formatting & Integrated GPX Chat Coaching)
+"""AI Performance Coach • Elite Multi-User Suite (Fixed Thread History Deletion & Expander Titles)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -758,7 +758,7 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
         "To ensure workouts parse correctly into structured step graphs on Intervals.icu:\n"
         "1. Section headers (Warmup, Main Set, Cooldown) must be on their own separate lines.\n"
         "2. Repeat blocks must use native syntax where multiplier is declared followed by steps starting with '-'.\n"
-        "MANDATORY: IF PRESCRIBING WORKOUTS FOR CALENDAR SYNC, ALWAYS INSTALL A VALID JSON ARRAY inside <icu_weekly_plan> tags like this:\n"
+        "MANDATORY: IF PRESCRIBING WORKOUTS FOR CALENDAR SYNC, ALWAYS INCLUDE A VALID JSON ARRAY inside <icu_weekly_plan> tags like this:\n"
         "<icu_weekly_plan>\n"
         "[\n"
         "  {\n"
@@ -916,7 +916,8 @@ with st.sidebar:
     st.divider()
     if st.button("🧹 Clear Active Thread History", use_container_width=True):
         st.session_state.messages = []
-        st.session_state.chat_sessions[st.session_state.active_session_id] = []
+        if st.session_state.active_session_id in st.session_state.chat_sessions:
+            st.session_state.chat_sessions[st.session_state.active_session_id] = []
         save_disk_store()
         st.toast("Active thread history cleared!", icon="🧹")
         st.rerun()
@@ -1365,7 +1366,6 @@ elif st.session_state.active_nav == NAV_OPTIONS[2]:
                                     load_val = str(int(item["load"]))
                                     status_label = "Trip / Event" if is_event else ("Incomplete" if is_past_incomplete else item['status'])
 
-                                    # Fixed: Removed raw HTML strings so expander header renders cleanly without text leaks
                                     expander_title = f"{sport_icon}  {item['name']}  ·  {status_label}  ·  {dur_str if not is_event else 'All Day'}"
                                     
                                     with st.expander(expander_title, expanded=False):
