@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Fixed Thread Deletion & Strict User Data Isolation)
+"""AI Performance Coach • Elite Multi-User Suite (Fixed Sidebar Navigation & Thread Isolation)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -137,7 +137,6 @@ def save_disk_store():
     if "user_store" not in st.session_state:
         st.session_state.user_store = {}
 
-    # Ensure active session messages are synced into chat_sessions before saving
     active_s_id = st.session_state.get("active_session_id", "Main Conversation")
     if "chat_sessions" not in st.session_state:
         st.session_state.chat_sessions = {active_s_id: st.session_state.get("messages", [])}
@@ -211,7 +210,8 @@ def init_state():
         "persistent_loaded": True
     }
     for key, value in defaults.items():
-        st.session_state[key] = value
+        if key not in st.session_state:
+            st.session_state[key] = value
 
 init_state()
 
@@ -262,6 +262,91 @@ def get_resolved_credentials() -> Tuple[str, str, str, str]:
         return str(sec_key).strip(), str(sec_id).strip(), owner_name, "Owner (Auto-Secrets)"
 
     return "", "", st.session_state.profile_data.get("name", ""), "Unauthenticated"
+
+# --- MULTI-USER AUTHENTICATION & ONBOARDING GATEWAY ---
+def render_auth_onboarding_gate():
+    st.markdown("##### 🔐 AI Performance Coach • Multi-User Portal")
+    
+    auth_tab_owner, auth_tab_new = st.tabs(["🔑 Owner Login (Supabase / Secrets)", "👤 New User Onboarding"])
+
+    with auth_tab_owner:
+        with st.form("owner_login_form"):
+            st.markdown("Authenticate as app owner or load default profile settings.")
+            owner_passkey = st.text_input("Owner Supabase / Access Key", type="password")
+            if st.form_submit_button("Access Owner Suite", use_container_width=True):
+                if supabase_client or owner_passkey.strip() or secret("SUPABASE_KEY"):
+                    st.session_state.active_user_id = "owner_primary"
+                    
+                    u_store = st.session_state.get("user_store", {}).get("owner_primary", {})
+                    st.session_state.profile_data = u_store.get("profile_data") or DEFAULT_PROFILE.copy()
+                    st.session_state.coach_memory = u_store.get("coach_memory") or DEFAULT_COACH_MEMORY
+                    st.session_state.user_supplements = u_store.get("user_supplements") or DEFAULT_SUPPLEMENTS.copy()
+                    st.session_state.chat_sessions = u_store.get("chat_sessions") or {"Main Conversation": []}
+                    st.session_state.active_session_id = u_store.get("active_session_id", "Main Conversation")
+                    st.session_state.messages = st.session_state.chat_sessions.get(st.session_state.active_session_id, [])
+                    st.session_state.protected_events = u_store.get("protected_events", [])
+                    st.session_state.cached_trend_analyses = u_store.get("cached_trend_analyses", [])
+
+                    st.session_state.user_credentials = {
+                        "name": DEFAULT_PROFILE["name"],
+                        "icu_key": secret("INTERVALS_API_KEY") or "",
+                        "icu_id": secret("INTERVALS_ATHLETE_ID") or "",
+                        "mode": "Owner Suite"
+                    }
+                    save_disk_store()
+                    st.success("Owner session initialized successfully!")
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials or Supabase not connected.")
+
+    with auth_tab_new:
+        st.markdown("Register your profile and connect your Intervals.icu account for personalized AI coaching.")
+        with st.form("new_user_onboarding_form"):
+            u_name = st.text_input("Full Name", placeholder="e.g. John Doe")
+            u_email = st.text_input("Email Address", placeholder="e.g. john@example.com")
+            u_key = st.text_input("Intervals.icu API Key", type="password", placeholder="Paste your Intervals API Key")
+            u_id = st.text_input("Intervals.icu Athlete ID", placeholder="e.g. i12345")
+            u_ftp = st.number_input("Declared FTP (W)", value=200, step=5)
+            u_weight = st.number_input("Weight (kg)", value=65.0, step=0.5)
+            
+            if st.form_submit_button("Complete Onboarding & Launch Suite", use_container_width=True):
+                if u_name.strip() and u_key.strip() and u_id.strip():
+                    user_slug = re.sub(r'[^a-zA-Z0-9]', '_', u_email.strip()) or re.sub(r'[^a-zA-Z0-9]', '_', u_name.strip())
+                    st.session_state.active_user_id = user_slug
+                    
+                    custom_profile = DEFAULT_PROFILE.copy()
+                    custom_profile["name"] = u_name.strip()
+                    custom_profile["declared_ftp"] = int(u_ftp)
+                    custom_profile["weight_kg"] = float(u_weight)
+                    
+                    st.session_state.profile_data = custom_profile
+                    st.session_state.coach_memory = DEFAULT_COACH_MEMORY
+                    st.session_state.user_supplements = DEFAULT_SUPPLEMENTS.copy()
+                    st.session_state.chat_sessions = {"Main Conversation": []}
+                    st.session_state.active_session_id = "Main Conversation"
+                    st.session_state.messages = []
+                    st.session_state.protected_events = []
+                    st.session_state.cached_trend_analyses = []
+                    
+                    st.session_state.user_credentials = {
+                        "name": u_name.strip(),
+                        "icu_key": u_key.strip(),
+                        "icu_id": u_id.strip(),
+                        "mode": "User Onboarding"
+                    }
+                    
+                    save_disk_store()
+                    st.success(f"Welcome aboard, {u_name.strip()}! Initializing your performance suite...")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("Please fill in your Name, Intervals API Key, and Athlete ID.")
+
+INTERVALS_API_KEY, ATHLETE_ID, display_name, auth_mode = get_resolved_credentials()
+
+if not INTERVALS_API_KEY or not ATHLETE_ID:
+    render_auth_onboarding_gate()
+    st.stop()
 
 # --- BULLETPROOF WELLNESS & METRICS ENGINE ---
 @st.cache_data(ttl=300, show_spinner=False)
@@ -334,6 +419,8 @@ def fetch_intervals_data_90days(athlete_id: str, api_key: str) -> Tuple[List[Dic
 
     normalized_wellness = sorted(normalized_wellness, key=lambda x: x["date"])
     return normalized_wellness, results.get("activities", []), results.get("events", []), "Connected to Intervals.icu"
+
+wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data_90days(ATHLETE_ID, INTERVALS_API_KEY)
 
 def get_latest_valid_wellness(wellness_list: List[Dict[str, Any]]) -> Dict[str, float]:
     today_str = dt.datetime.now(LOCAL_TZ).date().isoformat()
@@ -490,7 +577,7 @@ class TrainingLoadCalculator:
 
         return {"score": final_score, "status": status, "recommendation": rec, "risk_factors": risk_factors}
 
-# --- AI ENGINE (EXACT REQUESTED MODEL CASCADE) ---
+# --- AI ENGINE ---
 def gemini_generate(messages_payload: List[Dict[str, Any]], api_key: str, model_name: str, max_tokens: int = 9000) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
@@ -790,102 +877,15 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
     contents.append({"role": "user", "parts": [{"text": str(current_question)[:2000]}]})
     return contents
 
-# --- MULTI-USER AUTHENTICATION & ONBOARDING GATEWAY ---
-def render_auth_onboarding_gate():
-    st.markdown("##### 🔐 AI Performance Coach • Multi-User Portal")
-    
-    auth_tab_owner, auth_tab_new = st.tabs(["🔑 Owner Login (Supabase / Secrets)", "👤 New User Onboarding"])
-
-    with auth_tab_owner:
-        with st.form("owner_login_form"):
-            st.markdown("Authenticate as app owner or load default profile settings.")
-            owner_passkey = st.text_input("Owner Supabase / Access Key", type="password")
-            if st.form_submit_button("Access Owner Suite", use_container_width=True):
-                if supabase_client or owner_passkey.strip() or secret("SUPABASE_KEY"):
-                    st.session_state.active_user_id = "owner_primary"
-                    
-                    # Load user store data if it exists, otherwise set defaults
-                    u_store = st.session_state.get("user_store", {}).get("owner_primary", {})
-                    st.session_state.profile_data = u_store.get("profile_data") or DEFAULT_PROFILE.copy()
-                    st.session_state.coach_memory = u_store.get("coach_memory") or DEFAULT_COACH_MEMORY
-                    st.session_state.user_supplements = u_store.get("user_supplements") or DEFAULT_SUPPLEMENTS.copy()
-                    st.session_state.chat_sessions = u_store.get("chat_sessions") or {"Main Conversation": []}
-                    st.session_state.active_session_id = u_store.get("active_session_id", "Main Conversation")
-                    st.session_state.messages = st.session_state.chat_sessions.get(st.session_state.active_session_id, [])
-                    st.session_state.protected_events = u_store.get("protected_events", [])
-                    st.session_state.cached_trend_analyses = u_store.get("cached_trend_analyses", [])
-
-                    st.session_state.user_credentials = {
-                        "name": DEFAULT_PROFILE["name"],
-                        "icu_key": secret("INTERVALS_API_KEY") or "",
-                        "icu_id": secret("INTERVALS_ATHLETE_ID") or "",
-                        "mode": "Owner Suite"
-                    }
-                    save_disk_store()
-                    st.success("Owner session initialized successfully!")
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials or Supabase not connected.")
-
-    with auth_tab_new:
-        st.markdown("Register your profile and connect your Intervals.icu account for personalized AI coaching.")
-        with st.form("new_user_onboarding_form"):
-            u_name = st.text_input("Full Name", placeholder="e.g. John Doe")
-            u_email = st.text_input("Email Address", placeholder="e.g. john@example.com")
-            u_key = st.text_input("Intervals.icu API Key", type="password", placeholder="Paste your Intervals API Key")
-            u_id = st.text_input("Intervals.icu Athlete ID", placeholder="e.g. i12345")
-            u_ftp = st.number_input("Declared FTP (W)", value=200, step=5)
-            u_weight = st.number_input("Weight (kg)", value=65.0, step=0.5)
-            
-            if st.form_submit_button("Complete Onboarding & Launch Suite", use_container_width=True):
-                if u_name.strip() and u_key.strip() and u_id.strip():
-                    user_slug = re.sub(r'[^a-zA-Z0-9]', '_', u_email.strip()) or re.sub(r'[^a-zA-Z0-9]', '_', u_name.strip())
-                    st.session_state.active_user_id = user_slug
-                    
-                    custom_profile = DEFAULT_PROFILE.copy()
-                    custom_profile["name"] = u_name.strip()
-                    custom_profile["declared_ftp"] = int(u_ftp)
-                    custom_profile["weight_kg"] = float(u_weight)
-                    
-                    # Strictly isolate new user state
-                    st.session_state.profile_data = custom_profile
-                    st.session_state.coach_memory = DEFAULT_COACH_MEMORY
-                    st.session_state.user_supplements = DEFAULT_SUPPLEMENTS.copy()
-                    st.session_state.chat_sessions = {"Main Conversation": []}
-                    st.session_state.active_session_id = "Main Conversation"
-                    st.session_state.messages = []
-                    st.session_state.protected_events = []
-                    st.session_state.cached_trend_analyses = []
-                    
-                    st.session_state.user_credentials = {
-                        "name": u_name.strip(),
-                        "icu_key": u_key.strip(),
-                        "icu_id": u_id.strip(),
-                        "mode": "User Onboarding"
-                    }
-                    
-                    save_disk_store()
-                    st.success(f"Welcome aboard, {u_name.strip()}! Initializing your performance suite...")
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.error("Please fill in your Name, Intervals API Key, and Athlete ID.")
-
-INTERVALS_API_KEY, ATHLETE_ID, display_name, auth_mode = get_resolved_credentials()
-
-if not INTERVALS_API_KEY or not ATHLETE_ID:
-    render_auth_onboarding_gate()
-    st.stop()
-
-wellness_list, activities_data, planned_events, intervals_status = fetch_intervals_data_90days(ATHLETE_ID, INTERVALS_API_KEY)
-
 # --- SIDEBAR NAVIGATION & CHAT THREAD MANAGER ---
 with st.sidebar:
     st.markdown("##### ⚡ AI Multi-Sport Coach")
     st.caption(f"Athlete: {st.session_state.profile_data.get('name') or display_name or 'Not Set'} | Mode: {auth_mode}")
 
-    for nav_item in NAV_OPTIONS:
-        if st.button(nav_item, use_container_width=True, type="primary" if st.session_state.active_nav == nav_item else "secondary"):
+    for idx, nav_item in enumerate(NAV_OPTIONS):
+        is_active = st.session_state.get("active_nav") == nav_item
+        btn_type = "primary" if is_active else "secondary"
+        if st.button(nav_item, key=f"nav_btn_{idx}", use_container_width=True, type=btn_type):
             st.session_state.active_nav = nav_item
             st.rerun()
 
@@ -932,7 +932,7 @@ with st.sidebar:
                         st.error("Enter a title.")
 
     with col_t_del:
-        if st.button("🗑️ Delete Thread", use_container_width=True, type="secondary"):
+        if st.button("🗑️ Delete Thread", use_container_width=True, type="secondary", key="sidebar_del_thread_btn"):
             current_thread = st.session_state.active_session_id
             if len(st.session_state.chat_sessions) <= 1:
                 st.toast("Cannot delete the last remaining thread!", icon="⚠️")
@@ -947,14 +947,14 @@ with st.sidebar:
 
     st.divider()
     persona_index = PERSONA_OPTIONS.index(st.session_state.coach_persona) if st.session_state.coach_persona in PERSONA_OPTIONS else 0
-    selected_persona = st.selectbox("Coaching Persona", PERSONA_OPTIONS, index=persona_index)
+    selected_persona = st.selectbox("Coaching Persona", PERSONA_OPTIONS, index=persona_index, key="sidebar_persona_select")
     if selected_persona != st.session_state.coach_persona:
         st.session_state.coach_persona = selected_persona
         save_disk_store()
         st.rerun()
 
     st.divider()
-    if st.button("🧹 Clear Active Thread History", use_container_width=True):
+    if st.button("🧹 Clear Active Thread History", use_container_width=True, key="sidebar_clear_thread_btn"):
         st.session_state.messages = []
         if st.session_state.active_session_id in st.session_state.chat_sessions:
             st.session_state.chat_sessions[st.session_state.active_session_id] = []
@@ -962,13 +962,13 @@ with st.sidebar:
         st.toast("Active thread history cleared!", icon="🧹")
         st.rerun()
 
-    if st.button("🔄 Switch User / Logout", use_container_width=True):
+    if st.button("🔄 Switch User / Logout", use_container_width=True, key="sidebar_logout_btn"):
         st.session_state.user_credentials = None
         st.session_state.active_user_id = "default_user"
         save_disk_store()
         st.rerun()
 
-    if st.button("🧪 Test AI Connection", use_container_width=True):
+    if st.button("🧪 Test AI Connection", use_container_width=True, key="sidebar_test_ai_btn"):
         with st.spinner("Testing API connectivity..."):
             try:
                 test_resp = execute_ai([{"role": "user", "parts": [{"text": "Respond with the single word: OK"}]}], max_tokens=20)
@@ -1013,7 +1013,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
 
     st.divider()
 
-    if st.button("⚡ I missed a workout / Life got in the way — Rebalance my week", use_container_width=True):
+    if st.button("⚡ I missed a workout / Life got in the way — Rebalance my week", use_container_width=True, key="cmd_missed_workout_btn"):
         st.session_state.pending_coach_prompt = "I missed a workout today due to life circumstances. Please rebalance my training week safely while preserving rest days."
         st.session_state.active_nav = NAV_OPTIONS[1]
         st.rerun()
@@ -1054,7 +1054,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
 
     st.divider()
 
-    if st.button("🚀 Run 90-Day Multi-Sport Trend Synthesis", type="primary", use_container_width=True):
+    if st.button("🚀 Run 90-Day Multi-Sport Trend Synthesis", type="primary", use_container_width=True, key="cmd_run_trend_btn"):
         payload_text = f"Analyze this multi-sport athlete's 90-day training trend window. CTL {ctl:.1f}; ATL {atl:.1f}; TSB {tsb:.1f}. HRV: {hrv}ms. Sleep: {sleep}/100. ACWR: {acwr}. Goal: {prof['goals']['target_metric']}."
         with st.spinner("Analyzing 90 days of multi-sport training data..."):
             try:
@@ -1076,7 +1076,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
                     st.session_state.active_nav = NAV_OPTIONS[1]
                     st.rerun()
 
-# VIEW 2: AI COACH CHAT (WITH INTEGRATED GPX UPLOADER)
+# VIEW 2: AI COACH CHAT
 elif st.session_state.active_nav == NAV_OPTIONS[1]:
     st.markdown(f"##### 🤖 AI Multi-Sport Coach <span style='font-size:0.85rem; color:{TEXT_MUTED};'>({st.session_state.active_session_id})</span>", unsafe_allow_html=True)
 
