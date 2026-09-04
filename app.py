@@ -766,7 +766,7 @@ if st.session_state.active_nav == NAV_OPTIONS[0]:
     st.markdown(f"##### ☀️ Command Center for {curr_name} — {today_str_ui}")
     prof = st.session_state.profile_data
 
-   ctl, atl, tsb = 0.0, 0.0, 0.0
+    ctl, atl, tsb = 0.0, 0.0, 0.0
     sleep, hrv, rhr = 0.0, 0.0, 0.0
     
     if wellness_list:
