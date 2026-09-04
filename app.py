@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Fixed Thread History Deletion & Expander Titles)
+"""AI Performance Coach • Elite Multi-User Suite (Fixed Thread Deletion & Strict User Data Isolation)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -122,7 +122,7 @@ DEFAULT_COACH_MEMORY = (
 
 localS = LocalStorage() if LocalStorage else None
 
-# --- MULTI-USER PERSISTENCE ENGINE ---
+# --- MULTI-USER PERSISTENCE & ISOLATION ENGINE ---
 def load_disk_store() -> Dict[str, Any]:
     if os.path.exists(PERSIST_FILE):
         try:
@@ -137,13 +137,20 @@ def save_disk_store():
     if "user_store" not in st.session_state:
         st.session_state.user_store = {}
 
+    # Ensure active session messages are synced into chat_sessions before saving
+    active_s_id = st.session_state.get("active_session_id", "Main Conversation")
+    if "chat_sessions" not in st.session_state:
+        st.session_state.chat_sessions = {active_s_id: st.session_state.get("messages", [])}
+    else:
+        st.session_state.chat_sessions[active_s_id] = st.session_state.get("messages", [])
+
     st.session_state.user_store[active_user] = {
         "profile_data": st.session_state.get("profile_data"),
         "coach_persona": st.session_state.get("coach_persona"),
         "coach_memory": st.session_state.get("coach_memory"),
         "user_supplements": st.session_state.get("user_supplements"),
         "chat_sessions": st.session_state.get("chat_sessions", {}),
-        "active_session_id": st.session_state.get("active_session_id", "Main Conversation"),
+        "active_session_id": active_s_id,
         "messages": st.session_state.get("messages", []),
         "cached_trend_analyses": st.session_state.get("cached_trend_analyses", []),
         "protected_events": st.session_state.get("protected_events", []),
@@ -204,8 +211,7 @@ def init_state():
         "persistent_loaded": True
     }
     for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
+        st.session_state[key] = value
 
 init_state()
 
@@ -797,6 +803,18 @@ def render_auth_onboarding_gate():
             if st.form_submit_button("Access Owner Suite", use_container_width=True):
                 if supabase_client or owner_passkey.strip() or secret("SUPABASE_KEY"):
                     st.session_state.active_user_id = "owner_primary"
+                    
+                    # Load user store data if it exists, otherwise set defaults
+                    u_store = st.session_state.get("user_store", {}).get("owner_primary", {})
+                    st.session_state.profile_data = u_store.get("profile_data") or DEFAULT_PROFILE.copy()
+                    st.session_state.coach_memory = u_store.get("coach_memory") or DEFAULT_COACH_MEMORY
+                    st.session_state.user_supplements = u_store.get("user_supplements") or DEFAULT_SUPPLEMENTS.copy()
+                    st.session_state.chat_sessions = u_store.get("chat_sessions") or {"Main Conversation": []}
+                    st.session_state.active_session_id = u_store.get("active_session_id", "Main Conversation")
+                    st.session_state.messages = st.session_state.chat_sessions.get(st.session_state.active_session_id, [])
+                    st.session_state.protected_events = u_store.get("protected_events", [])
+                    st.session_state.cached_trend_analyses = u_store.get("cached_trend_analyses", [])
+
                     st.session_state.user_credentials = {
                         "name": DEFAULT_PROFILE["name"],
                         "icu_key": secret("INTERVALS_API_KEY") or "",
@@ -829,16 +847,22 @@ def render_auth_onboarding_gate():
                     custom_profile["declared_ftp"] = int(u_ftp)
                     custom_profile["weight_kg"] = float(u_weight)
                     
+                    # Strictly isolate new user state
                     st.session_state.profile_data = custom_profile
+                    st.session_state.coach_memory = DEFAULT_COACH_MEMORY
+                    st.session_state.user_supplements = DEFAULT_SUPPLEMENTS.copy()
+                    st.session_state.chat_sessions = {"Main Conversation": []}
+                    st.session_state.active_session_id = "Main Conversation"
+                    st.session_state.messages = []
+                    st.session_state.protected_events = []
+                    st.session_state.cached_trend_analyses = []
+                    
                     st.session_state.user_credentials = {
                         "name": u_name.strip(),
                         "icu_key": u_key.strip(),
                         "icu_id": u_id.strip(),
                         "mode": "User Onboarding"
                     }
-                    st.session_state.chat_sessions = {"Main Conversation": []}
-                    st.session_state.active_session_id = "Main Conversation"
-                    st.session_state.messages = []
                     
                     save_disk_store()
                     st.success(f"Welcome aboard, {u_name.strip()}! Initializing your performance suite...")
@@ -885,25 +909,41 @@ with st.sidebar:
         save_disk_store()
         st.rerun()
 
-    with st.popover("➕ New Chat Thread", use_container_width=True):
-        with st.form("create_thread_form"):
-            new_thread_title = st.text_input("Thread Title", placeholder="e.g. Bintan Prep Block")
-            if st.form_submit_button("Create Thread", use_container_width=True):
-                title_clean = new_thread_title.strip()
-                if title_clean:
-                    if title_clean not in st.session_state.chat_sessions:
-                        st.session_state.chat_sessions[st.session_state.active_session_id] = st.session_state.messages
-                        st.session_state.chat_sessions[title_clean] = []
-                        st.session_state.active_session_id = title_clean
-                        st.session_state.messages = []
-                        save_disk_store()
-                        st.success(f"Created '{title_clean}'")
-                        time.sleep(0.5)
-                        st.rerun()
+    col_t_new, col_t_del = st.columns(2)
+    with col_t_new:
+        with st.popover("➕ New Thread", use_container_width=True):
+            with st.form("create_thread_form"):
+                new_thread_title = st.text_input("Thread Title", placeholder="e.g. Bintan Prep")
+                if st.form_submit_button("Create", use_container_width=True):
+                    title_clean = new_thread_title.strip()
+                    if title_clean:
+                        if title_clean not in st.session_state.chat_sessions:
+                            st.session_state.chat_sessions[st.session_state.active_session_id] = st.session_state.messages
+                            st.session_state.chat_sessions[title_clean] = []
+                            st.session_state.active_session_id = title_clean
+                            st.session_state.messages = []
+                            save_disk_store()
+                            st.success(f"Created '{title_clean}'")
+                            time.sleep(0.5)
+                            st.rerun()
+                        else:
+                            st.error("Already exists.")
                     else:
-                        st.error("Thread title already exists.")
-                else:
-                    st.error("Please enter a valid title.")
+                        st.error("Enter a title.")
+
+    with col_t_del:
+        if st.button("🗑️ Delete Thread", use_container_width=True, type="secondary"):
+            current_thread = st.session_state.active_session_id
+            if len(st.session_state.chat_sessions) <= 1:
+                st.toast("Cannot delete the last remaining thread!", icon="⚠️")
+            else:
+                st.session_state.chat_sessions.pop(current_thread, None)
+                remaining_keys = list(st.session_state.chat_sessions.keys())
+                st.session_state.active_session_id = remaining_keys[0]
+                st.session_state.messages = st.session_state.chat_sessions[remaining_keys[0]]
+                save_disk_store()
+                st.toast(f"Deleted thread '{current_thread}'!", icon="🗑️")
+                st.rerun()
 
     st.divider()
     persona_index = PERSONA_OPTIONS.index(st.session_state.coach_persona) if st.session_state.coach_persona in PERSONA_OPTIONS else 0
