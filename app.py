@@ -1,4 +1,4 @@
-"""AI Performance Coach • Elite Multi-User Suite (Trip Awareness & Workout JSON Enforcer)
+"""AI Performance Coach • Elite Multi-User Suite (NameError Fixed & Production-Hardened)
 Secrets required: GEMINI_API_KEY, SECONDARY_GEMINI_KEY, TERTIARY_GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY.
 """
 import base64
@@ -798,7 +798,6 @@ def build_gemini_payload(current_question, wellness_list, gpx_content: Optional[
     memory_ctx = st.session_state.get('coach_memory') or 'No memory.'
     supplements_str = json.dumps(st.session_state.user_supplements, ensure_ascii=False) if st.session_state.user_supplements else 'N/A'
     
-    # Inject protected events (travel / away days) directly into context
     protected_events = st.session_state.get("protected_events", [])
     protected_str = json.dumps(protected_events, ensure_ascii=False) if protected_events else "No upcoming travel/out-of-town days logged."
     
@@ -979,7 +978,15 @@ elif st.session_state.active_nav == NAV_OPTIONS[1]:
                         st.caption(f"📅 **{w.get('date', '')}** | {w.get('type')} — **{w.get('title', w.get('name'))}**")
                     if st.button("🚀 Sync Verified Workouts to Intervals.icu Calendar", key=f"sync_{idx}", type="primary", use_container_width=True):
                         with st.spinner("Validating grammar and pushing workouts..."):
-                            ok, res_msg = push_workouts_to_intervals(workouts, ATHLETE_ID, INTERVALS_API_KEY, st.session_state.get("protected_events", []), int(prof.get("declared_ftp", 180)))
+                            # Safely fetch active profile dict to prevent NameError
+                            current_prof = st.session_state.get("profile_data", EMPTY_PROFILE)
+                            ok, res_msg = push_workouts_to_intervals(
+                                workouts, 
+                                ATHLETE_ID, 
+                                INTERVALS_API_KEY, 
+                                st.session_state.get("protected_events", []), 
+                                int(current_prof.get("declared_ftp", 180))
+                            )
                             if ok: st.success(res_msg)
                             else: st.error(res_msg)
 
